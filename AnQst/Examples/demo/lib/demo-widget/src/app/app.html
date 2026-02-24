@@ -1,0 +1,41 @@
+<main class="page">
+  <h1>AnQst Demo Host Widget</h1>
+
+  <section>
+    <h2>Call&lt;T&gt; (async)</h2>
+    <input [ngModel]="callUserName()" (ngModelChange)="callUserName.set($event)" />
+    <button (click)="invokeCall()">callGreeting</button>
+    <p>Result: {{ callResult() }}</p>
+  </section>
+
+  <section>
+    <h2>CallSync&lt;T&gt;</h2>
+    <input type="number" [ngModel]="callSyncSeed()" (ngModelChange)="callSyncSeed.set(+$event)" />
+    <button (click)="invokeCallSync()">callSyncNextCounter</button>
+    <p>Result: {{ callSyncResult() }}</p>
+  </section>
+
+  <section>
+    <h2>Slot&lt;T&gt;</h2>
+    <p>Latest slot message from native: {{ slotMessage() }}</p>
+    <p>Latest slot handler result: {{ slotResult() }}</p>
+  </section>
+
+  <section>
+    <h2>Emitter</h2>
+    <input [ngModel]="telemetryTag()" (ngModelChange)="telemetryTag.set($event)" />
+    <input type="number" [ngModel]="telemetryValue()" (ngModelChange)="telemetryValue.set(+$event)" />
+    <button (click)="emitTelemetry()">emitterTelemetry</button>
+  </section>
+
+  <section>
+    <h2>Input&lt;T&gt;</h2>
+    <input [ngModel]="typedInputValue()" (ngModelChange)="typedInputValue.set($event)" />
+    <button (click)="pushInput()">set inputTypedValue</button>
+  </section>
+
+  <section>
+    <h2>Output&lt;T&gt;</h2>
+    <p>outputParentState from native: {{ outputValue() }}</p>
+  </section>
+</main>

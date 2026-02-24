@@ -1,0 +1,166 @@
+# AnQst Interaction Semantics
+
+## 1. Purpose
+
+This document defines runtime interaction contracts between:
+
+- Angular widget runtime (generated TypeScript APIs),
+- Bridge layer,
+- Generated Qt widget class.
+
+Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
+
+## 2. Directional Model
+
+- `Call<T>`: Widget -> Parent (async request/reply).
+- `CallSync<T>`: Widget -> Parent (sync-style request/reply API at TS surface; bridge implementation may still be callback-backed).
+- `Slot<T>`: Parent -> Widget (request/reply).
+- `Emitter`: Widget -> Parent (fire-and-forget event).
+- `Output<T>`: Parent -> Widget (reactive state push).
+- `Input<T>`: Widget -> Parent (reactive state push).
+
+## 3. Handler Lifecycle
+
+## 3.1 Call and CallSync handlers (parent side)
+
+- For each `method(args): Call<T>` or `CallSync<T>`, parent has one active handler slot.
+- Registering a new handler REPLACES the previous handler.
+- If no handler exists at invocation time:
+  - `Call<T>` MUST reject with `HandlerNotRegisteredError`.
+  - `CallSync<T>` MUST throw `HandlerNotRegisteredError` at call site.
+
+## 3.2 Slot handlers (widget side)
+
+- Widget side registers via generated `onSlot.method(handler)` API.
+- Exactly one active handler per slot method.
+- Re-registering MUST replace active handler atomically.
+
+### 3.2.1 Slot pre-registration queue
+
+- Calls arriving before first handler registration MUST be queued FIFO.
+- Default queue size limit: 1024 calls per slot.
+- On overflow, oldest queued entry is dropped and a `SlotQueueOverflowError` diagnostic MUST be emitted.
+- After first handler registration, queued calls MUST drain in FIFO order using current handler.
+
+## 4. Per-Construct Contracts
+
+## 4.1 `Call<T>`
+
+### Invocation
+- TS generated signature: `method(args): Promise<T>`.
+- Widget invocation sends one request envelope with correlation id.
+
+### Completion
+- Parent handler success resolves Promise with serialized `T`.
+- Parent handler failure rejects Promise with propagated error payload.
+
+### Ordering
+- Per-method ordering is preserved for request dispatch.
+- Reply ordering MAY differ due to async completion.
+
+## 4.2 `CallSync<T>`
+
+### Invocation
+- TS generated signature: `method(args): T`.
+- Generator MUST present synchronous API to consumer code.
+
+### Completion
+- Parent handler success returns `T`.
+- Parent handler throw/failure throws mapped error.
+
+### Behavioral note
+- Transport-level implementation MAY be callback/event backed internally as long as externally observed API is synchronous.
+
+## 4.3 `Slot<T>`
+
+### Invocation
+- Parent calls generated Qt method `method(args)`.
+- Bridge dispatches to widget slot handler.
+
+### Completion
+- `Slot<T>` returns `T` to parent.
+- `Slot<void>` is valid and returns completion only (no payload).
+
+### Missing handler behavior
+- Before first registration: queue (Section 3.2.1).
+- After at least one registration, if handler is temporarily absent due to replacement race, bridge MUST queue with same policy.
+
+## 4.4 `Emitter`
+
+### Invocation
+- TS generated signature: `method(args): void`.
+- Event is emitted to parent without reply channel.
+
+### Completion and failure
+- Caller returns immediately.
+- Delivery failure MUST NOT throw to caller; MUST emit bridge diagnostic event.
+
+## 4.5 `Output<T>`
+
+### Meaning
+- Parent-authored value exposed to widget as reactive readonly signal-like property.
+
+### Behavior
+- Parent set operation updates Qt-side property storage.
+- Bridge pushes new value to widget service store.
+- Widget observable/signal emits change to subscribers.
+
+### Generated surface
+- Widget side:
+  - readonly getter signal/value accessor: `prop() -> T`.
+  - convenience setter API namespace: `set.prop(value: T): void`.
+- Parent side:
+  - read/write property on generated widget.
+
+## 4.6 `Input<T>`
+
+### Meaning
+- Widget-authored value exposed to parent as mirrored widget property.
+
+### Behavior
+- Widget calls `set.prop(value)` to publish value.
+- Bridge writes value to Qt-side property storage.
+- Parent may read current property value and subscribe to change signal.
+
+### Generated surface
+- Widget side:
+  - readonly accessor: `prop() -> T`.
+  - setter API: `set.prop(value: T): void`.
+- Parent side:
+  - read/write-compatible property endpoint for integration symmetry.
+
+## 5. Error Contract
+
+Standard bridge error identifiers:
+
+- `HandlerNotRegisteredError`
+- `SerializationError`
+- `DeserializationError`
+- `SlotQueueOverflowError`
+- `BridgeDisconnectedError`
+
+Rules:
+
+- `Call`: errors reject Promise.
+- `CallSync`: errors throw.
+- `Slot`: parent call throws (or receives failure result in language-idiomatic form).
+- `Emitter`, `Input`, `Output`: errors are diagnostic events and MUST NOT hard-crash caller by default.
+
+## 6. Timeouts and Cancellation
+
+- Default timeout for `Call<T>` and `CallSync<T>`: no implicit timeout.
+- Generator SHOULD expose optional runtime config for timeouts.
+- If configured timeout elapses:
+  - `Call` rejects `BridgeTimeoutError`.
+  - `CallSync` throws `BridgeTimeoutError`.
+- Cancellation tokens are out of scope for this revision.
+
+## 7. Deterministic Mapping Summary
+
+- Interaction kind fully determines direction and completion model.
+- Method parameters define request payload schema.
+- Generic `T` defines reply/state payload schema when applicable.
+- `Emitter` has no generic; payload is method parameter tuple only.
+- `AnQst.Type.*` directives influence payload mapping preferences only; they do not change interaction direction, lifecycle, or completion semantics.
+- If advisory mapping cannot be honored for a payload position, runtime behavior remains unchanged and a deterministic advisory-mismatch diagnostic MUST be emitted.
+

@@ -1,0 +1,24 @@
+{
+  "name": "anqst",
+  "version": "0.1.0",
+  "private": false,
+  "files": [
+    "dist",
+    "spec/AnQst-Spec-DSL.d.ts",
+    "README.md"
+  ],
+  "bin": {
+    "anqst": "dist/src/bin/anqst.js",
+    "AnQst": "dist/src/bin/anqst.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/src/bin/anqst.js",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "start": "node dist/src/bin/anqst.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}

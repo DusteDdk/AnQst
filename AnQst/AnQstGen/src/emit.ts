@@ -1,0 +1,1282 @@
+import fs from "node:fs";
+import path from "node:path";
+import ts from "typescript";
+import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
+
+function stripAnQstType(typeText: string): string {
+  return typeText
+    .replace(/\bAnQst\.Type\.stringArray\b/g, "string[]")
+    .replace(/\bAnQst\.Type\.string\b/g, "string")
+    .replace(/\bAnQst\.Type\.number\b/g, "number")
+    .replace(/\bAnQst\.Type\.qint64\b/g, "bigint")
+    .replace(/\bAnQst\.Type\.quint64\b/g, "bigint")
+    .replace(/\bAnQst\.Type\.qint32\b/g, "number")
+    .replace(/\bAnQst\.Type\.quint32\b/g, "number")
+    .replace(/\bAnQst\.Type\.object\b/g, "object")
+    .replace(/\bAnQst\.Type\.json\b/g, "object");
+}
+
+function splitGeneric(typeText: string): { name: string; arg: string } | null {
+  const m = typeText.match(/^([A-Za-z0-9_.]+)<(.+)>$/);
+  if (!m) return null;
+  return { name: m[1], arg: m[2].trim() };
+}
+
+function mapTsTypeToCpp(typeText: string): string {
+  const raw = typeText.trim();
+  if (/\bAnQst\.Type\.qint64\b/.test(raw)) return "qint64";
+  if (/\bAnQst\.Type\.quint64\b/.test(raw)) return "quint64";
+  if (/\bAnQst\.Type\.qint32\b/.test(raw)) return "qint32";
+  if (/\bAnQst\.Type\.quint32\b/.test(raw)) return "quint32";
+  if (/\bAnQst\.Type\.qint16\b/.test(raw)) return "qint16";
+  if (/\bAnQst\.Type\.quint16\b/.test(raw)) return "quint16";
+  if (/\bAnQst\.Type\.qint8\b/.test(raw)) return "qint8";
+  if (/\bAnQst\.Type\.quint8\b/.test(raw)) return "quint8";
+  if (/\bAnQst\.Type\.stringArray\b/.test(raw)) return "QStringList";
+  if (/\bAnQst\.Type\.string\b/.test(raw)) return "QString";
+  if (/\bAnQst\.Type\.json\b/.test(raw) || /\bAnQst\.Type\.object\b/.test(raw)) return "QVariantMap";
+  if (/\bAnQst\.Type\.(u?int(8|16|32))\b/.test(raw)) {
+    const narrowed = raw.match(/\bAnQst\.Type\.(u?int(?:8|16|32))\b/)?.[1];
+    if (narrowed === "int8") return "int8_t";
+    if (narrowed === "uint8") return "uint8_t";
+    if (narrowed === "int16") return "int16_t";
+    if (narrowed === "uint16") return "uint16_t";
+    if (narrowed === "int32") return "int32_t";
+    if (narrowed === "uint32") return "uint32_t";
+  }
+
+  const t = stripAnQstType(raw);
+  if (t === "string") return "QString";
+  if (t === "number") return "double";
+  if (t === "boolean") return "bool";
+  if (t === "bigint") return "qint64";
+  if (t === "void") return "void";
+  if (t === "object") return "QVariantMap";
+  if (t.endsWith("[]")) {
+    return `QList<${mapTsTypeToCpp(t.slice(0, -2))}>`;
+  }
+  const g = splitGeneric(t);
+  if (g && g.name === "Array") return `QList<${mapTsTypeToCpp(g.arg)}>`;
+  if (g && g.name === "ReadonlyArray") return `QList<${mapTsTypeToCpp(g.arg)}>`;
+  if (g && g.name === "Record") return "QVariantMap";
+  if (g && g.name === "Partial") return mapTsTypeToCpp(g.arg);
+  if (g && g.name === "Promise") return mapTsTypeToCpp(g.arg);
+  if (t.includes("|")) return "QString";
+  return t;
+}
+
+function toCppArgs(member: ServiceMemberModel): string {
+  return member.parameters.map((p) => `${mapTsTypeToCpp(p.typeText)} ${p.name}`).join(", ");
+}
+
+function callbackName(memberName: string): string {
+  return `${memberName.charAt(0).toUpperCase()}${memberName.slice(1)}Callback`;
+}
+
+function pascalCase(value: string): string {
+  return value.length === 0 ? value : `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+function variantToCppExpression(cppType: string, expr: string): string {
+  if (cppType === "QString") return `${expr}.toString()`;
+  if (cppType === "QStringList") return `${expr}.toStringList()`;
+  if (cppType === "QVariantMap") return `${expr}.toMap()`;
+  if (cppType === "double") return `${expr}.toDouble()`;
+  if (cppType === "bool") return `${expr}.toBool()`;
+  if (cppType === "qint64") return `${expr}.toLongLong()`;
+  if (cppType === "quint64") return `${expr}.toULongLong()`;
+  if (cppType === "qint32" || cppType === "quint32") return `${expr}.toInt()`;
+  if (cppType === "qint16" || cppType === "quint16") return `static_cast<${cppType}>(${expr}.toInt())`;
+  if (cppType === "qint8" || cppType === "quint8") return `static_cast<${cppType}>(${expr}.toInt())`;
+  if (cppType === "int8_t" || cppType === "uint8_t" || cppType === "int16_t" || cppType === "uint16_t" || cppType === "int32_t" || cppType === "uint32_t") {
+    return `static_cast<${cppType}>(${expr}.toInt())`;
+  }
+  return `${expr}.value<${cppType}>()`;
+}
+
+function cppToVariantExpression(cppType: string, expr: string): string {
+  if (
+    cppType === "QString" ||
+    cppType === "QStringList" ||
+    cppType === "QVariantMap" ||
+    cppType === "double" ||
+    cppType === "bool" ||
+    cppType === "qint64" ||
+    cppType === "quint64" ||
+    cppType === "qint32" ||
+    cppType === "quint32" ||
+    cppType === "qint16" ||
+    cppType === "quint16" ||
+    cppType === "qint8" ||
+    cppType === "quint8" ||
+    cppType === "int8_t" ||
+    cppType === "uint8_t" ||
+    cppType === "int16_t" ||
+    cppType === "uint16_t" ||
+    cppType === "int32_t" ||
+    cppType === "uint32_t"
+  ) {
+    return `QVariant::fromValue(${expr})`;
+  }
+  return `QVariant::fromValue(${expr})`;
+}
+
+function collectStructDecls(spec: ParsedSpecModel): TypeDeclModel[] {
+  const out = new Map<string, TypeDeclModel>();
+  for (const d of spec.namespaceTypeDecls) out.set(d.name, d);
+  for (const d of spec.importedTypeDecls.values()) out.set(d.name, d);
+  return [...out.values()];
+}
+
+function mapTypeTextToTs(typeText: string): string {
+  return stripAnQstType(typeText.trim());
+}
+
+function parseTypeDeclNode(nodeText: string): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | null {
+  const sf = ts.createSourceFile("__decl.ts", nodeText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  for (const stmt of sf.statements) {
+    if (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) return stmt;
+  }
+  return null;
+}
+
+function renderTypeDeclAsCpp(decl: TypeDeclModel): string {
+  const node = parseTypeDeclNode(decl.nodeText);
+  if (!node) return `// Unable to parse declaration '${decl.name}'.`;
+
+  if (ts.isInterfaceDeclaration(node)) {
+    const lines: string[] = [];
+    lines.push(`struct ${decl.name} {`);
+    for (const m of node.members) {
+      if (!ts.isPropertySignature(m) || !m.type || !ts.isIdentifier(m.name)) continue;
+      const baseType = mapTsTypeToCpp(m.type.getText());
+      const cppType = m.questionToken ? `std::optional<${baseType}>` : baseType;
+      lines.push(`    ${cppType} ${m.name.text};`);
+    }
+    lines.push("};");
+    return lines.join("\n");
+  }
+
+  const typeExpr = node.type.getText();
+  if (typeExpr.includes("|")) {
+    return `using ${decl.name} = QString; // union mapped conservatively`;
+  }
+  return `using ${decl.name} = ${mapTsTypeToCpp(typeExpr)};`;
+}
+
+function renderTypesHeader(spec: ParsedSpecModel): string {
+  const decls = collectStructDecls(spec).map(renderTypeDeclAsCpp).join("\n\n");
+  return `#pragma once
+#include <QString>
+#include <QStringList>
+#include <QList>
+#include <QVariantMap>
+#include <cstdint>
+#include <optional>
+
+namespace ${spec.widgetName} {
+
+${decls}
+
+} // namespace ${spec.widgetName}
+`;
+}
+
+function renderWidgetHeader(spec: ParsedSpecModel): string {
+  const callbackAliases: string[] = [];
+  const publicMethods: string[] = [];
+  const signals: string[] = [];
+  const properties: string[] = [];
+  const fields: string[] = [];
+  const outputSetters: string[] = [];
+
+  type MemberBinding = { service: string; member: string; kind: ServiceMemberModel["kind"] };
+  const bindings: MemberBinding[] = [];
+
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      bindings.push({ service: service.name, member: member.name, kind: member.kind });
+      const memberPascal = pascalCase(member.name);
+      if ((member.kind === "Call" || member.kind === "CallSync") && member.payloadTypeText) {
+        const cppType = mapTsTypeToCpp(member.payloadTypeText);
+        const args = toCppArgs(member);
+        callbackAliases.push(`using ${memberPascal}Handler = std::function<${cppType}(${args})>;`);
+        publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
+        fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
+      } else if (member.kind === "Emitter") {
+        const args = toCppArgs(member);
+        callbackAliases.push(`using ${memberPascal}Handler = std::function<void(${args})>;`);
+        publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
+        fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
+      } else if (member.kind === "Slot") {
+        const ret = member.payloadTypeText ? mapTsTypeToCpp(member.payloadTypeText) : "void";
+        const args = toCppArgs(member);
+        publicMethods.push(`${ret} ${member.name}(${args}${args ? ", " : ""}bool* ok = nullptr, QString* error = nullptr);`);
+      } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
+        const cppType = mapTsTypeToCpp(member.payloadTypeText);
+        const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
+        properties.push(`Q_PROPERTY(${cppType} ${member.name} READ ${member.name} WRITE set${cap} NOTIFY ${member.name}Changed)`);
+        publicMethods.push(`${cppType} ${member.name}() const;`);
+        publicMethods.push(`void set${cap}(const ${cppType}& value);`);
+        signals.push(`void ${member.name}Changed(const ${cppType}& value);`);
+        fields.push(`${cppType} m_${member.name}{};`);
+        if (member.kind === "Input") {
+          callbackAliases.push(`using ${memberPascal}Handler = std::function<void(const ${cppType}& value)>;`);
+          publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
+          fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
+        } else {
+          outputSetters.push(`void publish${memberPascal}(const ${cppType}& value);`);
+        }
+      }
+    }
+  }
+
+  return `#pragma once
+#include <QHash>
+#include <QVariant>
+#include <QVariantList>
+#include <functional>
+#include "AnQstWebHostBase.h"
+#include "${spec.widgetName}Types.h"
+
+namespace ${spec.widgetName} {
+
+class ${spec.widgetName} : public AnQstWebHostBase {
+    Q_OBJECT
+${properties.map((p) => `    ${p}`).join("\n")}
+
+public:
+    explicit ${spec.widgetName}(QWidget* parent = nullptr);
+    ~${spec.widgetName}() override;
+    bool enableDebug();
+    static constexpr const char* kBootstrapEntryPoint = "index.html";
+    static constexpr const char* kBootstrapContentRoot = "qrc:/${spec.widgetName.toLowerCase()}";
+    static constexpr const char* kBootstrapBridgeObject = "${spec.widgetName}Bridge";
+
+${callbackAliases.map((s) => `    ${s}`).join("\n")}
+${publicMethods.map((s) => `    ${s}`).join("\n")}
+${outputSetters.map((s) => `    ${s}`).join("\n")}
+
+signals:
+${signals.map((s) => `    ${s}`).join("\n")}
+    void diagnosticsForwarded(const QVariantMap& payload);
+
+private:
+    struct BridgeBindingRow {
+        const char* service;
+        const char* member;
+        const char* kind;
+    };
+    static const BridgeBindingRow kBridgeBindings[];
+    static constexpr int kBridgeBindingsCount = ${bindings.length};
+    static QString makeBindingKey(const QString& service, const QString& member);
+    void installBridgeBindings();
+    QVariant handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args);
+    QVariant handleGeneratedCallSync(const QString& service, const QString& member, const QVariantList& args);
+    void handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args);
+    void handleGeneratedInput(const QString& service, const QString& member, const QVariant& value);
+
+${fields.map((f) => `    ${f}`).join("\n")}
+};
+
+} // namespace ${spec.widgetName}
+`;
+}
+
+function renderCppStub(spec: ParsedSpecModel): string {
+  const lines: string[] = [];
+  lines.push(`#include "include/${spec.widgetName}.h"`);
+  lines.push(`#include <QDebug>`);
+  lines.push("");
+  lines.push(`extern int qInitResources_${spec.widgetName}();`);
+  lines.push("");
+  lines.push(`namespace ${spec.widgetName} {`);
+  lines.push("");
+  lines.push(`const ${spec.widgetName}::BridgeBindingRow ${spec.widgetName}::kBridgeBindings[] = {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      lines.push(`    {"${service.name}", "${member.name}", "${member.kind}"},`);
+    }
+  }
+  lines.push(`};`);
+  lines.push("");
+  lines.push(`${spec.widgetName}::${spec.widgetName}(QWidget* parent) : AnQstWebHostBase(parent) {`);
+  lines.push(`    static const bool kResourcesInitialized = []() {`);
+  lines.push(`        ::qInitResources_${spec.widgetName}();`);
+  lines.push(`        return true;`);
+  lines.push(`    }();`);
+  lines.push(`    Q_UNUSED(kResourcesInitialized);`);
+  lines.push(`    installBridgeBindings();`);
+  lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${spec.widgetName}::diagnosticsForwarded);`);
+  lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
+  lines.push(`    const bool bridgeOk = setBridgeObject(this, QString::fromUtf8(kBootstrapBridgeObject));`);
+  lines.push(`    const bool loadOk = rootOk && bridgeOk && loadEntryPoint(QString::fromUtf8(kBootstrapEntryPoint));`);
+  lines.push(`    if (!loadOk) {`);
+  lines.push(`        qWarning() << "${spec.widgetName} bootstrap failed.";`);
+  lines.push(`    }`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`${spec.widgetName}::~${spec.widgetName}() = default;`);
+  lines.push("");
+  lines.push(`bool ${spec.widgetName}::enableDebug() {`);
+  lines.push(`    return AnQstWebHostBase::enableDebug();`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`QString ${spec.widgetName}::makeBindingKey(const QString& service, const QString& member) {`);
+  lines.push(`    return service + QStringLiteral("::") + member;`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`void ${spec.widgetName}::installBridgeBindings() {`);
+  lines.push(`    setCallHandler([this](const QString& service, const QString& member, const QVariantList& args) -> QVariant {`);
+  lines.push(`        return handleGeneratedCall(service, member, args);`);
+  lines.push(`    });`);
+  lines.push(`    setCallSyncHandler([this](const QString& service, const QString& member, const QVariantList& args) -> QVariant {`);
+  lines.push(`        return handleGeneratedCallSync(service, member, args);`);
+  lines.push(`    });`);
+  lines.push(`    setEmitterHandler([this](const QString& service, const QString& member, const QVariantList& args) {`);
+  lines.push(`        handleGeneratedEmitter(service, member, args);`);
+  lines.push(`    });`);
+  lines.push(`    setInputHandler([this](const QString& service, const QString& member, const QVariant& value) {`);
+  lines.push(`        handleGeneratedInput(service, member, value);`);
+  lines.push(`    });`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`QVariant ${spec.widgetName}::handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args) {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "Call" || !member.payloadTypeText) continue;
+      const cppType = mapTsTypeToCpp(member.payloadTypeText);
+      const pascal = pascalCase(member.name);
+      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+      lines.push(`        if (!m_${member.name}Handler) return QVariant();`);
+      for (let i = 0; i < member.parameters.length; i++) {
+        const p = member.parameters[i];
+        const pType = mapTsTypeToCpp(p.typeText);
+        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
+      }
+      const argNames = member.parameters.map((p) => p.name).join(", ");
+      lines.push(`        const ${cppType} result = m_${member.name}Handler(${argNames});`);
+      lines.push(`        return ${cppToVariantExpression(cppType, "result")};`);
+      lines.push(`    }`);
+    }
+  }
+  lines.push(`    return QVariant();`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`QVariant ${spec.widgetName}::handleGeneratedCallSync(const QString& service, const QString& member, const QVariantList& args) {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "CallSync" || !member.payloadTypeText) continue;
+      const cppType = mapTsTypeToCpp(member.payloadTypeText);
+      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+      lines.push(`        if (!m_${member.name}Handler) return QVariant();`);
+      for (let i = 0; i < member.parameters.length; i++) {
+        const p = member.parameters[i];
+        const pType = mapTsTypeToCpp(p.typeText);
+        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
+      }
+      const argNames = member.parameters.map((p) => p.name).join(", ");
+      lines.push(`        const ${cppType} result = m_${member.name}Handler(${argNames});`);
+      lines.push(`        return ${cppToVariantExpression(cppType, "result")};`);
+      lines.push(`    }`);
+    }
+  }
+  lines.push(`    return QVariant();`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`void ${spec.widgetName}::handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args) {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "Emitter") continue;
+      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+      lines.push(`        if (!m_${member.name}Handler) return;`);
+      for (let i = 0; i < member.parameters.length; i++) {
+        const p = member.parameters[i];
+        const pType = mapTsTypeToCpp(p.typeText);
+        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
+      }
+      const argNames = member.parameters.map((p) => p.name).join(", ");
+      lines.push(`        m_${member.name}Handler(${argNames});`);
+      lines.push(`        return;`);
+      lines.push(`    }`);
+    }
+  }
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`void ${spec.widgetName}::handleGeneratedInput(const QString& service, const QString& member, const QVariant& value) {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "Input" || !member.payloadTypeText) continue;
+      const cppType = mapTsTypeToCpp(member.payloadTypeText);
+      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+      lines.push(`        const ${cppType} typedValue = ${variantToCppExpression(cppType, "value")};`);
+      lines.push(`        set${pascalCase(member.name)}(typedValue);`);
+      lines.push(`        if (m_${member.name}Handler) m_${member.name}Handler(typedValue);`);
+      lines.push(`        return;`);
+      lines.push(`    }`);
+    }
+  }
+  lines.push(`}`);
+  lines.push("");
+
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      const memberPascal = pascalCase(member.name);
+      if ((member.kind === "Call" || member.kind === "CallSync" || member.kind === "Emitter" || member.kind === "Input") && member.payloadTypeText) {
+        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
+        lines.push(`    m_${member.name}Handler = handler;`);
+        lines.push("}");
+        lines.push("");
+      } else if (member.kind === "Emitter") {
+        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
+        lines.push(`    m_${member.name}Handler = handler;`);
+        lines.push("}");
+        lines.push("");
+      } else if (member.kind === "Input" && member.payloadTypeText) {
+        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
+        lines.push(`    m_${member.name}Handler = handler;`);
+        lines.push("}");
+        lines.push("");
+      }
+
+      if (member.kind === "Slot") {
+        const ret = member.payloadTypeText ? mapTsTypeToCpp(member.payloadTypeText) : "void";
+        const args = toCppArgs(member);
+        const argsWithMeta = `${args}${args ? ", " : ""}bool* ok, QString* error`;
+        lines.push(`${ret} ${spec.widgetName}::${member.name}(${argsWithMeta}) {`);
+        lines.push(`    QVariantList invokeArgs;`);
+        for (const p of member.parameters) {
+          const pType = mapTsTypeToCpp(p.typeText);
+          lines.push(`    invokeArgs.push_back(${cppToVariantExpression(pType, p.name)});`);
+        }
+        lines.push(`    QVariant result;`);
+        lines.push(`    QString invokeError;`);
+        lines.push(`    const bool success = invokeSlot(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), invokeArgs, &result, &invokeError);`);
+        lines.push(`    if (ok != nullptr) *ok = success;`);
+        lines.push(`    if (error != nullptr) *error = invokeError;`);
+        lines.push(`    if (!success) return ${ret}{};`);
+        lines.push(`    return ${variantToCppExpression(ret, "result")};`);
+        lines.push("}");
+        lines.push("");
+      } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
+        const cppType = mapTsTypeToCpp(member.payloadTypeText);
+        const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
+        lines.push(`${cppType} ${spec.widgetName}::${member.name}() const {`);
+        lines.push(`    return m_${member.name};`);
+        lines.push("}");
+        lines.push("");
+        lines.push(`void ${spec.widgetName}::set${cap}(const ${cppType}& value) {`);
+        lines.push(`    if (m_${member.name} == value) return;`);
+        lines.push(`    m_${member.name} = value;`);
+        if (member.kind === "Output") {
+          lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), ${cppToVariantExpression(cppType, "value")});`);
+        }
+        lines.push(`    emit ${member.name}Changed(value);`);
+        lines.push("}");
+        lines.push("");
+        if (member.kind === "Output") {
+          lines.push(`void ${spec.widgetName}::publish${pascalCase(member.name)}(const ${cppType}& value) {`);
+          lines.push(`    set${cap}(value);`);
+          lines.push(`}`);
+          lines.push("");
+        }
+      }
+    }
+  }
+
+  lines.push(`} // namespace ${spec.widgetName}`);
+  return lines.join("\n");
+}
+
+function renderCMake(spec: ParsedSpecModel): string {
+  return `cmake_minimum_required(VERSION 3.21)
+project(${spec.widgetName}Library LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+
+if(NOT TARGET anqstwebhostbase)
+    message(FATAL_ERROR "Target 'anqstwebhostbase' is required before adding generated widget library ${spec.widgetName}Widget.")
+endif()
+
+add_library(${spec.widgetName}Widget
+    ${spec.widgetName}.cpp
+    ${spec.widgetName}.qrc
+    include/${spec.widgetName}.h
+    include/${spec.widgetName}Types.h
+)
+target_include_directories(${spec.widgetName}Widget
+    PUBLIC
+        \${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(${spec.widgetName}Widget
+    PUBLIC
+        anqstwebhostbase
+)
+
+# Uses transitive Qt and include requirements from anqstwebhostbase.
+`;
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function normalizeSlashes(value: string): string {
+  return value.split(path.sep).join("/");
+}
+
+function renderEmbeddedQrc(widgetName: string, embeddedWebFiles: string[]): string {
+  const files = [...embeddedWebFiles].sort();
+  const lines: string[] = [];
+  lines.push("<RCC>");
+  lines.push(`    <qresource prefix="/${widgetName.toLowerCase()}">`);
+  if (files.length === 0) {
+    lines.push("        <!-- anqst build will populate embedded web assets under webapp/ -->");
+  }
+  for (const relPath of files) {
+    lines.push(`        <file alias="${escapeXml(relPath)}">webapp/${escapeXml(relPath)}</file>`);
+  }
+  lines.push("    </qresource>");
+  lines.push("</RCC>");
+  return `${lines.join("\n")}\n`;
+}
+
+function renderNpmPackage(spec: ParsedSpecModel): string {
+  return JSON.stringify(
+    {
+      name: `${spec.widgetName.toLowerCase()}-generated`,
+      version: "0.1.0",
+      private: true,
+      types: "types/index.d.ts",
+      main: "index.js",
+      exports: {
+        ".": {
+          types: "./types/index.d.ts",
+          default: "./index.js"
+        }
+      },
+      anqst: {
+        widget: spec.widgetName,
+        services: spec.services.map((s) => s.name),
+        supportsDevelopmentModeTransport: spec.supportsDevelopmentModeTransport
+      }
+    },
+    null,
+    2
+  );
+}
+
+function renderTypeDeclarations(spec: ParsedSpecModel): string {
+  const decls = collectStructDecls(spec)
+    .map((d) => stripAnQstType(d.nodeText))
+    .join("\n\n");
+  if (decls.trim().length === 0) return "";
+  return `${decls}\n`;
+}
+
+function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
+  const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
+
+  const fieldLines: string[] = [];
+  const methodLines: string[] = [];
+  const setMembers: string[] = [];
+  const onSlotMembers: string[] = [];
+  const constructorBodyLines: string[] = [];
+  constructorBodyLines.push("    this._bridge.ready().catch((error) => console.error(error));");
+
+  for (const m of members) {
+    const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
+    const valueArgs = m.parameters.map((p) => p.name).join(", ");
+    const valueArray = valueArgs.length > 0 ? `[${valueArgs}]` : "[]";
+    if (m.kind === "Call") {
+      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      methodLines.push(`  async ${m.name}(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
+      continue;
+    }
+    if (m.kind === "CallSync") {
+      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      methodLines.push(`  ${m.name}(${args}): ${ret} { return this._bridge.callSync<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
+      methodLines.push(`  async ${m.name}Async(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
+      continue;
+    }
+    if (m.kind === "Emitter") {
+      methodLines.push(`  ${m.name}(${args}): void { this._bridge.emit("${serviceName}", "${m.name}", ${valueArray}); }`);
+      continue;
+    }
+    if (m.kind === "Slot") {
+      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      onSlotMembers.push(`    ${m.name}: (handler: (${args}) => ${ret}): void => {`);
+      onSlotMembers.push(`      this._bridge.registerSlot("${serviceName}", "${m.name}", handler as (...args: unknown[]) => unknown);`);
+      onSlotMembers.push("    },");
+      continue;
+    }
+    if ((m.kind === "Input" || m.kind === "Output") && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      fieldLines.push(`  private readonly _${m.name} = signal<${tsType}>((undefined as unknown) as ${tsType});`);
+      methodLines.push(`  ${m.name}(): ${tsType} { return this._${m.name}(); }`);
+      if (m.kind === "Input") {
+        setMembers.push(`    ${m.name}: (value: ${tsType}): void => {`);
+        setMembers.push(`      this._${m.name}.set(value);`);
+        setMembers.push(`      this._bridge.setInput("${serviceName}", "${m.name}", value);`);
+        setMembers.push("    },");
+      }
+      if (m.kind === "Output") {
+        constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => this._${m.name}.set(value as ${tsType}));`);
+      }
+    }
+  }
+
+  const constructorLines = [
+    "  constructor() {",
+    ...constructorBodyLines,
+    "  }",
+  ];
+
+  return `@Injectable({ providedIn: "root" })
+export class ${serviceName} {
+  private readonly _bridge = inject(AnQstBridgeRuntime);
+${fieldLines.join("\n")}
+${constructorLines.join("\n")}
+  readonly set = {
+${setMembers.join("\n")}
+  };
+  readonly onSlot = {
+${onSlotMembers.join("\n")}
+  };
+${methodLines.join("\n")}
+}
+`;
+}
+
+function renderTsIndex(spec: ParsedSpecModel): string {
+  const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name)).join("\n");
+  return `import { Injectable, inject, signal } from "@angular/core";
+
+type SlotHandler = (...args: unknown[]) => unknown;
+type OutputHandler = (value: unknown) => void;
+type SlotInvocationListener = (requestId: string, service: string, member: string, args: unknown[]) => void;
+type OutputListener = (service: string, member: string, value: unknown) => void;
+
+interface HostBridgeApi {
+  anQstBridge_call(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
+  anQstBridge_callSync(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
+  anQstBridge_emit(service: string, member: string, args: unknown[]): void;
+  anQstBridge_setInput(service: string, member: string, value: unknown): void;
+  anQstBridge_registerSlot(service: string, member: string): void;
+  anQstBridge_resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void;
+  anQstBridge_outputUpdated: { connect: (cb: (service: string, member: string, value: unknown) => void) => void };
+  anQstBridge_slotInvocationRequested: {
+    connect: (cb: (requestId: string, service: string, member: string, args: unknown[]) => void) => void;
+  };
+}
+
+interface QWebChannelCtor {
+  new (
+    transport: unknown,
+    initCallback: (channel: { objects: Record<string, HostBridgeApi | undefined> }) => void
+  ): unknown;
+}
+
+interface BridgeAdapter {
+  call<T>(service: string, member: string, args: unknown[]): Promise<T>;
+  callSync<T>(service: string, member: string, args: unknown[]): T;
+  emit(service: string, member: string, args: unknown[]): void;
+  setInput(service: string, member: string, value: unknown): void;
+  registerSlot(service: string, member: string): void;
+  resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void;
+  onOutput(handler: OutputListener): void;
+  onSlotInvocation(handler: SlotInvocationListener): void;
+}
+
+class QtWebChannelAdapter implements BridgeAdapter {
+  private constructor(private readonly host: HostBridgeApi) {}
+
+  static async create(): Promise<QtWebChannelAdapter> {
+    const anyWindow = window as unknown as {
+      qt?: { webChannelTransport?: unknown };
+      QWebChannel?: QWebChannelCtor;
+    };
+    if (typeof anyWindow.QWebChannel !== "function" || anyWindow.qt?.webChannelTransport === undefined) {
+      throw new Error("Qt WebChannel transport is unavailable.");
+    }
+    return await new Promise<QtWebChannelAdapter>((resolve, reject) => {
+      try {
+        const QWebChannel = anyWindow.QWebChannel as QWebChannelCtor;
+        new QWebChannel(anyWindow.qt!.webChannelTransport, (channel) => {
+          const host = channel.objects["${spec.widgetName}Bridge"];
+          if (host === undefined) {
+            reject(new Error("${spec.widgetName}Bridge bridge object is unavailable."));
+            return;
+          }
+          resolve(new QtWebChannelAdapter(host));
+        });
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
+    return new Promise<T>((resolve) => {
+      this.host.anQstBridge_call(service, member, args, (result) => resolve(result as T));
+    });
+  }
+
+  callSync<T>(service: string, member: string, args: unknown[]): T {
+    let output: T | undefined;
+    let done = false;
+    this.host.anQstBridge_callSync(service, member, args, (result) => {
+      output = result as T;
+      done = true;
+    });
+    if (!done) {
+      throw new Error("AnQst CallSync did not complete synchronously.");
+    }
+    return output as T;
+  }
+
+  emit(service: string, member: string, args: unknown[]): void {
+    this.host.anQstBridge_emit(service, member, args);
+  }
+
+  setInput(service: string, member: string, value: unknown): void {
+    this.host.anQstBridge_setInput(service, member, value);
+  }
+
+  registerSlot(service: string, member: string): void {
+    this.host.anQstBridge_registerSlot(service, member);
+  }
+
+  resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void {
+    this.host.anQstBridge_resolveSlot(requestId, ok, payload, error);
+  }
+
+  onOutput(handler: OutputListener): void {
+    this.host.anQstBridge_outputUpdated.connect(handler);
+  }
+
+  onSlotInvocation(handler: SlotInvocationListener): void {
+    this.host.anQstBridge_slotInvocationRequested.connect(handler);
+  }
+}
+
+class WebSocketBridgeAdapter implements BridgeAdapter {
+  private readonly pending = new Map<string, (result: unknown) => void>();
+  private readonly outputListeners: OutputListener[] = [];
+  private readonly slotListeners: SlotInvocationListener[] = [];
+  private requestCounter = 0;
+
+  private constructor(private readonly socket: WebSocket) {
+    this.socket.addEventListener("message", (event) => {
+      const raw = typeof event.data === "string" ? event.data : String(event.data);
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      const type = String(message["type"] ?? "");
+      if (type === "callResult" || type === "callSyncResult") {
+        const requestId = String(message["requestId"] ?? "");
+        const resolver = this.pending.get(requestId);
+        if (resolver) {
+          this.pending.delete(requestId);
+          resolver(message["result"]);
+        }
+        return;
+      }
+      if (type === "outputUpdated") {
+        const service = String(message["service"] ?? "");
+        const member = String(message["member"] ?? "");
+        for (const listener of this.outputListeners) {
+          listener(service, member, message["value"]);
+        }
+        return;
+      }
+      if (type === "slotInvocationRequested") {
+        const requestId = String(message["requestId"] ?? "");
+        const service = String(message["service"] ?? "");
+        const member = String(message["member"] ?? "");
+        const args = Array.isArray(message["args"]) ? (message["args"] as unknown[]) : [];
+        for (const listener of this.slotListeners) {
+          listener(requestId, service, member, args);
+        }
+        return;
+      }
+      if (type === "hostError") {
+        console.error("AnQst host error:", message["payload"]);
+      }
+    });
+  }
+
+  static async create(): Promise<WebSocketBridgeAdapter> {
+    const configResponse = await fetch("/anqst-dev-config.json", { cache: "no-store" });
+    if (!configResponse.ok) {
+      throw new Error("AnQst host bootstrap missing: unable to read /anqst-dev-config.json");
+    }
+    const config = (await configResponse.json()) as { wsUrl?: string };
+    if (!config.wsUrl) {
+      throw new Error("AnQst host bootstrap missing: wsUrl is unavailable.");
+    }
+    return await new Promise<WebSocketBridgeAdapter>((resolve, reject) => {
+      const socket = new WebSocket(config.wsUrl!);
+      socket.addEventListener("open", () => resolve(new WebSocketBridgeAdapter(socket)));
+      socket.addEventListener("error", () => reject(new Error("Failed to connect to AnQst WebSocket bridge.")));
+    });
+  }
+
+  async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
+    const requestId = \`req-\${++this.requestCounter}\`;
+    const payload = { type: "call", requestId, service, member, args };
+    return await new Promise<T>((resolve) => {
+      this.pending.set(requestId, (value) => resolve(value as T));
+      this.socket.send(JSON.stringify(payload));
+    });
+  }
+
+  callSync<T>(service: string, member: string, args: unknown[]): T {
+    throw new Error(
+      "AnQst CallSync is unavailable over development WebSocket transport. " +
+      "Use the generated Async companion method (<member>Async) for development mode."
+    );
+  }
+
+  emit(service: string, member: string, args: unknown[]): void {
+    this.socket.send(JSON.stringify({ type: "emit", service, member, args }));
+  }
+
+  setInput(service: string, member: string, value: unknown): void {
+    this.socket.send(JSON.stringify({ type: "setInput", service, member, value }));
+  }
+
+  registerSlot(service: string, member: string): void {
+    this.socket.send(JSON.stringify({ type: "registerSlot", service, member }));
+  }
+
+  resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void {
+    this.socket.send(JSON.stringify({ type: "resolveSlot", requestId, ok, payload, error }));
+  }
+
+  onOutput(handler: OutputListener): void {
+    this.outputListeners.push(handler);
+  }
+
+  onSlotInvocation(handler: SlotInvocationListener): void {
+    this.slotListeners.push(handler);
+  }
+}
+
+@Injectable({ providedIn: "root" })
+class AnQstBridgeRuntime {
+  private adapter: BridgeAdapter | null = null;
+  private readonly slotHandlers = new Map<string, SlotHandler>();
+  private readonly outputHandlers = new Map<string, OutputHandler[]>();
+  private readonly startup = this.init();
+
+  async ready(): Promise<void> {
+    return this.startup;
+  }
+
+  async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
+    const adapter = await this.requireAdapter();
+    return adapter.call<T>(service, member, args);
+  }
+
+  callSync<T>(service: string, member: string, args: unknown[]): T {
+    return this.requireAdapterSync().callSync<T>(service, member, args);
+  }
+
+  emit(service: string, member: string, args: unknown[]): void {
+    this.requireAdapterSync().emit(service, member, args);
+  }
+
+  setInput(service: string, member: string, value: unknown): void {
+    this.requireAdapterSync().setInput(service, member, value);
+  }
+
+  registerSlot(service: string, member: string, handler: SlotHandler): void {
+    const key = this.key(service, member);
+    this.slotHandlers.set(key, handler);
+    if (this.adapter !== null) {
+      this.adapter.registerSlot(service, member);
+      return;
+    }
+    this.ready()
+      .then(() => this.requireAdapterSync().registerSlot(service, member))
+      .catch((error) => console.error(error));
+  }
+
+  onOutput(service: string, member: string, handler: OutputHandler): void {
+    const key = this.key(service, member);
+    const existing = this.outputHandlers.get(key) ?? [];
+    existing.push(handler);
+    this.outputHandlers.set(key, existing);
+  }
+
+  private requireAdapterSync(): BridgeAdapter {
+    if (this.adapter === null) {
+      throw new Error("AnQst bridge is not ready.");
+    }
+    return this.adapter;
+  }
+
+  private async requireAdapter(): Promise<BridgeAdapter> {
+    await this.startup;
+    return this.requireAdapterSync();
+  }
+
+  private async init(): Promise<void> {
+    const anyWindow = window as unknown as { qt?: { webChannelTransport?: unknown }; QWebChannel?: QWebChannelCtor };
+    if (typeof anyWindow.QWebChannel === "function" && anyWindow.qt?.webChannelTransport !== undefined) {
+      this.adapter = await QtWebChannelAdapter.create();
+    } else {
+      this.adapter = await WebSocketBridgeAdapter.create();
+    }
+
+    this.adapter.onOutput((service, member, value) => {
+      const key = this.key(service, member);
+      for (const outputHandler of this.outputHandlers.get(key) ?? []) {
+        outputHandler(value);
+      }
+    });
+    this.adapter.onSlotInvocation((requestId, service, member, args) => {
+      const key = this.key(service, member);
+      const handler = this.slotHandlers.get(key);
+      if (handler === undefined) {
+        this.adapter!.resolveSlot(requestId, false, undefined, "No slot handler registered.");
+        return;
+      }
+      try {
+        const result = handler(...args);
+        this.adapter!.resolveSlot(requestId, true, result, "");
+      } catch (error) {
+        this.adapter!.resolveSlot(requestId, false, undefined, String(error));
+      }
+    });
+    for (const key of this.slotHandlers.keys()) {
+      const parts = key.split("::");
+      if (parts.length === 2) {
+        this.adapter.registerSlot(parts[0], parts[1]);
+      }
+    }
+  }
+
+  private key(service: string, member: string): string {
+    return \`\${service}::\${member}\`;
+  }
+
+}
+
+${renderTypeDeclarations(spec)}
+${serviceClasses}
+`;
+}
+
+function renderTypeIndexDts(spec: ParsedSpecModel): string {
+  const serviceDecls = spec.services
+    .map((s) => `export declare class ${s.name} {\n  readonly set: Record<string, (value: unknown) => void>;\n  readonly onSlot: Record<string, (handler: (...args: unknown[]) => unknown) => void>;\n}`)
+    .join("\n\n");
+  return `${renderTypeDeclarations(spec)}
+${serviceDecls}
+`;
+}
+
+function renderJsIndex(): string {
+  return `"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+`;
+}
+
+export interface GeneratedFiles {
+  [relativePath: string]: string;
+}
+
+export function generateOutputs(spec: ParsedSpecModel): GeneratedFiles {
+  return {
+    "npmpackage/package.json": renderNpmPackage(spec),
+    "npmpackage/index.ts": renderTsIndex(spec),
+    "npmpackage/index.js": renderJsIndex(),
+    "npmpackage/types/index.d.ts": renderTypeIndexDts(spec),
+    "cpplibrary/CMakeLists.txt": renderCMake(spec),
+    [`cpplibrary/${spec.widgetName}.qrc`]: renderEmbeddedQrc(spec.widgetName, []),
+    [`cpplibrary/include/${spec.widgetName}.h`]: renderWidgetHeader(spec),
+    [`cpplibrary/include/${spec.widgetName}Types.h`]: renderTypesHeader(spec),
+    [`cpplibrary/${spec.widgetName}.cpp`]: renderCppStub(spec)
+  };
+}
+
+export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): void {
+  const outputRoot = path.join(cwd, "generated_output");
+  for (const [relPath, content] of Object.entries(outputs)) {
+    const filePath = path.join(outputRoot, relPath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, "utf8");
+  }
+}
+
+export function installTypeScriptOutputs(cwd: string): void {
+  const sourceDir = path.join(cwd, "generated_output", "npmpackage");
+  const targetDir = path.join(cwd, "src", "anqst-generated");
+  if (!fs.existsSync(sourceDir)) return;
+
+  fs.rmSync(targetDir, { recursive: true, force: true });
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const queue: string[] = [sourceDir];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const abs = path.join(current, entry.name);
+      const rel = path.relative(sourceDir, abs);
+      const dst = path.join(targetDir, rel);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(dst, { recursive: true });
+        queue.push(abs);
+      } else if (entry.isFile()) {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(abs, dst);
+      }
+    }
+  }
+}
+
+function listFilesRecursively(rootDir: string): string[] {
+  const output: string[] = [];
+  const queue: string[] = [rootDir];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(abs);
+        continue;
+      }
+      if (entry.isFile()) {
+        output.push(normalizeSlashes(path.relative(rootDir, abs)));
+      }
+    }
+  }
+  return output.sort();
+}
+
+function copyDirectoryRecursive(sourceDir: string, targetDir: string): void {
+  const queue: string[] = [sourceDir];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const entries = fs.readdirSync(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const sourceAbs = path.join(current, entry.name);
+      const rel = path.relative(sourceDir, sourceAbs);
+      const targetAbs = path.join(targetDir, rel);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(targetAbs, { recursive: true });
+        queue.push(sourceAbs);
+        continue;
+      }
+      if (entry.isFile()) {
+        fs.mkdirSync(path.dirname(targetAbs), { recursive: true });
+        fs.copyFileSync(sourceAbs, targetAbs);
+      }
+    }
+  }
+}
+
+function resolveDistWebRoot(cwd: string): string | null {
+  const distDir = path.join(cwd, "dist");
+  if (!fs.existsSync(distDir)) {
+    return null;
+  }
+
+  const candidates: string[] = [];
+  const angularJsonPath = path.join(cwd, "angular.json");
+  if (fs.existsSync(angularJsonPath)) {
+    try {
+      const angularJson = JSON.parse(fs.readFileSync(angularJsonPath, "utf8")) as {
+        defaultProject?: string;
+        projects?: Record<string, { architect?: { build?: { options?: { outputPath?: string | { base?: string } } } } }>;
+      };
+      const projectNames = Object.keys(angularJson.projects ?? {});
+      const orderedProjects: string[] = [];
+      if (typeof angularJson.defaultProject === "string" && angularJson.defaultProject.length > 0) {
+        orderedProjects.push(angularJson.defaultProject);
+      }
+      for (const projectName of projectNames) {
+        if (!orderedProjects.includes(projectName)) {
+          orderedProjects.push(projectName);
+        }
+      }
+
+      for (const projectName of orderedProjects) {
+        const outputPathValue = angularJson.projects?.[projectName]?.architect?.build?.options?.outputPath;
+        if (typeof outputPathValue === "string" && outputPathValue.length > 0) {
+          const absolute = path.resolve(cwd, outputPathValue);
+          candidates.push(path.join(absolute, "browser"));
+          candidates.push(absolute);
+          continue;
+        }
+        if (
+          outputPathValue &&
+          typeof outputPathValue === "object" &&
+          typeof outputPathValue.base === "string" &&
+          outputPathValue.base.length > 0
+        ) {
+          const absolute = path.resolve(cwd, outputPathValue.base);
+          candidates.push(path.join(absolute, "browser"));
+          candidates.push(absolute);
+          continue;
+        }
+        candidates.push(path.join(distDir, projectName, "browser"));
+        candidates.push(path.join(distDir, projectName));
+      }
+    } catch {
+      // Best-effort: fallback candidates below.
+    }
+  }
+
+  const seen = new Set<string>();
+  const dedupedCandidates = candidates.filter((candidate) => {
+    if (seen.has(candidate)) return false;
+    seen.add(candidate);
+    return true;
+  });
+
+  for (const candidate of dedupedCandidates) {
+    if (fs.existsSync(path.join(candidate, "index.html"))) {
+      return candidate;
+    }
+  }
+
+  const discovered: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 6) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, depth + 1);
+        continue;
+      }
+      if (entry.isFile() && entry.name === "index.html") {
+        discovered.push(dir);
+      }
+    }
+  };
+  walk(distDir, 0);
+  if (discovered.length === 0) {
+    return null;
+  }
+  discovered.sort((a, b) => {
+    const aBrowser = normalizeSlashes(a).includes("/browser") ? 0 : 1;
+    const bBrowser = normalizeSlashes(b).includes("/browser") ? 0 : 1;
+    if (aBrowser !== bBrowser) return aBrowser - bBrowser;
+    return a.length - b.length;
+  });
+  return discovered[0];
+}
+
+export function installEmbeddedWebBundle(cwd: string, widgetName: string): boolean {
+  const distWebRoot = resolveDistWebRoot(cwd);
+  if (distWebRoot === null) {
+    return false;
+  }
+  if (!fs.existsSync(path.join(distWebRoot, "index.html"))) {
+    return false;
+  }
+
+  const cppLibraryRoot = path.join(cwd, "generated_output", "cpplibrary");
+  const cppLibraryWebRoot = path.join(cppLibraryRoot, "webapp");
+  fs.rmSync(cppLibraryWebRoot, { recursive: true, force: true });
+  fs.mkdirSync(cppLibraryWebRoot, { recursive: true });
+  copyDirectoryRecursive(distWebRoot, cppLibraryWebRoot);
+
+  const embeddedFiles = listFilesRecursively(cppLibraryWebRoot);
+  const qrcPath = path.join(cppLibraryRoot, `${widgetName}.qrc`);
+  fs.writeFileSync(qrcPath, renderEmbeddedQrc(widgetName, embeddedFiles), "utf8");
+  return true;
+}
+
+function renderQtIntegrationCMake(widgetName: string): string {
+  const generatedRootVar = "ANQST_GENERATED_CPP_DIR";
+  const generatedIncludeVar = "ANQST_GENERATED_INCLUDE_DIR";
+  const webappRootVar = "ANQST_WEBAPP_ROOT";
+  const widgetTarget = `${widgetName}Widget`;
+  const autogenTarget = `${widgetTarget}_anqst_codegen`;
+  return `cmake_minimum_required(VERSION 3.21)
+
+set(${webappRootVar} "\${CMAKE_CURRENT_LIST_DIR}/..")
+set(${generatedRootVar} "\${${webappRootVar}}/generated_output/cpplibrary")
+set(${generatedIncludeVar} "\${${generatedRootVar}}/include")
+
+if(TARGET ${widgetTarget})
+    return()
+endif()
+
+if(NOT TARGET anqstwebhostbase)
+    message(FATAL_ERROR "Target 'anqstwebhostbase' must exist before including anqst-cmake for ${widgetName}.")
+endif()
+
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
+find_program(ANQST_NPM_EXECUTABLE npm REQUIRED)
+
+add_custom_command(
+    OUTPUT
+        "\${${generatedRootVar}}/CMakeLists.txt"
+        "\${${generatedRootVar}}/${widgetName}.qrc"
+        "\${${generatedRootVar}}/${widgetName}.cpp"
+        "\${${generatedIncludeVar}}/${widgetName}.h"
+        "\${${generatedIncludeVar}}/${widgetName}Types.h"
+        "\${${generatedRootVar}}/webapp/index.html"
+    COMMAND "\${ANQST_NPM_EXECUTABLE}" install
+    COMMAND "\${ANQST_NPM_EXECUTABLE}" run anqst:build
+    WORKING_DIRECTORY "\${${webappRootVar}}"
+    COMMENT "Generating AnQst widget library (${widgetTarget}) from Angular project"
+    VERBATIM
+)
+
+add_custom_target(${autogenTarget}
+    DEPENDS
+        "\${${generatedRootVar}}/CMakeLists.txt"
+        "\${${generatedRootVar}}/${widgetName}.qrc"
+        "\${${generatedRootVar}}/${widgetName}.cpp"
+        "\${${generatedIncludeVar}}/${widgetName}.h"
+        "\${${generatedIncludeVar}}/${widgetName}Types.h"
+        "\${${generatedRootVar}}/webapp/index.html"
+)
+
+set_source_files_properties(
+    "\${${generatedRootVar}}/${widgetName}.qrc"
+    "\${${generatedRootVar}}/${widgetName}.cpp"
+    "\${${generatedIncludeVar}}/${widgetName}.h"
+    "\${${generatedIncludeVar}}/${widgetName}Types.h"
+    PROPERTIES GENERATED TRUE
+)
+
+add_library(${widgetTarget}
+    "\${${generatedRootVar}}/${widgetName}.qrc"
+    "\${${generatedRootVar}}/${widgetName}.cpp"
+    "\${${generatedIncludeVar}}/${widgetName}.h"
+    "\${${generatedIncludeVar}}/${widgetName}Types.h"
+)
+add_dependencies(${widgetTarget} ${autogenTarget})
+target_include_directories(${widgetTarget}
+    PUBLIC
+        "\${${generatedIncludeVar}}"
+)
+target_link_libraries(${widgetTarget}
+    PUBLIC
+        anqstwebhostbase
+)
+`;
+}
+
+export function installQtIntegrationCMake(cwd: string, widgetName: string): void {
+  const integrationDir = path.join(cwd, "anqst-cmake");
+  fs.mkdirSync(integrationDir, { recursive: true });
+  fs.writeFileSync(path.join(integrationDir, "CMakeLists.txt"), renderQtIntegrationCMake(widgetName), "utf8");
+}

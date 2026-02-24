@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DemoMainWindow</class>
+ <widget class="QMainWindow" name="DemoMainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>780</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>AnQstWebHostBase Angular + QWebEngine Demo</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <item>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QWidget" name="controlsWidget">
+       <layout class="QVBoxLayout" name="controlsLayout">
+        <item>
+         <widget class="QGroupBox" name="widgetToParentGroup">
+          <property name="title">
+           <string>Widget -&gt; Parent</string>
+          </property>
+          <layout class="QVBoxLayout" name="widgetToParentLayout">
+           <item>
+            <widget class="QLabel" name="modeLabel">
+             <property name="text">
+              <string>Content mode</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="incomingActivityLabel">
+             <property name="text">
+              <string>Incoming bridge activity</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPlainTextEdit" name="logView">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="parentToWidgetGroup">
+          <property name="title">
+           <string>Parent -&gt; Widget</string>
+          </property>
+          <layout class="QVBoxLayout" name="parentToWidgetLayout">
+           <item>
+            <widget class="QLabel" name="slotMessageLabel">
+             <property name="text">
+              <string>Slot message payload</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="slotInput">
+             <property name="text">
+              <string>slot-message-from-qt</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="invokeSlotBtn">
+             <property name="text">
+              <string>Invoke Slot&lt;T&gt; (Qt -&gt; Angular)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="outputPayloadLabel">
+             <property name="text">
+              <string>Output outputParentState payload</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="outputInput">
+             <property name="text">
+              <string>state from parent (qt)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="setOutputBtn">
+             <property name="text">
+              <string>Set Output&lt;T&gt; (Qt -&gt; Angular)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="blockedPolicyBtn">
+             <property name="text">
+              <string>Trigger blocked scheme policy</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="webPolicySeparator">
+             <property name="frameShape">
+              <enum>QFrame::HLine</enum>
+             </property>
+             <property name="frameShadow">
+              <enum>QFrame::Sunken</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="contextMenuCheck">
+             <property name="text">
+              <string>Context menu enabled</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="textSelectionCheck">
+             <property name="text">
+              <string>Text selection enabled</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="debugSeparator">
+             <property name="frameShape">
+              <enum>QFrame::HLine</enum>
+             </property>
+             <property name="frameShadow">
+              <enum>QFrame::Sunken</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="enableDebugBtn">
+             <property name="text">
+              <string>Enable Debug Mode</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QGroupBox" name="webGroup">
+       <property name="title">
+        <string>Web (Angular/Typescript)</string>
+       </property>
+       <layout class="QVBoxLayout" name="webGroupLayout">
+        <item>
+         <widget class="QWidget" name="webHostPlaceholder" native="true"/>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

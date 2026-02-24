@@ -1,0 +1,21 @@
+:host {
+  display: block;
+  font-family: Arial, sans-serif;
+}
+
+.page {
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 16px;
+}
+
+section {
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  padding: 10px;
+}
+
+input {
+  margin-right: 8px;
+}
