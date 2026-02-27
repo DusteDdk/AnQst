@@ -47,7 +47,7 @@ function checkForbiddenTypeNodes(typeNode: ts.TypeNode): string | null {
 }
 
 function checkServiceMember(member: ServiceMemberModel): void {
-  if (member.payloadTypeText && (member.kind === "Call" || member.kind === "CallSync")) {
+  if (member.payloadTypeText && member.kind === "Call") {
     const payload = parseTypeNodeFromText(member.payloadTypeText);
     const refs = typeRefs(payload);
     if (refs.includes("Promise")) {

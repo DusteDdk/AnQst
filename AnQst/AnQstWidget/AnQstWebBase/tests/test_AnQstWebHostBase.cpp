@@ -1,4 +1,3 @@
-#include <catch2/catch_session.hpp>
 #include "AnQstWebHostBase.h"
 
 #include <QApplication>
@@ -7,8 +6,17 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
-#include <catch2/catch_test_macros.hpp>
 #include <cstdlib>
+
+#if __has_include(<catch2/catch_session.hpp>) && __has_include(<catch2/catch_test_macros.hpp>)
+#include <catch2/catch_session.hpp>
+#include <catch2/catch_test_macros.hpp>
+#elif __has_include(<catch2/catch.hpp>)
+#define CATCH_CONFIG_RUNNER
+#include <catch2/catch.hpp>
+#else
+#error "Catch2 headers are not available."
+#endif
 
 namespace {
 
@@ -120,22 +128,16 @@ TEST_CASE("bridge bootstrap script failure emits structured error", "[host][brid
     CHECK(payload.value("recoverable").toBool() == false);
 }
 
-TEST_CASE("bridge Call and CallSync handlers are invoked", "[host][behavior][call]") {
+TEST_CASE("bridge Call handler is invoked", "[host][behavior][call]") {
     ensureApp();
     AnQstWebHostBase host;
 
     host.setCallHandler([](const QString& service, const QString& member, const QVariantList& args) -> QVariant {
         return QStringLiteral("%1:%2:%3").arg(service, member, args.isEmpty() ? QStringLiteral("none") : args.at(0).toString());
     });
-    host.setCallSyncHandler([](const QString&, const QString&, const QVariantList& args) -> QVariant {
-        return args.isEmpty() ? 0 : args.at(0).toInt() + 1;
-    });
 
     const QVariant callResult = host.anQstBridge_call(QStringLiteral("DemoBehaviorService"), QStringLiteral("callGreeting"), {QStringLiteral("Alice")});
     CHECK(callResult.toString() == QStringLiteral("DemoBehaviorService:callGreeting:Alice"));
-
-    const QVariant callSyncResult = host.anQstBridge_callSync(QStringLiteral("DemoBehaviorService"), QStringLiteral("callSyncNextCounter"), {41});
-    CHECK(callSyncResult.toInt() == 42);
 }
 
 TEST_CASE("bridge Emitter and Input handlers are forwarded", "[host][behavior][emitter][input]") {
@@ -287,4 +289,3 @@ int main(int argc, char* argv[]) {
 }
 
 #include "test_AnQstWebHostBase.moc"
-

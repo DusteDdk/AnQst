@@ -10,7 +10,7 @@ declare namespace UserManagement {
         // When editing a user
         getUserById(userId: string): AnQst.Call<User>
         // For checking availability
-        userNameAvailable(userId: string): AnQst.CallSync<boolean>
+        userNameAvailable(userId: string): AnQst.Call<boolean>
         // For editing user (we can reject if there's data in the form)
         editUser(user: User): AnQst.Slot<boolean>
         // Adding a new user

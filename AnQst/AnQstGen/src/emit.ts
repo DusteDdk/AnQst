@@ -197,7 +197,7 @@ function renderWidgetHeader(spec: ParsedSpecModel): string {
     for (const member of service.members) {
       bindings.push({ service: service.name, member: member.name, kind: member.kind });
       const memberPascal = pascalCase(member.name);
-      if ((member.kind === "Call" || member.kind === "CallSync") && member.payloadTypeText) {
+      if (member.kind === "Call" && member.payloadTypeText) {
         const cppType = mapTsTypeToCpp(member.payloadTypeText);
         const args = toCppArgs(member);
         callbackAliases.push(`using ${memberPascal}Handler = std::function<${cppType}(${args})>;`);
@@ -272,7 +272,6 @@ private:
     static QString makeBindingKey(const QString& service, const QString& member);
     void installBridgeBindings();
     QVariant handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args);
-    QVariant handleGeneratedCallSync(const QString& service, const QString& member, const QVariantList& args);
     void handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args);
     void handleGeneratedInput(const QString& service, const QString& member, const QVariant& value);
 
@@ -330,9 +329,6 @@ function renderCppStub(spec: ParsedSpecModel): string {
   lines.push(`    setCallHandler([this](const QString& service, const QString& member, const QVariantList& args) -> QVariant {`);
   lines.push(`        return handleGeneratedCall(service, member, args);`);
   lines.push(`    });`);
-  lines.push(`    setCallSyncHandler([this](const QString& service, const QString& member, const QVariantList& args) -> QVariant {`);
-  lines.push(`        return handleGeneratedCallSync(service, member, args);`);
-  lines.push(`    });`);
   lines.push(`    setEmitterHandler([this](const QString& service, const QString& member, const QVariantList& args) {`);
   lines.push(`        handleGeneratedEmitter(service, member, args);`);
   lines.push(`    });`);
@@ -347,27 +343,6 @@ function renderCppStub(spec: ParsedSpecModel): string {
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
       const cppType = mapTsTypeToCpp(member.payloadTypeText);
       const pascal = pascalCase(member.name);
-      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-      lines.push(`        if (!m_${member.name}Handler) return QVariant();`);
-      for (let i = 0; i < member.parameters.length; i++) {
-        const p = member.parameters[i];
-        const pType = mapTsTypeToCpp(p.typeText);
-        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
-      }
-      const argNames = member.parameters.map((p) => p.name).join(", ");
-      lines.push(`        const ${cppType} result = m_${member.name}Handler(${argNames});`);
-      lines.push(`        return ${cppToVariantExpression(cppType, "result")};`);
-      lines.push(`    }`);
-    }
-  }
-  lines.push(`    return QVariant();`);
-  lines.push(`}`);
-  lines.push("");
-  lines.push(`QVariant ${spec.widgetName}::handleGeneratedCallSync(const QString& service, const QString& member, const QVariantList& args) {`);
-  for (const service of spec.services) {
-    for (const member of service.members) {
-      if (member.kind !== "CallSync" || !member.payloadTypeText) continue;
-      const cppType = mapTsTypeToCpp(member.payloadTypeText);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       lines.push(`        if (!m_${member.name}Handler) return QVariant();`);
       for (let i = 0; i < member.parameters.length; i++) {
@@ -422,7 +397,7 @@ function renderCppStub(spec: ParsedSpecModel): string {
   for (const service of spec.services) {
     for (const member of service.members) {
       const memberPascal = pascalCase(member.name);
-      if ((member.kind === "Call" || member.kind === "CallSync" || member.kind === "Emitter" || member.kind === "Input") && member.payloadTypeText) {
+      if ((member.kind === "Call" || member.kind === "Input") && member.payloadTypeText) {
         lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
         lines.push(`    m_${member.name}Handler = handler;`);
         lines.push("}");
@@ -600,12 +575,6 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
       methodLines.push(`  async ${m.name}(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
       continue;
     }
-    if (m.kind === "CallSync") {
-      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
-      methodLines.push(`  ${m.name}(${args}): ${ret} { return this._bridge.callSync<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
-      methodLines.push(`  async ${m.name}Async(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
-      continue;
-    }
     if (m.kind === "Emitter") {
       methodLines.push(`  ${m.name}(${args}): void { this._bridge.emit("${serviceName}", "${m.name}", ${valueArray}); }`);
       continue;
@@ -666,7 +635,6 @@ type OutputListener = (service: string, member: string, value: unknown) => void;
 
 interface HostBridgeApi {
   anQstBridge_call(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
-  anQstBridge_callSync(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
   anQstBridge_emit(service: string, member: string, args: unknown[]): void;
   anQstBridge_setInput(service: string, member: string, value: unknown): void;
   anQstBridge_registerSlot(service: string, member: string): void;
@@ -686,7 +654,6 @@ interface QWebChannelCtor {
 
 interface BridgeAdapter {
   call<T>(service: string, member: string, args: unknown[]): Promise<T>;
-  callSync<T>(service: string, member: string, args: unknown[]): T;
   emit(service: string, member: string, args: unknown[]): void;
   setInput(service: string, member: string, value: unknown): void;
   registerSlot(service: string, member: string): void;
@@ -729,19 +696,6 @@ class QtWebChannelAdapter implements BridgeAdapter {
     });
   }
 
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    let output: T | undefined;
-    let done = false;
-    this.host.anQstBridge_callSync(service, member, args, (result) => {
-      output = result as T;
-      done = true;
-    });
-    if (!done) {
-      throw new Error("AnQst CallSync did not complete synchronously.");
-    }
-    return output as T;
-  }
-
   emit(service: string, member: string, args: unknown[]): void {
     this.host.anQstBridge_emit(service, member, args);
   }
@@ -778,7 +732,7 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
       const raw = typeof event.data === "string" ? event.data : String(event.data);
       const message = JSON.parse(raw) as Record<string, unknown>;
       const type = String(message["type"] ?? "");
-      if (type === "callResult" || type === "callSyncResult") {
+      if (type === "callResult") {
         const requestId = String(message["requestId"] ?? "");
         const resolver = this.pending.get(requestId);
         if (resolver) {
@@ -836,13 +790,6 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
     });
   }
 
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    throw new Error(
-      "AnQst CallSync is unavailable over development WebSocket transport. " +
-      "Use the generated Async companion method (<member>Async) for development mode."
-    );
-  }
-
   emit(service: string, member: string, args: unknown[]): void {
     this.socket.send(JSON.stringify({ type: "emit", service, member, args }));
   }
@@ -882,10 +829,6 @@ class AnQstBridgeRuntime {
   async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
     const adapter = await this.requireAdapter();
     return adapter.call<T>(service, member, args);
-  }
-
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    return this.requireAdapterSync().callSync<T>(service, member, args);
   }
 
   emit(service: string, member: string, args: unknown[]): void {

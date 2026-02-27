@@ -24,8 +24,7 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["npmpackage/index.ts"], /@Injectable/);
   assert.match(outputs["npmpackage/index.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["npmpackage/index.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["npmpackage/index.ts"], /async validateAsync\(draft: CdDraft\): Promise<boolean>/);
-  assert.match(outputs["npmpackage/index.ts"], /Use the generated Async companion method/);
+  assert.match(outputs["npmpackage/index.ts"], /async validate\(draft: CdDraft\): Promise<boolean>/);
   assert.doesNotMatch(outputs["npmpackage/index.ts"], /createNoopHost/);
   assert.match(outputs["cpplibrary/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
   assert.match(outputs["cpplibrary/include/CdWidget.h"], /bool enableDebug\(\)/);

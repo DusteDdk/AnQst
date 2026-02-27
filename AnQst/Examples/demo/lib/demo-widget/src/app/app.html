@@ -9,10 +9,10 @@
   </section>
 
   <section>
-    <h2>CallSync&lt;T&gt;</h2>
-    <input type="number" [ngModel]="callSyncSeed()" (ngModelChange)="callSyncSeed.set(+$event)" />
-    <button (click)="invokeCallSync()">callSyncNextCounter</button>
-    <p>Result: {{ callSyncResult() }}</p>
+    <h2>Call&lt;T&gt; counter (async)</h2>
+    <input type="number" [ngModel]="callCounterSeed()" (ngModelChange)="callCounterSeed.set(+$event)" />
+    <button (click)="invokeCallCounter()">callNextCounter</button>
+    <p>Result: {{ callCounterResult() }}</p>
   </section>
 
   <section>

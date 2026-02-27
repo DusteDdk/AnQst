@@ -13,10 +13,6 @@ QVariant AnQstBridgeProxy::anQstBridge_call(const QString& service, const QStrin
     return m_facade->call(service, member, args);
 }
 
-QVariant AnQstBridgeProxy::anQstBridge_callSync(const QString& service, const QString& member, const QVariantList& args) {
-    return m_facade->callSync(service, member, args);
-}
-
 void AnQstBridgeProxy::anQstBridge_emit(const QString& service, const QString& member, const QVariantList& args) {
     m_facade->emitMessage(service, member, args);
 }

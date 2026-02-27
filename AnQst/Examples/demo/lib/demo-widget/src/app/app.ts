@@ -11,8 +11,8 @@ import { DemoBehaviorService } from '../anqst-generated/index';
 export class App {
   protected readonly callUserName = signal('AngularUser');
   protected readonly callResult = signal('<pending>');
-  protected readonly callSyncSeed = signal(10);
-  protected readonly callSyncResult = signal('<pending>');
+  protected readonly callCounterSeed = signal(10);
+  protected readonly callCounterResult = signal('<pending>');
   protected readonly slotMessage = signal('slot round-trip');
   protected readonly slotResult = signal('<pending>');
   protected readonly telemetryTag = signal('session');
@@ -32,12 +32,8 @@ export class App {
     this.callResult.set(await this.demoService.callGreeting(this.callUserName()));
   }
 
-  protected invokeCallSync(): void {
-    try {
-      this.callSyncResult.set(String(this.demoService.callSyncNextCounter(this.callSyncSeed())));
-    } catch (error) {
-      this.callSyncResult.set(`CallSync error: ${String(error)}`);
-    }
+  protected async invokeCallCounter(): Promise<void> {
+    this.callCounterResult.set(String(await this.demoService.callNextCounter(this.callCounterSeed())));
   }
 
   protected emitTelemetry(): void {

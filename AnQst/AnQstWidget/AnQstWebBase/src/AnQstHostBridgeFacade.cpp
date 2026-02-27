@@ -17,10 +17,6 @@ void AnQstHostBridgeFacade::setCallHandler(const CallHandler& handler) {
     m_callHandler = handler;
 }
 
-void AnQstHostBridgeFacade::setCallSyncHandler(const CallHandler& handler) {
-    m_callSyncHandler = handler;
-}
-
 void AnQstHostBridgeFacade::setEmitterHandler(const EmitterHandler& handler) {
     m_emitterHandler = handler;
 }
@@ -171,56 +167,6 @@ QVariant AnQstHostBridgeFacade::call(const QString& service, const QString& memb
             });
         return QVariant();
     }
-}
-
-QVariant AnQstHostBridgeFacade::callSync(const QString& service, const QString& member, const QVariantList& args) {
-    if (!m_callSyncHandler) {
-        emitHostError(
-            QStringLiteral("HOST_BRIDGE_SETUP_FAILED"),
-            QStringLiteral("bridge"),
-            QStringLiteral("error"),
-            false,
-            QStringLiteral("No CallSync handler has been configured."),
-            {
-                {QStringLiteral("service"), service},
-                {QStringLiteral("member"), member},
-            });
-        return QVariant();
-    }
-
-    QVariant result;
-    QString handlerError;
-    bool done = false;
-    QEventLoop loop;
-
-    QTimer::singleShot(0, this, [&]() {
-        try {
-            result = m_callSyncHandler(service, member, args);
-        } catch (...) {
-            handlerError = QStringLiteral("CallSync handler threw");
-        }
-        done = true;
-        loop.quit();
-    });
-
-    while (!done) {
-        loop.exec();
-    }
-
-    if (!handlerError.isEmpty()) {
-        emitHostError(
-            QStringLiteral("HOST_SYNC_SEMANTIC_VIOLATION"),
-            QStringLiteral("runtime"),
-            QStringLiteral("fatal"),
-            false,
-            handlerError,
-            {
-                {QStringLiteral("service"), service},
-                {QStringLiteral("member"), member},
-            });
-        return QVariant();
-    }
-    return result;
 }
 
 void AnQstHostBridgeFacade::emitMessage(const QString& service, const QString& member, const QVariantList& args) {

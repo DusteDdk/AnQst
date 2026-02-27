@@ -11,7 +11,7 @@ import { User, PasswordPolicy, UserCreationResult } from './types/exchange';
 declare namespace UserManagement {
   interface UserService extends AnQst.Service {
     getUserById(userId: string): AnQst.Call<User>;
-    userNameAvailable(userId: string): AnQst.CallSync<boolean>;
+    userNameAvailable(userId: string): AnQst.Call<boolean>;
     editUser(user: User): AnQst.Slot<boolean>;
     createUser(user: User): AnQst.Call<UserCreationResult>;
   }
@@ -34,7 +34,7 @@ Representative generated TypeScript declarations:
 ```ts
 export interface UserService {
   getUserById(userId: string): Promise<User>;
-  userNameAvailable(userId: string): boolean;
+  userNameAvailable(userId: string): Promise<boolean>;
   createUser(user: User): Promise<UserCreationResult>;
   onSlot: {
     editUser(handler: (user: User) => boolean): void;
@@ -64,7 +64,6 @@ export interface FormState {
 Notes:
 
 - `Call<T>` -> Promise return.
-- `CallSync<T>` -> direct return.
 - `Slot<T>` -> registered handler in `onSlot`.
 - `Input` and `Output` both produce read accessor + `set` publisher API for symmetry at TS surface.
 
@@ -96,8 +95,8 @@ export class UserManagementComponent {
     this.formState.set.currentUsername(user.userName);
   }
 
-  checkName(userId: string): boolean {
-    return this.userService.userNameAvailable(userId);
+  async checkName(userId: string): Promise<boolean> {
+    return await this.userService.userNameAvailable(userId);
   }
 
   reportWord(word: string): void {
@@ -139,7 +138,7 @@ public:
     void setPasswordPolicy(const PasswordPolicy& value);
 
 signals:
-    // Call / CallSync dispatch
+    // Call dispatch
     void getUserById(QString userId, GetUserByIdCallback reply);
     void userNameAvailable(QString userId, UserNameAvailableCallback reply);
     void createUser(User user, CreateUserCallback reply);
@@ -294,8 +293,8 @@ Invalid normative DSL input:
 ```ts
 declare namespace TestSpace {
   interface MyService extends AnQst.Service {
-    getUserMetaInfo(userId: string): AnQst.CallSync<AnQst.Type.json>;
-    getUserMetaInfo(userId: string): AnQst.CallSync<object>;
+    getUserMetaInfo(userId: string): AnQst.Call<AnQst.Type.json>;
+    getUserMetaInfo(userId: string): AnQst.Call<object>;
   }
 }
 ```
@@ -308,9 +307,9 @@ Valid prose-only alternatives (documentation style):
 
 ```ts
 // Alternative A:
-// getUserMetaInfo(userId: string): AnQst.CallSync<AnQst.Type.json>;
+// getUserMetaInfo(userId: string): AnQst.Call<AnQst.Type.json>;
 //
 // Alternative B:
-// getUserMetaInfo(userId: string): AnQst.CallSync<object>;
+// getUserMetaInfo(userId: string): AnQst.Call<object>;
 ```
 

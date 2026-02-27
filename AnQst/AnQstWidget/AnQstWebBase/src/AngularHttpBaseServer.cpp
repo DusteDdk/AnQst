@@ -383,16 +383,6 @@ void AngularHttpBaseServer::handleWebSocketSocketData() {
             });
             continue;
         }
-        if (type == QStringLiteral("callSync")) {
-            const QVariantList args = payload.value(QStringLiteral("args")).toList();
-            const QVariant result = m_facade->callSync(payload.value(QStringLiteral("service")).toString(), payload.value(QStringLiteral("member")).toString(), args);
-            sendJsonToClient({
-                {QStringLiteral("type"), QStringLiteral("callSyncResult")},
-                {QStringLiteral("requestId"), payload.value(QStringLiteral("requestId")).toString()},
-                {QStringLiteral("result"), result},
-            });
-            continue;
-        }
         if (type == QStringLiteral("emit")) {
             m_facade->emitMessage(payload.value(QStringLiteral("service")).toString(), payload.value(QStringLiteral("member")).toString(), payload.value(QStringLiteral("args")).toList());
             continue;

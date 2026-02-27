@@ -51,8 +51,8 @@ declare namespace BurgerConstructor {
   interface BurgerService extends AnQst.Service
   {
     getBurgerById(burgerId: string): AnQst.Call<Burger>;
-    addBurger(burger: Burger): AnQst.CallSync<boolean>;
-    replaceBurger(burgerId: string, burger: Burger): AnQst.CallSync<boolean>;
+    addBurger(burger: Burger): AnQst.Call<boolean>;
+    replaceBurger(burgerId: string, burger: Burger): AnQst.Call<boolean>;
   }
 }
 ```

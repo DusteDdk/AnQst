@@ -13,7 +13,7 @@ declare namespace CdWidget {
   }
 
   interface CdService extends AnQst.Service {
-    validate(draft: CdDraft): AnQst.CallSync<boolean>;
+    validate(draft: CdDraft): AnQst.Call<boolean>;
     publishDirty(value: boolean): AnQst.Emitter;
     draft: AnQst.Input<CdDraft>;
     readOnlyMode: AnQst.Output<boolean>;

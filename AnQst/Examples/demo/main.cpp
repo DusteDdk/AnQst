@@ -35,8 +35,8 @@ int main(int argc, char* argv[]) {
         appendLog(QStringLiteral("Call<T> callGreeting userName=%1").arg(userName));
         return QStringLiteral("Hello %1 from Qt").arg(userName);
     });
-    host->setCallSyncNextCounterHandler([&](double seed) -> double {
-        appendLog(QStringLiteral("CallSync<T> callSyncNextCounter seed=%1").arg(seed));
+    host->setCallNextCounterHandler([&](double seed) -> double {
+        appendLog(QStringLiteral("Call<T> callNextCounter seed=%1").arg(seed));
         return seed + 1.0;
     });
     host->setEmitterTelemetryHandler([&](const QString& tag, double value) {
@@ -105,4 +105,3 @@ int main(int argc, char* argv[]) {
     window.show();
     return app.exec();
 }
-

@@ -13,7 +13,6 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 ## 2. Directional Model
 
 - `Call<T>`: Widget -> Parent (async request/reply).
-- `CallSync<T>`: Widget -> Parent (sync-style request/reply API at TS surface; bridge implementation may still be callback-backed).
 - `Slot<T>`: Parent -> Widget (request/reply).
 - `Emitter`: Widget -> Parent (fire-and-forget event).
 - `Output<T>`: Parent -> Widget (reactive state push).
@@ -21,13 +20,12 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 
 ## 3. Handler Lifecycle
 
-## 3.1 Call and CallSync handlers (parent side)
+## 3.1 Call handlers (parent side)
 
-- For each `method(args): Call<T>` or `CallSync<T>`, parent has one active handler slot.
+- For each `method(args): Call<T>`, parent has one active handler slot.
 - Registering a new handler REPLACES the previous handler.
 - If no handler exists at invocation time:
   - `Call<T>` MUST reject with `HandlerNotRegisteredError`.
-  - `CallSync<T>` MUST throw `HandlerNotRegisteredError` at call site.
 
 ## 3.2 Slot handlers (widget side)
 
@@ -58,20 +56,7 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 - Per-method ordering is preserved for request dispatch.
 - Reply ordering MAY differ due to async completion.
 
-## 4.2 `CallSync<T>`
-
-### Invocation
-- TS generated signature: `method(args): T`.
-- Generator MUST present synchronous API to consumer code.
-
-### Completion
-- Parent handler success returns `T`.
-- Parent handler throw/failure throws mapped error.
-
-### Behavioral note
-- Transport-level implementation MAY be callback/event backed internally as long as externally observed API is synchronous.
-
-## 4.3 `Slot<T>`
+## 4.2 `Slot<T>`
 
 ### Invocation
 - Parent calls generated Qt method `method(args)`.
@@ -85,7 +70,7 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 - Before first registration: queue (Section 3.2.1).
 - After at least one registration, if handler is temporarily absent due to replacement race, bridge MUST queue with same policy.
 
-## 4.4 `Emitter`
+## 4.3 `Emitter`
 
 ### Invocation
 - TS generated signature: `method(args): void`.
@@ -95,7 +80,7 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 - Caller returns immediately.
 - Delivery failure MUST NOT throw to caller; MUST emit bridge diagnostic event.
 
-## 4.5 `Output<T>`
+## 4.4 `Output<T>`
 
 ### Meaning
 - Parent-authored value exposed to widget as reactive readonly signal-like property.
@@ -112,7 +97,7 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 - Parent side:
   - read/write property on generated widget.
 
-## 4.6 `Input<T>`
+## 4.5 `Input<T>`
 
 ### Meaning
 - Widget-authored value exposed to parent as mirrored widget property.
@@ -142,17 +127,15 @@ Standard bridge error identifiers:
 Rules:
 
 - `Call`: errors reject Promise.
-- `CallSync`: errors throw.
 - `Slot`: parent call throws (or receives failure result in language-idiomatic form).
 - `Emitter`, `Input`, `Output`: errors are diagnostic events and MUST NOT hard-crash caller by default.
 
 ## 6. Timeouts and Cancellation
 
-- Default timeout for `Call<T>` and `CallSync<T>`: no implicit timeout.
+- Default timeout for `Call<T>`: no implicit timeout.
 - Generator SHOULD expose optional runtime config for timeouts.
 - If configured timeout elapses:
   - `Call` rejects `BridgeTimeoutError`.
-  - `CallSync` throws `BridgeTimeoutError`.
 - Cancellation tokens are out of scope for this revision.
 
 ## 7. Deterministic Mapping Summary

@@ -18,7 +18,6 @@ public:
 
     Q_INVOKABLE void anQstBridge_registerSlot(const QString& service, const QString& member);
     Q_INVOKABLE QVariant anQstBridge_call(const QString& service, const QString& member, const QVariantList& args);
-    Q_INVOKABLE QVariant anQstBridge_callSync(const QString& service, const QString& member, const QVariantList& args);
     Q_INVOKABLE void anQstBridge_emit(const QString& service, const QString& member, const QVariantList& args);
     Q_INVOKABLE void anQstBridge_setInput(const QString& service, const QString& member, const QVariant& value);
     Q_INVOKABLE void anQstBridge_resolveSlot(const QString& requestId, bool ok, const QVariant& payload, const QString& error);

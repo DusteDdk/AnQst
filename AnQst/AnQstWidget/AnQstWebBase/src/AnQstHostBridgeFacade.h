@@ -24,7 +24,6 @@ public:
     explicit AnQstHostBridgeFacade(QObject* parent = nullptr);
 
     void setCallHandler(const CallHandler& handler);
-    void setCallSyncHandler(const CallHandler& handler);
     void setEmitterHandler(const EmitterHandler& handler);
     void setInputHandler(const InputHandler& handler);
     void setOutputValue(const QString& service, const QString& member, const QVariant& value);
@@ -37,7 +36,6 @@ public:
 
     void registerSlot(const QString& service, const QString& member);
     QVariant call(const QString& service, const QString& member, const QVariantList& args);
-    QVariant callSync(const QString& service, const QString& member, const QVariantList& args);
     void emitMessage(const QString& service, const QString& member, const QVariantList& args);
     void setInput(const QString& service, const QString& member, const QVariant& value);
     void resolveSlot(const QString& requestId, bool ok, const QVariant& payload, const QString& error);
@@ -78,7 +76,6 @@ private:
     bool m_dispatchEnabled;
     quint64 m_slotRequestCounter;
     CallHandler m_callHandler;
-    CallHandler m_callSyncHandler;
     EmitterHandler m_emitterHandler;
     InputHandler m_inputHandler;
     QHash<QString, bool> m_registeredSlots;

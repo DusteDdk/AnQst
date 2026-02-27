@@ -347,10 +347,6 @@ void AnQstWebHostBase::setCallHandler(const CallHandler& handler) {
     m_bridgeFacade->setCallHandler(handler);
 }
 
-void AnQstWebHostBase::setCallSyncHandler(const CallHandler& handler) {
-    m_bridgeFacade->setCallSyncHandler(handler);
-}
-
 void AnQstWebHostBase::setEmitterHandler(const EmitterHandler& handler) {
     m_bridgeFacade->setEmitterHandler(handler);
 }
@@ -393,10 +389,6 @@ void AnQstWebHostBase::anQstBridge_registerSlot(const QString& service, const QS
 
 QVariant AnQstWebHostBase::anQstBridge_call(const QString& service, const QString& member, const QVariantList& args) {
     return m_bridgeFacade->call(service, member, args);
-}
-
-QVariant AnQstWebHostBase::anQstBridge_callSync(const QString& service, const QString& member, const QVariantList& args) {
-    return m_bridgeFacade->callSync(service, member, args);
 }
 
 void AnQstWebHostBase::anQstBridge_emit(const QString& service, const QString& member, const QVariantList& args) {
@@ -620,4 +612,3 @@ void AnQstWebHostBase::setDevelopmentModeAllowLan(bool allowLan) {
 bool AnQstWebHostBase::developmentModeAllowLan() const {
     return m_developmentModeAllowLan;
 }
-

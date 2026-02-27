@@ -36,8 +36,8 @@ declare namespace CdEntryEditor {
     suggestCatalogNumber(artist: string, albumTitle: string): AnQst.Call<string>;
     suggestGenres(artist: string, albumTitle: string): AnQst.Call<Genre[]>;
 
-    validateDraft(draft: CdDraft): AnQst.CallSync<ValidationResult>;
-    normalizeBarcode(rawValue: string): AnQst.CallSync<string>;
+    validateDraft(draft: CdDraft): AnQst.Call<ValidationResult>;
+    normalizeBarcode(rawValue: string): AnQst.Call<string>;
 
     focusField(fieldName: string): AnQst.Slot<void>;
     replaceTracks(tracks: Track[]): AnQst.Slot<void>;

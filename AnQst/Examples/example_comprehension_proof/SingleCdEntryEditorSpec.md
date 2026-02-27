@@ -50,9 +50,9 @@ declare namespace CdEntryEditor {
     suggestCatalogNumber(artist: string, albumTitle: string): AnQst.Call<string>;
     suggestGenres(artist: string, albumTitle: string): AnQst.Call<Genre[]>;
 
-    // Widget -> Parent: sync validation and normalization
-    validateDraft(draft: CdDraft): AnQst.CallSync<ValidationResult>;
-    normalizeBarcode(rawValue: string): AnQst.CallSync<string>;
+    // Widget -> Parent: async validation and normalization
+    validateDraft(draft: CdDraft): AnQst.Call<ValidationResult>;
+    normalizeBarcode(rawValue: string): AnQst.Call<string>;
 
     // Parent -> Widget: request immediate UI behavior
     focusField(fieldName: string): AnQst.Slot<void>;
@@ -79,8 +79,8 @@ declare namespace CdEntryEditor {
 - `CdEntryService` injectable API with:
   - `suggestCatalogNumber(...): Promise<string>`
   - `suggestGenres(...): Promise<Genre[]>`
-  - `validateDraft(...): ValidationResult`
-  - `normalizeBarcode(...): string`
+  - `validateDraft(...): Promise<ValidationResult>`
+  - `normalizeBarcode(...): Promise<string>`
   - `dirtyChanged(...)` and `fieldTouched(...)` as `void` emitters
   - `onSlot.focusField(handler)` and `onSlot.replaceTracks(handler)`
   - signal-like accessors for `readOnlyMode`, `currentCollectionName`, `saveInProgress`, `draft`, `selectedTrackIndex`
@@ -89,7 +89,7 @@ declare namespace CdEntryEditor {
 ## Expected generated C++ surface (summary)
 
 - QWidget subclass `CdEntryEditor` with:
-  - request/reply signal wiring for `Call` and `CallSync`
+  - request/reply signal wiring for `Call`
   - invokable methods for `Slot<void>` members (`focusField`, `replaceTracks`)
   - Qt signals for `dirtyChanged` and `fieldTouched`
   - `Q_PROPERTY` entries for `readOnlyMode`, `currentCollectionName`, `saveInProgress`, `draft`, `selectedTrackIndex`

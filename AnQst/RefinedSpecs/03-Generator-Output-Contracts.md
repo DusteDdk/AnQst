@@ -47,7 +47,6 @@ Imported types referenced by namespace declarations MUST be resolved and represe
 For each service member:
 
 - `Call<T>` -> `method(args): Promise<T>`
-- `CallSync<T>` -> `method(args): T`
 - `Slot<T>` -> `onSlot.method(handler: (...args) => T): void`
 - `Emitter` -> `method(args): void`
 - `Output<T>` -> readonly reactive accessor `prop(): T` and `set.prop(value: T): void`
@@ -67,7 +66,7 @@ For each service member:
 
 ## 3.3 Error/diagnostic surface
 
-- `Call`/`CallSync` errors MUST map to thrown/rejected errors as defined in interaction semantics.
+- `Call` errors MUST map to rejected errors as defined in interaction semantics.
 - Generator SHOULD emit a diagnostic event stream API for non-throwing constructs (`Emitter`, `Input`, `Output` transport failures).
 
 ## 4. Qt/C++ Bundle Contract
@@ -84,7 +83,7 @@ Class MUST:
 
 ## 4.2 Generated request/reply wiring
 
-For each `Call<T>` or `CallSync<T>` method:
+For each `Call<T>` method:
 
 - Generate callback alias:
   - `using MethodNameCallback = std::function<void(const T&)>;`
@@ -105,8 +104,7 @@ For each `Emitter` method:
 
 Development transport note:
 
-- In generated TypeScript service output, each `CallSync<T>` member MUST also emit an additive async companion method `methodNameAsync(...): Promise<T>`.
-- This companion is intended for development WebSocket mode where strict sync semantics cannot be provided safely in browser JavaScript.
+- In generated TypeScript service output, development WebSocket transport MUST provide the same `Call<T>` async API shape as Qt WebChannel transport.
 
 ## 4.3 Generated struct contract
 

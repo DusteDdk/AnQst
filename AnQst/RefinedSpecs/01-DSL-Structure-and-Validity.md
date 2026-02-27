@@ -42,11 +42,10 @@ Inside the widget namespace, each service MUST be declared as:
 Service members MUST be one of:
 
 1. Method returning `AnQst.Call<T>`
-2. Method returning `AnQst.CallSync<T>`
-3. Method returning `AnQst.Slot<T>`
-4. Method returning `AnQst.Emitter`
-5. Property typed `AnQst.Output<T>`
-6. Property typed `AnQst.Input<T>`
+2. Method returning `AnQst.Slot<T>`
+3. Method returning `AnQst.Emitter`
+4. Property typed `AnQst.Output<T>`
+5. Property typed `AnQst.Input<T>`
 
 No other service member types are valid.
 
@@ -54,7 +53,7 @@ No other service member types are valid.
 
 ### 3.1 Method and property form
 
-- `Call`, `CallSync`, `Slot`, `Emitter` MUST be methods.
+- `Call`, `Slot`, `Emitter` MUST be methods.
 - `Output`, `Input` MUST be properties.
 - Optional members (`?`) are INVALID.
 - Overloads are INVALID.
@@ -89,7 +88,7 @@ File-scope (outside namespace) declarations are allowed as helper types for auth
 
 ## 4.1 Generic payload type `T`
 
-For `Call<T>`, `CallSync<T>`, `Slot<T>`, `Output<T>`, `Input<T>`:
+For `Call<T>`, `Slot<T>`, `Output<T>`, `Input<T>`:
 
 - `T` MUST be serializable by the AnQst bridge contract.
 - Primitives (`string`, `number`, `boolean`) are VALID.
@@ -100,10 +99,9 @@ For `Call<T>`, `CallSync<T>`, `Slot<T>`, `Output<T>`, `Input<T>`:
 ### 4.2 Promise prohibition inside generic payloads
 
 - `Call<Promise<X>>` is INVALID.
-- `CallSync<Promise<X>>` is INVALID.
 - Nested Promise payloads in any generic position are INVALID.
 
-Reason: async/sync behavior is carried by the interaction kind itself (`Call` vs `CallSync`), not by wrapping payload type in `Promise`.
+Reason: asynchronous request/reply behavior is carried by the interaction kind itself (`Call`), not by wrapping payload type in `Promise`.
 
 ### 4.3 Unsupported/invalid payload shapes
 
@@ -126,7 +124,7 @@ Intersection support is deferred unless fully closed over valid serializable obj
 - `AnQst.Type.*` tokens are DSL mapping directives and are valid in type positions in the DSL input.
 - Valid usage positions:
   - method parameter type,
-  - method return payload position (`Call<T>`, `CallSync<T>`, `Slot<T>`),
+  - method return payload position (`Call<T>`, `Slot<T>`),
   - `Input<T>`/`Output<T>` payload position,
   - namespace-local type alias targets and nested object fields.
 - `T[]` and `Array<T>` are equivalent for generator semantics.
@@ -150,7 +148,7 @@ Advisory behavior:
 | Topic | Observed ambiguity | Decision (normative) |
 |---|---|---|
 | Top-level namespace | `declare` vs `export` in historical docs | MUST use `declare namespace` in widget spec files |
-| `Call<T extends {}>` vs primitive usage | Canonical helper constraint conflicts with `CallSync<boolean>` example | Primitives are valid payloads; generator treats helper constraint as non-normative |
+| `Call<T extends {}>` vs primitive usage | Canonical helper constraint conflicts with `Call<boolean>` example | Primitives are valid payloads; generator treats helper constraint as non-normative |
 | `Input` direction wording | Header says Widget->Parent, flow text looked Parent->Widget | Direction is Widget->Parent for state publication |
 | `Emitter` typing | No generic payload type on helper type | Method parameter list defines emitted payload shape |
 | Slot queue behavior | "queues until handler is set" underspecified | FIFO queue, bounded policy defined in interaction spec |
@@ -166,7 +164,7 @@ Advisory behavior:
 declare namespace UserManagement {
   interface UserService extends AnQst.Service {
     getUserById(userId: string): AnQst.Call<User>;
-    userNameAvailable(userId: string): AnQst.CallSync<boolean>;
+    userNameAvailable(userId: string): AnQst.Call<boolean>;
     editUser(user: User): AnQst.Slot<boolean>;
     badWord(word: string): AnQst.Emitter;
     activeUsers: AnQst.Output<number>;

@@ -63,26 +63,6 @@ export namespace AnQst {
     */
     interface Call<T> { dummy: T }
 
-
-    /**
-     * Declare blocking service method `MethodName`(`MethodArguments`): `MethodReturnType`.
-     * @remarks
-     * - **Widget** -> Parent
-     * - Flow:
-     *   - Widget: Call to service method `MethodName`(`MethodArguments`).
-     *   - Parent: Registered `MethodReturnType` `MethodName`_Handler(`MethodArguments`) is called.
-     *   - Parent: Handler returns result.
-     *   - Widget: `MethodName` call returns with result.
-     * @example
-     * // AnQst spec:
-     * getUserByIdSync(userId: string): AnQst.CallSync<User>
-     * //Angular app:
-     * const user: User = this.userService.getUserByIdSync("abc");
-    */
-    interface CallSync<T> { dummy: T }
-
-
-
     /**
      * Declare blocking service method onSlot.`MethodName`( handler(`MethodArguments`):`MethodReturnType` ): void
      * @remarks

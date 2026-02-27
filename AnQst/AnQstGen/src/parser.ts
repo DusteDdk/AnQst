@@ -57,7 +57,7 @@ function parseMemberKindFromAnQstType(typeNode: ts.TypeNode): { kind: ServiceMem
   if (!typeName.startsWith("AnQst.")) return null;
 
   const kind = typeName.slice("AnQst.".length) as ServiceMemberKind;
-  if (!["Call", "CallSync", "Slot", "Emitter", "Output", "Input"].includes(kind)) return null;
+  if (!["Call", "Slot", "Emitter", "Output", "Input"].includes(kind)) return null;
 
   if (kind === "Emitter") return { kind, payload: null };
   const arg = typeNode.typeArguments?.[0];

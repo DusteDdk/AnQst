@@ -7,7 +7,6 @@ type OutputListener = (service: string, member: string, value: unknown) => void;
 
 interface HostBridgeApi {
   anQstBridge_call(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
-  anQstBridge_callSync(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
   anQstBridge_emit(service: string, member: string, args: unknown[]): void;
   anQstBridge_setInput(service: string, member: string, value: unknown): void;
   anQstBridge_registerSlot(service: string, member: string): void;
@@ -27,7 +26,6 @@ interface QWebChannelCtor {
 
 interface BridgeAdapter {
   call<T>(service: string, member: string, args: unknown[]): Promise<T>;
-  callSync<T>(service: string, member: string, args: unknown[]): T;
   emit(service: string, member: string, args: unknown[]): void;
   setInput(service: string, member: string, value: unknown): void;
   registerSlot(service: string, member: string): void;
@@ -70,19 +68,6 @@ class QtWebChannelAdapter implements BridgeAdapter {
     });
   }
 
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    let output: T | undefined;
-    let done = false;
-    this.host.anQstBridge_callSync(service, member, args, (result) => {
-      output = result as T;
-      done = true;
-    });
-    if (!done) {
-      throw new Error("AnQst CallSync did not complete synchronously.");
-    }
-    return output as T;
-  }
-
   emit(service: string, member: string, args: unknown[]): void {
     this.host.anQstBridge_emit(service, member, args);
   }
@@ -119,7 +104,7 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
       const raw = typeof event.data === "string" ? event.data : String(event.data);
       const message = JSON.parse(raw) as Record<string, unknown>;
       const type = String(message["type"] ?? "");
-      if (type === "callResult" || type === "callSyncResult") {
+      if (type === "callResult") {
         const requestId = String(message["requestId"] ?? "");
         const resolver = this.pending.get(requestId);
         if (resolver) {
@@ -177,13 +162,6 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
     });
   }
 
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    throw new Error(
-      "AnQst CallSync is unavailable over development WebSocket transport. " +
-      "Use the generated Async companion method (<member>Async) for development mode."
-    );
-  }
-
   emit(service: string, member: string, args: unknown[]): void {
     this.socket.send(JSON.stringify({ type: "emit", service, member, args }));
   }
@@ -223,10 +201,6 @@ class AnQstBridgeRuntime {
   async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
     const adapter = await this.requireAdapter();
     return adapter.call<T>(service, member, args);
-  }
-
-  callSync<T>(service: string, member: string, args: unknown[]): T {
-    return this.requireAdapterSync().callSync<T>(service, member, args);
   }
 
   emit(service: string, member: string, args: unknown[]): void {
@@ -332,8 +306,7 @@ export class DemoBehaviorService {
     },
   };
   async callGreeting(userName: string): Promise<string> { return this._bridge.call<string>("DemoBehaviorService", "callGreeting", [userName]); }
-  callSyncNextCounter(seed: number): number { return this._bridge.callSync<number>("DemoBehaviorService", "callSyncNextCounter", [seed]); }
-  async callSyncNextCounterAsync(seed: number): Promise<number> { return this._bridge.call<number>("DemoBehaviorService", "callSyncNextCounter", [seed]); }
+  async callNextCounter(seed: number): Promise<number> { return this._bridge.call<number>("DemoBehaviorService", "callNextCounter", [seed]); }
   emitterTelemetry(tag: string, value: number): void { this._bridge.emit("DemoBehaviorService", "emitterTelemetry", [tag, value]); }
   inputTypedValue(): string { return this._inputTypedValue(); }
   outputParentState(): string { return this._outputParentState(); }

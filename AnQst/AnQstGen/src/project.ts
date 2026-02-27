@@ -60,7 +60,6 @@ function loadDslSource(): string {
   return `export namespace AnQst {
   interface Service {}
   interface Call<T> { dummy: T }
-  interface CallSync<T> { dummy: T }
   interface Slot<T> { dummy: T }
   interface Emitter {}
   interface Output<T> {}

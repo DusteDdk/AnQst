@@ -1,6 +1,5 @@
 export type ServiceMemberKind =
   | "Call"
-  | "CallSync"
   | "Slot"
   | "Emitter"
   | "Output"
