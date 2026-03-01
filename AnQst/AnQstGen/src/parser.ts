@@ -4,6 +4,7 @@ import ts from "typescript";
 import { VerifyError } from "./errors";
 import type {
   ParsedSpecModel,
+  SpecImportModel,
   ParameterModel,
   ServiceMemberKind,
   ServiceMemberModel,
@@ -133,31 +134,63 @@ function tryResolveImportFile(specFilePath: string, moduleName: string): string 
   return null;
 }
 
+function requiresLocalImportResolution(moduleName: string): boolean {
+  if (moduleName.startsWith(".") || moduleName.startsWith("/")) return true;
+  if (moduleName.startsWith("@")) return false;
+  return moduleName.includes("/");
+}
+
 function parseImportedTypeDecls(specFilePath: string, source: ts.SourceFile): {
   importedTypeDecls: Map<string, TypeDeclModel>;
   importedTypeSymbols: Set<string>;
+  specImports: SpecImportModel[];
 } {
   const importedTypeDecls = new Map<string, TypeDeclModel>();
   const importedTypeSymbols = new Set<string>();
+  const specImports: SpecImportModel[] = [];
 
   for (const stmt of source.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     const moduleName = stmt.moduleSpecifier.text;
+    const importModel: SpecImportModel = {
+      moduleSpecifier: moduleName,
+      defaultImport: null,
+      namedImports: []
+    };
 
-    if (stmt.importClause.name) importedTypeSymbols.add(stmt.importClause.name.text);
+    if (stmt.importClause.name) {
+      importedTypeSymbols.add(stmt.importClause.name.text);
+      importModel.defaultImport = stmt.importClause.name.text;
+    }
 
     const bindings = stmt.importClause.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {
       for (const el of bindings.elements) {
         importedTypeSymbols.add((el.propertyName ?? el.name).text);
         importedTypeSymbols.add(el.name.text);
+        importModel.namedImports.push({
+          importedName: (el.propertyName ?? el.name).text,
+          localName: el.name.text
+        });
       }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
-      importedTypeSymbols.add(bindings.name.text);
+      throw new VerifyError(
+        "Namespace imports ('import * as X') are not allowed in AnQst spec files.",
+        locFromNode(source, bindings)
+      );
     }
+    specImports.push(importModel);
 
     const resolved = tryResolveImportFile(specFilePath, moduleName);
-    if (!resolved) continue;
+    if (!resolved) {
+      if (requiresLocalImportResolution(moduleName)) {
+        throw new VerifyError(
+          `Unable to resolve import '${moduleName}' from spec file.`,
+          locFromNode(source, stmt.moduleSpecifier)
+        );
+      }
+      continue;
+    }
 
     const text = fs.readFileSync(resolved, "utf8");
     const importedSource = ts.createSourceFile(resolved, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -169,7 +202,7 @@ function parseImportedTypeDecls(specFilePath: string, source: ts.SourceFile): {
     }
   }
 
-  return { importedTypeDecls, importedTypeSymbols };
+  return { importedTypeDecls, importedTypeSymbols, specImports };
 }
 
 function serviceBaseType(iface: ts.InterfaceDeclaration): "Service" | "AngularHTTPBaseServerClass" | null {
@@ -228,6 +261,7 @@ export function parseSpecFile(specFilePath: string): ParsedSpecModel {
     supportsDevelopmentModeTransport,
     namespaceTypeDecls,
     importedTypeDecls: importInfo.importedTypeDecls,
-    importedTypeSymbols: importInfo.importedTypeSymbols
+    importedTypeSymbols: importInfo.importedTypeSymbols,
+    specImports: importInfo.specImports
   };
 }

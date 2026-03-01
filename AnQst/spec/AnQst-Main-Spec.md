@@ -7,7 +7,7 @@ When running `anqst instill <widgetName>` in a directory, AnQst looks for `packa
 - Found:
   - Key "AnQst" present, exit with message: "AnQst already instilled, did you mean to run 'npx anqst build'?"
   - Key "AnQst" not present:
-    - Add key `"AnQst": { "spec": "<widgetName>.AnQst.d.ts" }` to `package.json`
+    - Add key `"AnQst": { "spec": "<widgetName>.AnQst.d.ts", "generate": ["QWidget", "AngularService", "//DOM", "//node_express_ws"] }` to `package.json`
     - Enrich `package.json` build so first command run is `npx anqst build`
     - Enrich `package.json` test so first command run is `npx anqst test`
     - Install project-local `anqst-dsl/AnQst-Spec-DSL.d.ts`
@@ -33,13 +33,20 @@ AnQst reads `package.json` in its current working directory and finds the key `"
   - Verifies the referenced spec.
 - `anqst build`
   - Reads `package.json.AnQst.spec`.
+  - Reads optional `package.json.AnQst.generate` (string array) to select outputs.
   - Generates raw output to `generated_output/`.
-  - Installs generated TypeScript artifacts to `src/anqst-generated/`.
-  - Keeps C++ output under `generated_output/cpplibrary/`.
-  - Writes a Qt-consumer CMake entrypoint to `anqst-cmake/CMakeLists.txt`.
-  - If `angular.json` exists, runs production Angular build and embeds resulting web assets into generated widget library resources (`<WidgetName>.qrc` + `webapp/*`).
+  - When `AngularService` is selected, installs generated TypeScript artifacts to `src/anqst-generated/`.
+  - When `QWidget` is selected, keeps C++ output under `generated_output/<WidgetName>_QtWidget/`.
+  - When `QWidget` is selected, writes a Qt-consumer CMake entrypoint to `anqst-cmake/CMakeLists.txt`.
+  - When `QWidget` is selected and `angular.json` exists, runs production Angular build and embeds resulting web assets into generated widget library resources (`<WidgetName>.qrc` + `webapp/*`).
 - `anqst generate <specFile>`
-  - Generates raw output only (no install step).
+  - Generates raw output and applies the same `AnQst.generate` target selection as `anqst build` when package configuration is present.
+  - If package configuration is absent, defaults to both `QWidget` and `AngularService`.
+- `anqst clean <path> [-f|--force]`
+  - Cleans generated output directories under the given path.
+  - Without `--force`, requires `package.json` with `AnQst.spec` and cleans widget-scoped generated paths.
+  - `--force` cleans broad generated directories regardless of package metadata.
+  - Output omits status groups with zero entries.
 
 ## 9) Concrete target features (project not done yet)
 

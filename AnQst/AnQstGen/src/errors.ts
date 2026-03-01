@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { SourceLoc } from "./model";
 
 export class VerifyError extends Error {
@@ -11,8 +12,10 @@ export class VerifyError extends Error {
 }
 
 export function formatVerifyError(error: VerifyError): string {
+  const normalizeSlashes = (inputPath: string): string => inputPath.split(path.sep).join("/");
+  const normalizedFile = normalizeSlashes(error.loc?.file ?? "<unknown>");
   if (error.loc) {
-    return `[AnQst verify] ${error.loc.file}:${error.loc.line}:${error.loc.column} ${error.message}`;
+    return `\nAnQst spec invalid: ${normalizedFile}\n    ${normalizedFile}:${error.loc.line}:${error.loc.column} ${error.message}\n`;
   }
-  return `[AnQst verify] ${error.message}`;
+  return `\nAnQst spec invalid: ${normalizedFile}\n    ${error.message}\n`;
 }

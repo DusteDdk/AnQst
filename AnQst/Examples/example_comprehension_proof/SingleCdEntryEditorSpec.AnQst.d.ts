@@ -1,4 +1,5 @@
 import { AnQst } from "AnQst-Spec-DSL";
+import { User } from './types/User'
 
 declare namespace CdEntryEditor {
   type Genre = "Rock" | "Pop" | "Jazz" | "Classical" | "Electronic" | "Other";
@@ -18,6 +19,7 @@ declare namespace CdEntryEditor {
     barcode: string;
     tracks: Track[];
     notes: string;
+    createdBy: User;
   }
 
   interface ValidationResult {

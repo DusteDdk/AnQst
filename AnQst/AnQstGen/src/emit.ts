@@ -132,6 +132,145 @@ function mapTypeTextToTs(typeText: string): string {
   return stripAnQstType(typeText.trim());
 }
 
+function parseTypeNodeFromText(typeText: string): ts.TypeNode {
+  const source = ts.createSourceFile(
+    "__inline__.ts",
+    `type __X = ${typeText};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const stmt = source.statements.find(ts.isTypeAliasDeclaration);
+  if (!stmt) {
+    throw new Error(`Unable to parse type text: ${typeText}`);
+  }
+  return stmt.type;
+}
+
+function qNameText(name: ts.EntityName): string {
+  if (ts.isIdentifier(name)) return name.text;
+  return `${qNameText(name.left)}.${name.right.text}`;
+}
+
+function typeRefs(typeNode: ts.TypeNode): string[] {
+  const refs = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeReferenceNode(node)) refs.add(qNameText(node.typeName));
+    ts.forEachChild(node, visit);
+  };
+  visit(typeNode);
+  return [...refs];
+}
+
+function isBuiltinOrLiteral(ref: string): boolean {
+  return [
+    "string",
+    "number",
+    "boolean",
+    "void",
+    "object",
+    "bigint",
+    "BigInt",
+    "Array",
+    "ReadonlyArray",
+    "Record",
+    "Partial",
+    "Readonly",
+    "Date"
+  ].includes(ref);
+}
+
+function collectReachableNamespaceDecls(spec: ParsedSpecModel): TypeDeclModel[] {
+  const localByName = new Map(spec.namespaceTypeDecls.map((decl) => [decl.name, decl]));
+  const queue: string[] = [...spec.namespaceTypeDecls.map((decl) => decl.name)];
+  const seen = new Set<string>();
+  const ordered: TypeDeclModel[] = [];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const decl = localByName.get(current);
+    if (!decl) continue;
+    ordered.push(decl);
+    for (const ref of decl.referencedTypeNames) {
+      if (localByName.has(ref) && !seen.has(ref)) {
+        queue.push(ref);
+      }
+    }
+  }
+  return ordered;
+}
+
+function collectRequiredImportedSymbols(spec: ParsedSpecModel): Set<string> {
+  const required = new Set<string>();
+  const localTypeNames = new Set(spec.namespaceTypeDecls.map((d) => d.name));
+
+  const collectRef = (ref: string): void => {
+    if (isBuiltinOrLiteral(ref)) return;
+    if (ref.startsWith("AnQst.")) return;
+    if (localTypeNames.has(ref)) return;
+    required.add(ref.split(".")[0]);
+  };
+
+  for (const decl of collectReachableNamespaceDecls(spec)) {
+    for (const ref of decl.referencedTypeNames) collectRef(ref);
+  }
+
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      const texts = [...member.parameters.map((p) => p.typeText)];
+      if (member.payloadTypeText) texts.push(member.payloadTypeText);
+      for (const typeText of texts) {
+        for (const ref of typeRefs(parseTypeNodeFromText(typeText))) {
+          collectRef(ref);
+        }
+      }
+    }
+  }
+
+  return required;
+}
+
+function normalizeImportPathForGenerated(specFilePath: string, generatedFileRelPath: string, moduleSpecifier: string): string {
+  if (!moduleSpecifier.startsWith(".") && !moduleSpecifier.startsWith("/")) {
+    return moduleSpecifier;
+  }
+  const specDir = path.dirname(specFilePath);
+  const generatedAbs = path.resolve(path.dirname(specFilePath), "generated_output", generatedFileRelPath);
+  const generatedDir = path.dirname(generatedAbs);
+  const resolvedModulePath = path.resolve(specDir, moduleSpecifier);
+  const relative = path.relative(generatedDir, resolvedModulePath);
+  const normalized = relative.split(path.sep).join("/");
+  if (normalized.startsWith(".")) return normalized;
+  return `./${normalized}`;
+}
+
+function renderRequiredTypeImports(spec: ParsedSpecModel, generatedFileRelPath: string): string {
+  const requiredSymbols = collectRequiredImportedSymbols(spec);
+  if (requiredSymbols.size === 0) return "";
+
+  const importLines: string[] = [];
+  for (const imp of spec.specImports) {
+    const defaultImport = imp.defaultImport && requiredSymbols.has(imp.defaultImport) ? imp.defaultImport : null;
+    const named = imp.namedImports.filter((n) => requiredSymbols.has(n.localName));
+    if (!defaultImport && named.length === 0) continue;
+
+    const moduleSpecifier = normalizeImportPathForGenerated(spec.filePath, generatedFileRelPath, imp.moduleSpecifier);
+    const namedClause = named
+      .map((n) => (n.importedName === n.localName ? n.localName : `${n.importedName} as ${n.localName}`))
+      .join(", ");
+
+    if (defaultImport && named.length > 0) {
+      importLines.push(`import type ${defaultImport}, { ${namedClause} } from "${moduleSpecifier}";`);
+    } else if (defaultImport) {
+      importLines.push(`import type ${defaultImport} from "${moduleSpecifier}";`);
+    } else {
+      importLines.push(`import type { ${namedClause} } from "${moduleSpecifier}";`);
+    }
+  }
+  return importLines.length > 0 ? `${importLines.join("\n")}\n\n` : "";
+}
+
 function parseTypeDeclNode(nodeText: string): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | null {
   const sf = ts.createSourceFile("__decl.ts", nodeText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   for (const stmt of sf.statements) {
@@ -140,37 +279,279 @@ function parseTypeDeclNode(nodeText: string): ts.InterfaceDeclaration | ts.TypeA
   return null;
 }
 
-function renderTypeDeclAsCpp(decl: TypeDeclModel): string {
-  const node = parseTypeDeclNode(decl.nodeText);
-  if (!node) return `// Unable to parse declaration '${decl.name}'.`;
-
-  if (ts.isInterfaceDeclaration(node)) {
-    const lines: string[] = [];
-    lines.push(`struct ${decl.name} {`);
-    for (const m of node.members) {
-      if (!ts.isPropertySignature(m) || !m.type || !ts.isIdentifier(m.name)) continue;
-      const baseType = mapTsTypeToCpp(m.type.getText());
-      const cppType = m.questionToken ? `std::optional<${baseType}>` : baseType;
-      lines.push(`    ${cppType} ${m.name.text};`);
-    }
-    lines.push("};");
-    return lines.join("\n");
-  }
-
-  const typeExpr = node.type.getText();
-  if (typeExpr.includes("|")) {
-    return `using ${decl.name} = QString; // union mapped conservatively`;
-  }
-  return `using ${decl.name} = ${mapTsTypeToCpp(typeExpr)};`;
+interface CppFieldModel {
+  name: string;
+  cppType: string;
+  optional: boolean;
 }
 
-function renderTypesHeader(spec: ParsedSpecModel): string {
-  const decls = collectStructDecls(spec).map(renderTypeDeclAsCpp).join("\n\n");
+interface CppDeclModel {
+  name: string;
+  kind: "struct" | "alias";
+  fields: CppFieldModel[];
+  aliasType: string | null;
+  deps: Set<string>;
+  isUnionAlias: boolean;
+}
+
+interface CppTypeContext {
+  orderedDecls: CppDeclModel[];
+  structNames: string[];
+  mapTypeText(typeText: string, nameHintParts: string[]): string;
+}
+
+class CppTypeNormalizer {
+  private readonly declMap = new Map<string, CppDeclModel>();
+  private readonly seedOrder: string[] = [];
+  private readonly allKnownNames = new Set<string>();
+  private readonly usedNames = new Set<string>();
+
+  constructor(spec: ParsedSpecModel) {
+    for (const decl of collectStructDecls(spec)) {
+      this.allKnownNames.add(decl.name);
+      this.usedNames.add(decl.name);
+    }
+  }
+
+  addSeedDecl(decl: TypeDeclModel): void {
+    const node = parseTypeDeclNode(decl.nodeText);
+    if (!node) return;
+    if (this.declMap.has(decl.name)) return;
+    const normalized = this.normalizeNamedDecl(decl.name, node);
+    this.declMap.set(decl.name, normalized);
+    this.seedOrder.push(decl.name);
+  }
+
+  mapTypeText(typeText: string, nameHintParts: string[]): string {
+    const node = parseTypeNodeFromText(typeText);
+    return this.mapTypeNode(node, nameHintParts, new Set());
+  }
+
+  buildContext(): CppTypeContext {
+    const order = this.topologicalOrder();
+    const orderedDecls = order.map((name) => this.declMap.get(name)).filter((x): x is CppDeclModel => !!x);
+    const structNames = orderedDecls.filter((d) => d.kind === "struct").map((d) => d.name);
+    return {
+      orderedDecls,
+      structNames,
+      mapTypeText: (typeText: string, nameHintParts: string[]) => this.mapTypeText(typeText, nameHintParts)
+    };
+  }
+
+  private normalizeNamedDecl(name: string, node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration): CppDeclModel {
+    if (ts.isInterfaceDeclaration(node)) {
+      const deps = new Set<string>();
+      const fields: CppFieldModel[] = [];
+      for (const member of node.members) {
+        if (!ts.isPropertySignature(member) || !member.type || !ts.isIdentifier(member.name)) continue;
+        const baseType = this.mapTypeNode(member.type, [name, member.name.text], deps);
+        fields.push({
+          name: member.name.text,
+          cppType: baseType,
+          optional: !!member.questionToken
+        });
+      }
+      return { name, kind: "struct", fields, aliasType: null, deps, isUnionAlias: false };
+    }
+
+    const deps = new Set<string>();
+    const aliasType = this.mapTypeNode(node.type, [name], deps);
+    return {
+      name,
+      kind: "alias",
+      fields: [],
+      aliasType,
+      deps,
+      isUnionAlias: node.type.getText().includes("|")
+    };
+  }
+
+  private mapTypeNode(typeNode: ts.TypeNode, nameHintParts: string[], deps: Set<string>): string {
+    if (ts.isParenthesizedTypeNode(typeNode)) {
+      return this.mapTypeNode(typeNode.type, nameHintParts, deps);
+    }
+    if (ts.isUnionTypeNode(typeNode)) {
+      return "QString";
+    }
+    if (ts.isTypeLiteralNode(typeNode)) {
+      return this.ensureSyntheticStruct(typeNode, nameHintParts, deps);
+    }
+    if (ts.isArrayTypeNode(typeNode)) {
+      const itemType = this.mapTypeNode(typeNode.elementType, [...nameHintParts, "Item"], deps);
+      return `QList<${itemType}>`;
+    }
+    if (ts.isLiteralTypeNode(typeNode)) {
+      if (ts.isStringLiteral(typeNode.literal)) return "QString";
+      if (ts.isNumericLiteral(typeNode.literal)) return "double";
+      if (typeNode.literal.kind === ts.SyntaxKind.TrueKeyword || typeNode.literal.kind === ts.SyntaxKind.FalseKeyword) return "bool";
+      return "QString";
+    }
+    if (ts.isTypeReferenceNode(typeNode)) {
+      const name = qNameText(typeNode.typeName);
+      const rawText = typeNode.getText();
+      if (name.startsWith("AnQst.Type.")) {
+        return mapTsTypeToCpp(rawText);
+      }
+      const args = typeNode.typeArguments ?? [];
+      if ((name === "Array" || name === "ReadonlyArray") && args.length === 1) {
+        const itemType = this.mapTypeNode(args[0], [...nameHintParts, "Item"], deps);
+        return `QList<${itemType}>`;
+      }
+      if (name === "Record") return "QVariantMap";
+      if (name === "Partial" && args.length === 1) {
+        return this.mapTypeNode(args[0], nameHintParts, deps);
+      }
+      if (name === "Promise" && args.length === 1) {
+        return this.mapTypeNode(args[0], nameHintParts, deps);
+      }
+      const mapped = mapTsTypeToCpp(rawText);
+      this.collectKnownTypeDeps(mapped, deps);
+      return mapped;
+    }
+
+    const mapped = mapTsTypeToCpp(typeNode.getText());
+    this.collectKnownTypeDeps(mapped, deps);
+    return mapped;
+  }
+
+  private ensureSyntheticStruct(typeNode: ts.TypeLiteralNode, nameHintParts: string[], deps: Set<string>): string {
+    const baseName = this.makeSyntheticBaseName(nameHintParts);
+    const synthesizedName = this.allocateUniqueName(baseName);
+    if (this.declMap.has(synthesizedName)) {
+      deps.add(synthesizedName);
+      return synthesizedName;
+    }
+    this.allKnownNames.add(synthesizedName);
+    const fields: CppFieldModel[] = [];
+    const localDeps = new Set<string>();
+    for (const member of typeNode.members) {
+      if (!ts.isPropertySignature(member) || !member.type || !ts.isIdentifier(member.name)) continue;
+      const cppType = this.mapTypeNode(member.type, [...nameHintParts, member.name.text], localDeps);
+      fields.push({
+        name: member.name.text,
+        cppType,
+        optional: !!member.questionToken
+      });
+    }
+    this.declMap.set(synthesizedName, {
+      name: synthesizedName,
+      kind: "struct",
+      fields,
+      aliasType: null,
+      deps: localDeps,
+      isUnionAlias: false
+    });
+    this.seedOrder.push(synthesizedName);
+    deps.add(synthesizedName);
+    return synthesizedName;
+  }
+
+  private collectKnownTypeDeps(cppType: string, deps: Set<string>): void {
+    for (const match of cppType.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+      const token = match[0];
+      if (this.allKnownNames.has(token)) {
+        deps.add(token);
+      }
+    }
+  }
+
+  private makeSyntheticBaseName(parts: string[]): string {
+    const cleaned = parts
+      .map((p) => p.replace(/[^A-Za-z0-9_]/g, "_"))
+      .map((p) => p.replace(/_+/g, "_"))
+      .map((p) => p.replace(/^_+|_+$/g, ""))
+      .filter((p) => p.length > 0);
+    return cleaned.join("_") || "AnonymousType";
+  }
+
+  private allocateUniqueName(baseName: string): string {
+    let candidate = baseName;
+    let i = 2;
+    while (this.usedNames.has(candidate)) {
+      candidate = `${baseName}_${i}`;
+      i += 1;
+    }
+    this.usedNames.add(candidate);
+    return candidate;
+  }
+
+  private topologicalOrder(): string[] {
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const ordered: string[] = [];
+    const visit = (name: string): void => {
+      if (visited.has(name)) return;
+      if (visiting.has(name)) return;
+      visiting.add(name);
+      const decl = this.declMap.get(name);
+      if (decl) {
+        for (const dep of [...decl.deps].sort()) {
+          if (dep === name) continue;
+          if (this.declMap.has(dep)) visit(dep);
+        }
+      }
+      visiting.delete(name);
+      visited.add(name);
+      ordered.push(name);
+    };
+    for (const name of this.seedOrder) {
+      visit(name);
+    }
+    return ordered;
+  }
+}
+
+function renderCppDecl(decl: CppDeclModel): string {
+  if (decl.kind === "alias") {
+    if (decl.isUnionAlias && decl.aliasType === "QString") {
+      return `using ${decl.name} = QString; // union mapped conservatively`;
+    }
+    return `using ${decl.name} = ${decl.aliasType ?? "QString"};`;
+  }
+  const lines: string[] = [];
+  lines.push(`struct ${decl.name} {`);
+  for (const field of decl.fields) {
+    const cppType = field.optional ? `std::optional<${field.cppType}>` : field.cppType;
+    lines.push(`    ${cppType} ${field.name};`);
+  }
+  const comparisons = decl.fields.map((f) => `${f.name} == other.${f.name}`);
+  lines.push(`    bool operator==(const ${decl.name}& other) const { return ${comparisons.length > 0 ? comparisons.join(" && ") : "true"}; }`);
+  lines.push("};");
+  return lines.join("\n");
+}
+
+function buildCppTypeContext(spec: ParsedSpecModel): CppTypeContext {
+  const normalizer = new CppTypeNormalizer(spec);
+  for (const decl of collectStructDecls(spec)) {
+    normalizer.addSeedDecl(decl);
+  }
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.payloadTypeText) {
+        normalizer.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+      }
+      for (const param of member.parameters) {
+        normalizer.mapTypeText(param.typeText, [service.name, member.name, param.name]);
+      }
+    }
+  }
+  return normalizer.buildContext();
+}
+
+function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
+  const decls = cppTypes.orderedDecls.map(renderCppDecl).join("\n\n");
+  const metatypes = cppTypes.structNames
+    .flatMap((name) => [
+      `Q_DECLARE_METATYPE(${spec.widgetName}::${name})`,
+      `Q_DECLARE_METATYPE(QList<${spec.widgetName}::${name}>)`
+    ])
+    .join("\n");
   return `#pragma once
 #include <QString>
 #include <QStringList>
 #include <QList>
 #include <QVariantMap>
+#include <QMetaType>
 #include <cstdint>
 #include <optional>
 
@@ -179,10 +560,12 @@ namespace ${spec.widgetName} {
 ${decls}
 
 } // namespace ${spec.widgetName}
+
+${metatypes}
 `;
 }
 
-function renderWidgetHeader(spec: ParsedSpecModel): string {
+function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const callbackAliases: string[] = [];
   const publicMethods: string[] = [];
   const signals: string[] = [];
@@ -198,22 +581,22 @@ function renderWidgetHeader(spec: ParsedSpecModel): string {
       bindings.push({ service: service.name, member: member.name, kind: member.kind });
       const memberPascal = pascalCase(member.name);
       if (member.kind === "Call" && member.payloadTypeText) {
-        const cppType = mapTsTypeToCpp(member.payloadTypeText);
-        const args = toCppArgs(member);
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         callbackAliases.push(`using ${memberPascal}Handler = std::function<${cppType}(${args})>;`);
         publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
         fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
       } else if (member.kind === "Emitter") {
-        const args = toCppArgs(member);
+        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         callbackAliases.push(`using ${memberPascal}Handler = std::function<void(${args})>;`);
         publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
         fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
       } else if (member.kind === "Slot") {
-        const ret = member.payloadTypeText ? mapTsTypeToCpp(member.payloadTypeText) : "void";
-        const args = toCppArgs(member);
+        const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
+        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         publicMethods.push(`${ret} ${member.name}(${args}${args ? ", " : ""}bool* ok = nullptr, QString* error = nullptr);`);
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
-        const cppType = mapTsTypeToCpp(member.payloadTypeText);
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
         properties.push(`Q_PROPERTY(${cppType} ${member.name} READ ${member.name} WRITE set${cap} NOTIFY ${member.name}Changed)`);
         publicMethods.push(`${cppType} ${member.name}() const;`);
@@ -282,12 +665,26 @@ ${fields.map((f) => `    ${f}`).join("\n")}
 `;
 }
 
-function renderCppStub(spec: ParsedSpecModel): string {
+function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const lines: string[] = [];
   lines.push(`#include "include/${spec.widgetName}.h"`);
   lines.push(`#include <QDebug>`);
+  lines.push(`#include <QMetaType>`);
   lines.push("");
   lines.push(`extern int qInitResources_${spec.widgetName}();`);
+  lines.push("");
+  lines.push("namespace {");
+  lines.push("void registerGeneratedMetaTypes() {");
+  lines.push("    static const bool registered = []() {");
+  for (const typeName of cppTypes.structNames) {
+    lines.push(`        qRegisterMetaType<${spec.widgetName}::${typeName}>("${spec.widgetName}::${typeName}");`);
+    lines.push(`        qRegisterMetaType<QList<${spec.widgetName}::${typeName}>>("QList<${spec.widgetName}::${typeName}>");`);
+  }
+  lines.push("        return true;");
+  lines.push("    }();");
+  lines.push("    Q_UNUSED(registered);");
+  lines.push("}");
+  lines.push("}");
   lines.push("");
   lines.push(`namespace ${spec.widgetName} {`);
   lines.push("");
@@ -305,6 +702,7 @@ function renderCppStub(spec: ParsedSpecModel): string {
   lines.push(`        return true;`);
   lines.push(`    }();`);
   lines.push(`    Q_UNUSED(kResourcesInitialized);`);
+  lines.push(`    registerGeneratedMetaTypes();`);
   lines.push(`    installBridgeBindings();`);
   lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${spec.widgetName}::diagnosticsForwarded);`);
   lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
@@ -341,13 +739,13 @@ function renderCppStub(spec: ParsedSpecModel): string {
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
-      const cppType = mapTsTypeToCpp(member.payloadTypeText);
+      const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
       const pascal = pascalCase(member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       lines.push(`        if (!m_${member.name}Handler) return QVariant();`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
-        const pType = mapTsTypeToCpp(p.typeText);
+        const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
         lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       const argNames = member.parameters.map((p) => p.name).join(", ");
@@ -367,7 +765,7 @@ function renderCppStub(spec: ParsedSpecModel): string {
       lines.push(`        if (!m_${member.name}Handler) return;`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
-        const pType = mapTsTypeToCpp(p.typeText);
+        const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
         lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       const argNames = member.parameters.map((p) => p.name).join(", ");
@@ -382,7 +780,7 @@ function renderCppStub(spec: ParsedSpecModel): string {
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Input" || !member.payloadTypeText) continue;
-      const cppType = mapTsTypeToCpp(member.payloadTypeText);
+      const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       lines.push(`        const ${cppType} typedValue = ${variantToCppExpression(cppType, "value")};`);
       lines.push(`        set${pascalCase(member.name)}(typedValue);`);
@@ -415,8 +813,8 @@ function renderCppStub(spec: ParsedSpecModel): string {
       }
 
       if (member.kind === "Slot") {
-        const ret = member.payloadTypeText ? mapTsTypeToCpp(member.payloadTypeText) : "void";
-        const args = toCppArgs(member);
+        const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
+        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         const argsWithMeta = `${args}${args ? ", " : ""}bool* ok, QString* error`;
         lines.push(`${ret} ${spec.widgetName}::${member.name}(${argsWithMeta}) {`);
         lines.push(`    QVariantList invokeArgs;`);
@@ -429,12 +827,17 @@ function renderCppStub(spec: ParsedSpecModel): string {
         lines.push(`    const bool success = invokeSlot(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), invokeArgs, &result, &invokeError);`);
         lines.push(`    if (ok != nullptr) *ok = success;`);
         lines.push(`    if (error != nullptr) *error = invokeError;`);
-        lines.push(`    if (!success) return ${ret}{};`);
-        lines.push(`    return ${variantToCppExpression(ret, "result")};`);
+        if (ret === "void") {
+          lines.push(`    if (!success) return;`);
+          lines.push(`    return;`);
+        } else {
+          lines.push(`    if (!success) return ${ret}{};`);
+          lines.push(`    return ${variantToCppExpression(ret, "result")};`);
+        }
         lines.push("}");
         lines.push("");
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
-        const cppType = mapTsTypeToCpp(member.payloadTypeText);
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
         lines.push(`${cppType} ${spec.widgetName}::${member.name}() const {`);
         lines.push(`    return m_${member.name};`);
@@ -548,9 +951,13 @@ function renderNpmPackage(spec: ParsedSpecModel): string {
   );
 }
 
-function renderTypeDeclarations(spec: ParsedSpecModel): string {
-  const decls = collectStructDecls(spec)
-    .map((d) => stripAnQstType(d.nodeText))
+function renderTypeDeclarations(spec: ParsedSpecModel, exported = false): string {
+  const decls = collectReachableNamespaceDecls(spec)
+    .map((d) => {
+      const normalized = stripAnQstType(d.nodeText);
+      if (!exported) return normalized;
+      return normalized.replace(/^(\s*)(interface|type)\b/m, "$1export $2");
+    })
     .join("\n\n");
   if (decls.trim().length === 0) return "";
   return `${decls}\n`;
@@ -624,9 +1031,61 @@ ${methodLines.join("\n")}
 `;
 }
 
+function renderTsServiceDts(spec: ParsedSpecModel, serviceName: string): string {
+  const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
+  const setMembers: string[] = [];
+  const onSlotMembers: string[] = [];
+  const classMembers: string[] = [];
+  const setInterfaceName = `${serviceName}Set`;
+  const onSlotInterfaceName = `${serviceName}OnSlot`;
+
+  for (const m of members) {
+    const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
+    if (m.kind === "Call") {
+      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      classMembers.push(`  ${m.name}(${args}): Promise<${ret}>;`);
+      continue;
+    }
+    if (m.kind === "Emitter") {
+      classMembers.push(`  ${m.name}(${args}): void;`);
+      continue;
+    }
+    if (m.kind === "Slot") {
+      const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      onSlotMembers.push(`  ${m.name}(handler: (${args}) => ${ret}): void;`);
+      continue;
+    }
+    if ((m.kind === "Input" || m.kind === "Output") && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      classMembers.push(`  ${m.name}(): ${tsType};`);
+      if (m.kind === "Input") {
+        setMembers.push(`  ${m.name}(value: ${tsType}): void;`);
+      }
+    }
+  }
+
+  const setInterfaceDecl = setMembers.length > 0
+    ? `export interface ${setInterfaceName} {\n${setMembers.join("\n")}\n}`
+    : `export interface ${setInterfaceName} {}`;
+  const onSlotInterfaceDecl = onSlotMembers.length > 0
+    ? `export interface ${onSlotInterfaceName} {\n${onSlotMembers.join("\n")}\n}`
+    : `export interface ${onSlotInterfaceName} {}`;
+  const classMemberBlock = classMembers.length > 0 ? `\n${classMembers.join("\n")}` : "";
+  return `${setInterfaceDecl}
+
+${onSlotInterfaceDecl}
+
+export declare class ${serviceName} {
+  readonly set: ${setInterfaceName};
+  readonly onSlot: ${onSlotInterfaceName};${classMemberBlock}
+}`;
+}
+
 function renderTsIndex(spec: ParsedSpecModel): string {
   const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name)).join("\n");
+  const typeImports = renderRequiredTypeImports(spec, "npmpackage/index.ts");
   return `import { Injectable, inject, signal } from "@angular/core";
+${typeImports}
 
 type SlotHandler = (...args: unknown[]) => unknown;
 type OutputHandler = (value: unknown) => void;
@@ -918,12 +1377,13 @@ ${serviceClasses}
 }
 
 function renderTypeIndexDts(spec: ParsedSpecModel): string {
+  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types/index.d.ts").trim();
   const serviceDecls = spec.services
-    .map((s) => `export declare class ${s.name} {\n  readonly set: Record<string, (value: unknown) => void>;\n  readonly onSlot: Record<string, (handler: (...args: unknown[]) => unknown) => void>;\n}`)
+    .map((s) => renderTsServiceDts(spec, s.name))
     .join("\n\n");
-  return `${renderTypeDeclarations(spec)}
-${serviceDecls}
-`;
+  const typeDecls = renderTypeDeclarations(spec, true).trim();
+  const sections = [typeImports, typeDecls, serviceDecls.trim()].filter((s) => s.length > 0);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
 function renderJsIndex(): string {
@@ -936,18 +1396,36 @@ export interface GeneratedFiles {
   [relativePath: string]: string;
 }
 
-export function generateOutputs(spec: ParsedSpecModel): GeneratedFiles {
-  return {
-    "npmpackage/package.json": renderNpmPackage(spec),
-    "npmpackage/index.ts": renderTsIndex(spec),
-    "npmpackage/index.js": renderJsIndex(),
-    "npmpackage/types/index.d.ts": renderTypeIndexDts(spec),
-    "cpplibrary/CMakeLists.txt": renderCMake(spec),
-    [`cpplibrary/${spec.widgetName}.qrc`]: renderEmbeddedQrc(spec.widgetName, []),
-    [`cpplibrary/include/${spec.widgetName}.h`]: renderWidgetHeader(spec),
-    [`cpplibrary/include/${spec.widgetName}Types.h`]: renderTypesHeader(spec),
-    [`cpplibrary/${spec.widgetName}.cpp`]: renderCppStub(spec)
-  };
+export interface GenerateOutputsOptions {
+  emitQWidget: boolean;
+  emitAngularService: boolean;
+}
+
+function generatedCppLibraryDirName(widgetName: string): string {
+  return `${widgetName}_QtWidget`;
+}
+
+export function generateOutputs(
+  spec: ParsedSpecModel,
+  options: GenerateOutputsOptions = { emitQWidget: true, emitAngularService: true }
+): GeneratedFiles {
+  const cppDir = generatedCppLibraryDirName(spec.widgetName);
+  const outputs: GeneratedFiles = {};
+  if (options.emitAngularService) {
+    outputs["npmpackage/package.json"] = renderNpmPackage(spec);
+    outputs["npmpackage/index.ts"] = renderTsIndex(spec);
+    outputs["npmpackage/index.js"] = renderJsIndex();
+    outputs["npmpackage/types/index.d.ts"] = renderTypeIndexDts(spec);
+  }
+  if (options.emitQWidget) {
+    const cppTypes = buildCppTypeContext(spec);
+    outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec);
+    outputs[`${cppDir}/${spec.widgetName}.qrc`] = renderEmbeddedQrc(spec.widgetName, []);
+    outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetHeader(spec, cppTypes);
+    outputs[`${cppDir}/include/${spec.widgetName}Types.h`] = renderTypesHeader(spec, cppTypes);
+    outputs[`${cppDir}/${spec.widgetName}.cpp`] = renderCppStub(spec, cppTypes);
+  }
+  return outputs;
 }
 
 export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): void {
@@ -1128,7 +1606,7 @@ export function installEmbeddedWebBundle(cwd: string, widgetName: string): boole
     return false;
   }
 
-  const cppLibraryRoot = path.join(cwd, "generated_output", "cpplibrary");
+  const cppLibraryRoot = path.join(cwd, "generated_output", generatedCppLibraryDirName(widgetName));
   const cppLibraryWebRoot = path.join(cppLibraryRoot, "webapp");
   fs.rmSync(cppLibraryWebRoot, { recursive: true, force: true });
   fs.mkdirSync(cppLibraryWebRoot, { recursive: true });
@@ -1149,7 +1627,7 @@ function renderQtIntegrationCMake(widgetName: string): string {
   return `cmake_minimum_required(VERSION 3.21)
 
 set(${webappRootVar} "\${CMAKE_CURRENT_LIST_DIR}/..")
-set(${generatedRootVar} "\${${webappRootVar}}/generated_output/cpplibrary")
+set(${generatedRootVar} "\${${webappRootVar}}/generated_output/${generatedCppLibraryDirName(widgetName)}")
 set(${generatedIncludeVar} "\${${generatedRootVar}}/include")
 
 if(TARGET ${widgetTarget})

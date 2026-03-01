@@ -2,6 +2,11 @@ import ts from "typescript";
 import { VerifyError } from "./errors";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel, VerificationStats } from "./model";
 
+export interface VerificationResult {
+  stats: VerificationStats;
+  message: string;
+}
+
 function parseTypeNodeFromText(typeText: string): ts.TypeNode {
   const source = ts.createSourceFile(
     "__inline__.ts",
@@ -164,7 +169,7 @@ function collectReachableTypeNames(spec: ParsedSpecModel): Set<string> {
   return seen;
 }
 
-export function verifySpec(spec: ParsedSpecModel): VerificationStats {
+export function verifySpec(spec: ParsedSpecModel): VerificationResult {
   checkServiceDuplicates(spec);
 
   for (const service of spec.services) {
@@ -184,9 +189,13 @@ export function verifySpec(spec: ParsedSpecModel): VerificationStats {
   }
 
   const reachable = collectReachableTypeNames(spec);
-  return {
+  const stats: VerificationStats = {
     namespaceDeclaredTypes: spec.namespaceTypeDecls.length,
     reachableGeneratedTypes: reachable.size,
     serviceCount: spec.services.length
+  };
+  return {
+    stats,
+    message: `AnQst spec valid:\n    ${stats.namespaceDeclaredTypes} types.\n    ${stats.serviceCount} services.`
   };
 }

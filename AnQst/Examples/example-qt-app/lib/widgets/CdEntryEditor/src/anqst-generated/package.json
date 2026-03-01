@@ -1,0 +1,20 @@
+{
+  "name": "cdentryeditor-generated",
+  "version": "0.1.0",
+  "private": true,
+  "types": "types/index.d.ts",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "anqst": {
+    "widget": "CdEntryEditor",
+    "services": [
+      "CdEntryService"
+    ],
+    "supportsDevelopmentModeTransport": false
+  }
+}

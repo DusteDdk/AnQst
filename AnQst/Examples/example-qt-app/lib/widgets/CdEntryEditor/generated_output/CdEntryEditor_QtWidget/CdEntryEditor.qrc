@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/cdentryeditor">
+        <file alias="favicon.ico">webapp/favicon.ico</file>
+        <file alias="index.html">webapp/index.html</file>
+        <file alias="main-OJTL3JJZ.js">webapp/main-OJTL3JJZ.js</file>
+        <file alias="styles-5INURTSO.css">webapp/styles-5INURTSO.css</file>
+    </qresource>
+</RCC>

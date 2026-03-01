@@ -66,9 +66,13 @@ declare namespace BurgerConstructor {
 ```bash
 ~/hax/AngularWidgets/BurgerConstructorWidget $ npm run build
 # (Implicit: anqst instill added `npx anqst` commands to package.json scripts)
-# `anqst build` regenerates `generated_output` and installs generated TypeScript types and Angular services to `src/anqst-generated`.
-# For Angular projects, `anqst build` also runs a production `ng build` and embeds the web output in `generated_output/cpplibrary/webapp` via generated `<WidgetName>.qrc`.
-# `anqst build` also writes `anqst-cmake/CMakeLists.txt` so Qt hosts can add the widget as a normal CMake dependency.
+# `anqst build` regenerates `generated_output`.
+# By default (`AnQst.generate` contains both "AngularService" and "QWidget"):
+# - installs generated TypeScript types/services to `src/anqst-generated`
+# - writes C++ output under `generated_output/<WidgetName>_QtWidget/`
+# - writes `anqst-cmake/CMakeLists.txt` for Qt integration
+# For Angular projects, QWidget mode runs a production `ng build` and embeds the web output in
+# `generated_output/<WidgetName>_QtWidget/webapp` via generated `<WidgetName>.qrc`.
 # The Qt host app only needs to link against the generated widget library target.
 ```
 

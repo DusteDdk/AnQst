@@ -8,9 +8,12 @@ interface PackageJsonLike {
   devDependencies?: Record<string, string>;
   AnQst?: {
     spec?: string;
+    generate?: string[];
   };
   [key: string]: unknown;
 }
+
+export const DEFAULT_ANQST_GENERATE_TARGETS = ["QWidget", "AngularService", "//DOM", "//node_express_ws"] as const;
 
 function readJsonFile<T>(filePath: string): T {
   const raw = fs.readFileSync(filePath, "utf8");
@@ -47,6 +50,18 @@ export function resolveAnQstSpecPath(cwd: string): string {
     throw new VerifyError("Missing package.json key 'AnQst.spec'. Run 'anqst instill <WidgetName>' first.");
   }
   return path.resolve(cwd, spec);
+}
+
+export function resolveAnQstGenerateTargets(cwd: string): string[] {
+  const { packageJson } = readProjectPackage(cwd);
+  const configured = packageJson.AnQst?.generate;
+  if (configured === undefined) {
+    return [...DEFAULT_ANQST_GENERATE_TARGETS];
+  }
+  if (!Array.isArray(configured) || configured.some((value) => typeof value !== "string")) {
+    throw new VerifyError("Invalid package.json key 'AnQst.generate': expected string array.");
+  }
+  return [...configured];
 }
 
 function loadDslSource(): string {
@@ -106,7 +121,8 @@ export function runInstill(cwd: string, widgetName: string): string {
       test: prependScript(packageJson.scripts?.test, "npx anqst test")
     },
     AnQst: {
-      spec: `${cleanName}.AnQst.d.ts`
+      spec: `${cleanName}.AnQst.d.ts`,
+      generate: [...DEFAULT_ANQST_GENERATE_TARGETS]
     }
   };
 

@@ -14,8 +14,8 @@ npm run anqst:build
 `npm run anqst:build` refreshes:
 
 - `src/anqst-generated/` (installed Angular services/types consumed by the app)
-- `generated_output/cpplibrary/` (generated C++ widget library sources + CMake)
-- `generated_output/cpplibrary/webapp/` and `generated_output/cpplibrary/DemoHostWidget.qrc` (embedded Angular runtime bundle used by the generated widget library)
+- `generated_output/DemoHostWidget_QtWidget/` (generated C++ widget library sources + CMake)
+- `generated_output/DemoHostWidget_QtWidget/webapp/` and `generated_output/DemoHostWidget_QtWidget/DemoHostWidget.qrc` (embedded Angular runtime bundle used by the generated widget library)
 - `anqst-cmake/CMakeLists.txt` (Qt-facing integration entrypoint)
 
 Qt applications can consume the generated widget with:

@@ -1,0 +1,72 @@
+<main class="editor">
+  <header class="header">
+    <h1>CdEntryEditor</h1>
+    <div class="status">
+      <span>Collection: {{ service.currentCollectionName() || 'N/A' }}</span>
+      <span>Read-only: {{ service.readOnlyMode() ? 'Yes' : 'No' }}</span>
+      <span>Saving: {{ service.saveInProgress() ? 'Yes' : 'No' }}</span>
+    </div>
+  </header>
+
+  <section class="grid">
+    <label>CD Id
+      <input id="field-cdId" [value]="service.draft().cdId.toString()" (input)="onCdIdInput($any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Artist
+      <input id="field-artist" [value]="service.draft().artist" (input)="onTextField('artist', $any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Album title
+      <input id="field-albumTitle" [value]="service.draft().albumTitle" (input)="onTextField('albumTitle', $any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Release year
+      <input id="field-releaseYear" type="number" [value]="service.draft().releaseYear" (input)="onYearInput($any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Genre
+      <select id="field-genre" [value]="service.draft().genre" (change)="onGenreChange($any($event.target).value)" [disabled]="service.readOnlyMode()">
+        @for (genre of genres; track genre) {
+          <option [value]="genre">{{ genre }}</option>
+        }
+      </select>
+    </label>
+    <label>Catalog number
+      <input id="field-catalogNumber" [value]="service.draft().catalogNumber" (input)="onTextField('catalogNumber', $any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Barcode
+      <input id="field-barcode" [value]="service.draft().barcode" (input)="onTextField('barcode', $any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Created by
+      <input id="field-createdBy-name" [value]="service.draft().createdBy.name" (input)="onCreatedByName($any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+    <label>Friends (comma-separated IDs)
+      <input id="field-createdBy-meta-friends" [value]="friendsCsv()" (input)="onCreatedByFriends($any($event.target).value)" [disabled]="service.readOnlyMode()" />
+    </label>
+  </section>
+
+  <section class="actions">
+    <button (click)="suggestCatalogNumber()" [disabled]="service.readOnlyMode()">Suggest Catalog</button>
+    <button (click)="suggestGenres()" [disabled]="service.readOnlyMode()">Suggest Genre</button>
+    <button (click)="normalizeBarcode()" [disabled]="service.readOnlyMode()">Normalize Barcode</button>
+    <button (click)="validateDraft()">Validate Draft</button>
+  </section>
+
+  <section class="tracks">
+    <div class="tracks-header">
+      <h2>Tracks</h2>
+      <button (click)="addTrack()" [disabled]="service.readOnlyMode()">Add Track</button>
+    </div>
+    @for (track of service.draft().tracks; track $index) {
+      <div class="track-row">
+        <button class="select-btn" (click)="selectTrack($index)" [disabled]="service.readOnlyMode()">{{ service.selectedTrackIndex() === $index ? 'Selected' : 'Select' }}</button>
+        <input [value]="track.title" (input)="onTrackTitle($index, $any($event.target).value)" [disabled]="service.readOnlyMode()" placeholder="Title" />
+        <input type="number" [value]="track.durationSeconds" (input)="onTrackDuration($index, $any($event.target).value)" [disabled]="service.readOnlyMode()" placeholder="Duration (s)" />
+        <button (click)="removeTrack($index)" [disabled]="service.readOnlyMode()">Remove</button>
+      </div>
+    }
+  </section>
+
+  <section>
+    <label>Notes
+      <textarea id="field-notes" rows="6" [value]="service.draft().notes" (input)="onTextField('notes', $any($event.target).value)" [disabled]="service.readOnlyMode()"></textarea>
+    </label>
+  </section>
+</main>

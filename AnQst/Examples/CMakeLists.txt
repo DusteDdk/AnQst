@@ -14,3 +14,4 @@ set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build AnQstWebBase unit tests" FORC
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../AnQstWidget/AnQstWebBase" "${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/demo" "${CMAKE_CURRENT_BINARY_DIR}/demo")
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/example-qt-app" "${CMAKE_CURRENT_BINARY_DIR}/example-qt-app")

@@ -39,6 +39,17 @@ export interface TypeDeclModel {
   loc: SourceLoc;
 }
 
+export interface ImportedTypeBinding {
+  importedName: string;
+  localName: string;
+}
+
+export interface SpecImportModel {
+  moduleSpecifier: string;
+  defaultImport: string | null;
+  namedImports: ImportedTypeBinding[];
+}
+
 export interface ParsedSpecModel {
   filePath: string;
   widgetName: string;
@@ -47,6 +58,7 @@ export interface ParsedSpecModel {
   namespaceTypeDecls: TypeDeclModel[];
   importedTypeDecls: Map<string, TypeDeclModel>;
   importedTypeSymbols: Set<string>;
+  specImports: SpecImportModel[];
 }
 
 export interface VerificationStats {
