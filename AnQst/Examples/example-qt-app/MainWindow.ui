@@ -14,12 +14,65 @@
    <string>CdEntryEditor Qt Host</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QHBoxLayout" name="horizontalLayout">
     <item>
-     <widget class="QWidget" name="widgetHost" native="true"/>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+      <widget class="QWidget" name="widgetHost" native="true"/>
+      <widget class="QWidget" name="leftPanel">
+       <layout class="QVBoxLayout" name="leftPanelLayout">
+        <item>
+         <layout class="QHBoxLayout" name="toolButtonsLayout">
+          <item>
+           <widget class="QToolButton" name="btnAddEntry">
+            <property name="text">
+             <string>+</string>
+            </property>
+            <property name="toolTip">
+             <string>Add CD entry</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QToolButton" name="btnDeleteEntry">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="toolTip">
+             <string>Delete selected CD entry</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QListWidget" name="listEntries"/>
+        </item>
+       </layout>
+      </widget>
+     </widget>
     </item>
    </layout>
   </widget>
+  <widget class="QStatusBar" name="statusbar"/>
  </widget>
  <resources/>
  <connections/>

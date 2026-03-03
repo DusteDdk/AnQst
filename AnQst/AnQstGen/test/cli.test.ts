@@ -185,9 +185,13 @@ test("build command generates raw output and installs TypeScript", () => {
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.qrc")));
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
     assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/types/index.d.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")));
   });
@@ -202,10 +206,14 @@ test("generate command verifies and returns build summary message", () => {
     assert.match(result.verificationMessage ?? "", /^AnQst spec valid:\n {4}\d+ types\.\n {4}\d+ services\.$/);
     assert.equal(
       result.message,
-      "\nAnQst spec CdWidget.AnQst.d.ts built.\n    Services CdService are available for import from src/anqst-generated.\n    Widget library available in generated_output/CdWidget_QtWidget.\n"
+      "\nAnQst spec CdWidget.AnQst.d.ts built.\n    Services CdService are available from src/anqst-generated/services.\n    Generated types are available from src/anqst-generated/types.\n    Widget library available in generated_output/CdWidget_QtWidget.\n"
     );
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
   });
 });
@@ -347,7 +355,11 @@ test("build with only AngularService skips QWidget artifacts", () => {
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")));
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")), false);
   });
@@ -379,7 +391,43 @@ test("build with only QWidget skips TypeScript generation", () => {
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
     assert.ok(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")));
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")), false);
+  });
+});
+
+test("build with only node_express_ws emits backend module only", () => {
+  withTempProject((projectDir) => {
+    fs.writeFileSync(
+      path.join(projectDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "tmp-widget",
+          version: "1.0.0",
+          AnQst: {
+            spec: "CdWidget.AnQst.d.ts",
+            generate: ["node_express_ws"]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
+
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_node_express_ws/index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_node_express_ws/types/index.d.ts")));
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")), false);
   });
 });
 
@@ -407,8 +455,12 @@ test("build with empty generate list emits nothing", () => {
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")), false);
   });
 });
@@ -439,6 +491,10 @@ test("generate command honors package AnQst.generate", () => {
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
     assert.ok(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")));
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "generated_output/npmpackage/types.ts")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/index.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/services.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated/types.ts")), false);
   });
 });

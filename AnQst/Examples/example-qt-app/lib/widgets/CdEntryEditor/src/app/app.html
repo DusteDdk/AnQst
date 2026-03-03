@@ -43,6 +43,7 @@
   </section>
 
   <section class="actions">
+    <button (click)="saveDraft()" [disabled]="service.readOnlyMode()">Save</button>
     <button (click)="suggestCatalogNumber()" [disabled]="service.readOnlyMode()">Suggest Catalog</button>
     <button (click)="suggestGenres()" [disabled]="service.readOnlyMode()">Suggest Genre</button>
     <button (click)="normalizeBarcode()" [disabled]="service.readOnlyMode()">Normalize Barcode</button>

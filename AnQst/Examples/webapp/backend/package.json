@@ -1,0 +1,20 @@
+{
+  "name": "webapp-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/backend/src/server.js",
+    "dev": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.9.2"
+  }
+}

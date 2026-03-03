@@ -51,12 +51,14 @@ npx anqst <command> [args]
   - Reads optional `package.json.AnQst.generate` string array to select emitted outputs:
     - `"QWidget"` enables Qt/C++ emission and embedding flow.
     - `"AngularService"` enables TypeScript service package emission/install.
+    - `"node_express_ws"` enables Node/Express backend bridge package emission.
     - Empty list is valid and emits nothing.
-    - `//DOM` and `//node_express_ws` are accepted placeholders for future targets.
+    - `//DOM` and `//node_express_ws` remain accepted placeholders and are ignored.
   - Verifies and generates outputs.
   - Writes raw outputs to `<cwd>/generated_output`:
     - TypeScript package sources under `generated_output/npmpackage`
     - C++ widget library sources plus CMake environment under `generated_output/<WidgetName>_QtWidget`
+    - Node/Express backend package sources under `generated_output/<WidgetName>_node_express_ws`
   - When `"AngularService"` is enabled:
     - Replaces installed TypeScript artifacts in `<cwd>/src/anqst-generated`.
   - When `"QWidget"` is enabled:
@@ -69,6 +71,7 @@ npx anqst <command> [args]
   - Also applies `package.json.AnQst.generate` when `package.json` is present and contains `AnQst`.
   - If `"AngularService"` is enabled, installs into `src/anqst-generated`.
   - If `"QWidget"` is enabled, writes `anqst-cmake/CMakeLists.txt`.
+  - If `"node_express_ws"` is enabled, emits `generated_output/<WidgetName>_node_express_ws`.
   - If no package config is present, defaults to emitting both QWidget and AngularService outputs.
   - Writes to `<cwd>/generated_output`.
 
@@ -111,8 +114,14 @@ When generation succeeds:
 
 - `generated_output/npmpackage/package.json`
 - `generated_output/npmpackage/index.ts`
+- `generated_output/npmpackage/services.ts`
+- `generated_output/npmpackage/types.ts`
 - `generated_output/npmpackage/index.js`
+- `generated_output/npmpackage/services.js`
+- `generated_output/npmpackage/types.js`
 - `generated_output/npmpackage/types/index.d.ts`
+- `generated_output/npmpackage/types/services.d.ts`
+- `generated_output/npmpackage/types/types.d.ts`
 - `generated_output/<WidgetName>_QtWidget/CMakeLists.txt`
 - `generated_output/<WidgetName>_QtWidget/<WidgetName>.qrc`
 - `generated_output/<WidgetName>_QtWidget/include/<WidgetName>.h`

@@ -3,11 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "types": "types/index.d.ts",
-  "main": "index.js",
+  "main": "services.js",
   "exports": {
     ".": {
       "types": "./types/index.d.ts",
       "default": "./index.js"
+    },
+    "./services": {
+      "types": "./types/services.d.ts",
+      "default": "./services.js"
+    },
+    "./types": {
+      "types": "./types/types.d.ts",
+      "default": "./types.js"
     }
   },
   "anqst": {

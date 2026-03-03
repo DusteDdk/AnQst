@@ -22,6 +22,7 @@ export interface VerifyResult {
 interface GenerationTargets {
   emitQWidget: boolean;
   emitAngularService: boolean;
+  emitNodeExpressWs: boolean;
 }
 
 interface CleanReportRow {
@@ -94,16 +95,21 @@ export function runGenerate(specArg: string): VerifyResult {
   const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
   const relativeTypeScriptInstallPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "src", "anqst-generated")));
   const relativeCppLibraryPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "generated_output", `${parsed.widgetName}_QtWidget`)));
+  const relativeNodeModulePath = normalizeSlashes(path.relative(cwd, path.join(cwd, "generated_output", `${parsed.widgetName}_node_express_ws`)));
   const serviceList = parsed.services.map((s) => s.name).join(", ");
   const messageLines: string[] = [];
   messageLines.push(`AnQst spec ${relativeSpecFile} built.`);
   if (generationTargets.emitAngularService) {
-    messageLines.push(`    Services ${serviceList} are available for import from ${relativeTypeScriptInstallPath}.`);
+    messageLines.push(`    Services ${serviceList} are available from ${relativeTypeScriptInstallPath}/services.`);
+    messageLines.push(`    Generated types are available from ${relativeTypeScriptInstallPath}/types.`);
   }
   if (generationTargets.emitQWidget) {
     messageLines.push(`    Widget library available in ${relativeCppLibraryPath}.`);
   }
-  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget) {
+  if (generationTargets.emitNodeExpressWs) {
+    messageLines.push(`    Node Express WS module available in ${relativeNodeModulePath}.`);
+  }
+  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
     messageLines.push("    No outputs selected by AnQst.generate.");
   }
   return {
@@ -156,7 +162,7 @@ export function runBuild(cwd: string): VerifyResult {
     }
   }
 
-  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget) {
+  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
     return {
       success: true,
       message: "Build completed: no outputs selected by AnQst.generate"
@@ -170,6 +176,9 @@ export function runBuild(cwd: string): VerifyResult {
   if (generationTargets.emitQWidget) {
     parts.push("Qt integration CMake emitted to anqst-cmake/");
     parts.push("C++ widget library refreshed with embedded web assets");
+  }
+  if (generationTargets.emitNodeExpressWs) {
+    parts.push(`Node Express WS module emitted to generated_output/${parsed.widgetName}_node_express_ws`);
   }
   return {
     success: true,
@@ -271,7 +280,8 @@ function resolveGenerationTargetsFromCwd(cwd: string, requirePackageAnQst = fals
 function toGenerationTargets(targets: string[]): GenerationTargets {
   return {
     emitQWidget: targets.includes("QWidget"),
-    emitAngularService: targets.includes("AngularService")
+    emitAngularService: targets.includes("AngularService"),
+    emitNodeExpressWs: targets.includes("node_express_ws")
   };
 }
 
@@ -313,6 +323,7 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
   const parsed = parseSpecFile(specPath);
   const widgetDirs = [
     path.join("generated_output", `${parsed.widgetName}_QtWidget`),
+    path.join("generated_output", `${parsed.widgetName}_node_express_ws`),
     path.join("src", "anqst-generated"),
     "anqst-cmake"
   ];

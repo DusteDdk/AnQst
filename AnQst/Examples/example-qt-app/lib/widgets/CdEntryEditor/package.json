@@ -4,9 +4,11 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "build": "npx anqst build && ng build",
+    "anqst:build": "npm --prefix ../../../../../AnQstGen install && npm --prefix ../../../../../AnQstGen run build && PATH=\"$(pwd)/../../../../../AnQstGen/dist/src/bin:$PATH\" anqst.js build",
+    "anqst:test": "npm --prefix ../../../../../AnQstGen install && npm --prefix ../../../../../AnQstGen run build && PATH=\"$(pwd)/../../../../../AnQstGen/dist/src/bin:$PATH\" anqst.js test",
+    "build": "npm run anqst:build && ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "npx anqst test && ng test"
+    "test": "npm run anqst:test && ng test"
   },
   "private": true,
   "packageManager": "npm@10.9.2",

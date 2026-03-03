@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DemoBehaviorService } from '../anqst-generated/index';
+import { DemoBehaviorService } from '../anqst-generated/services';
 
 @Component({
   selector: 'app-root',

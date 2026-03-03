@@ -1,0 +1,29 @@
+# CMake build artifacts
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+Makefile
+*.ninja
+.ninja_*
+*.dir/
+*.a
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Node.js artifacts
+**/node_modules/
+**/package-lock.json
+
+# AnQstGen/generated artifacts
+AnQst/AnQstGen/dist/
+AnQst/**/generated_output/
+AnQst/**/anqst-generated/

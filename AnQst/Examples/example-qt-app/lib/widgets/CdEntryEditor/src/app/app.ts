@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { CdEntryService } from '../anqst-generated';
+import { CdEntryService } from '../anqst-generated/services';
 import type { CdDraft, Genre, Track } from '../anqst-generated/types';
 import type { User } from '../../types/User';
 
@@ -19,6 +19,7 @@ export class App {
     }
     this.service.set.selectedTrackIndex(0);
     this.service.onSlot.focusField((fieldName) => this.focusByFieldName(fieldName));
+    this.service.onSlot.showDraft((draftJson, selectedTrackIndex) => this.showDraftFromSlot(draftJson, selectedTrackIndex));
     this.service.onSlot.replaceTracks((tracks) => this.replaceTracksFromSlot(tracks));
   }
 
@@ -47,7 +48,8 @@ export class App {
 
   onCdIdInput(value: string): void {
     const draft = this.requireDraft();
-    const cdId = value.trim() === '' ? 0n : BigInt(value);
+    const parsed = Number.parseInt(value, 10);
+    const cdId = (Number.isFinite(parsed) ? parsed : 0) as unknown as bigint;
     this.service.set.draft({ ...draft, cdId });
     this.service.fieldTouched('cdId');
     this.service.dirtyChanged(true);
@@ -143,6 +145,10 @@ export class App {
     this.service.set.draft({ ...draft, notes: `${draft.notes}\n${message}`.trim() });
   }
 
+  saveDraft(): void {
+    this.service.saveRequested(this.serializeDraftForHost(this.requireDraft()));
+  }
+
   friendsCsv(): string {
     return this.safeDraft()?.createdBy.meta.friends.join(', ') ?? '';
   }
@@ -156,6 +162,37 @@ export class App {
     const draft = this.requireDraft();
     this.service.set.draft({ ...draft, tracks });
     this.service.set.selectedTrackIndex(0);
+  }
+
+  private showDraftFromSlot(draftJson: string, selectedTrackIndex: number): void {
+    const draft = this.parseDraftJson(draftJson);
+    this.service.set.draft(draft);
+    this.service.set.selectedTrackIndex(selectedTrackIndex);
+  }
+
+  private parseDraftJson(draftJson: string): CdDraft {
+    try {
+      const parsed = JSON.parse(draftJson) as Partial<CdDraft> | null;
+      if (!parsed || typeof parsed !== 'object') {
+        return this.createDraft();
+      }
+      const fallback = this.createDraft();
+      return {
+        ...fallback,
+        ...parsed,
+        createdBy: {
+          ...fallback.createdBy,
+          ...(parsed.createdBy ?? {})
+        },
+        tracks: Array.isArray(parsed.tracks) ? parsed.tracks : fallback.tracks
+      };
+    } catch {
+      return this.createDraft();
+    }
+  }
+
+  private serializeDraftForHost(draft: CdDraft): string {
+    return JSON.stringify(draft, (_, value: unknown) => (typeof value === 'bigint' ? value.toString() : value));
   }
 
   private safeDraft(): CdDraft | undefined {
@@ -173,7 +210,7 @@ export class App {
   private createDraft(): CdDraft {
     const defaultUser: User = { name: '', meta: { friends: [] } };
     return {
-      cdId: 0n,
+      cdId: 0 as unknown as bigint,
       artist: '',
       albumTitle: '',
       releaseYear: new Date().getFullYear(),

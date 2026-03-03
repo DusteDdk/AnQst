@@ -15,24 +15,32 @@ test("generateOutputs returns required tree", () => {
 
   assert.ok(outputs["npmpackage/package.json"]);
   assert.ok(outputs["npmpackage/index.ts"]);
+  assert.ok(outputs["npmpackage/services.ts"]);
+  assert.ok(outputs["npmpackage/types.ts"]);
   assert.ok(outputs["npmpackage/index.js"]);
+  assert.ok(outputs["npmpackage/services.js"]);
+  assert.ok(outputs["npmpackage/types.js"]);
   assert.ok(outputs["npmpackage/types/index.d.ts"]);
+  assert.ok(outputs["npmpackage/types/services.d.ts"]);
+  assert.ok(outputs["npmpackage/types/types.d.ts"]);
   assert.ok(outputs["CdWidget_QtWidget/CMakeLists.txt"]);
   assert.ok(outputs["CdWidget_QtWidget/CdWidget.qrc"]);
   assert.ok(outputs["CdWidget_QtWidget/include/CdWidget.h"]);
   assert.ok(outputs["CdWidget_QtWidget/include/CdWidgetTypes.h"]);
   assert.ok(outputs["CdWidget_QtWidget/CdWidget.cpp"]);
 
-  assert.match(outputs["npmpackage/index.ts"], /@Injectable/);
-  assert.match(outputs["npmpackage/types/index.d.ts"], /export interface CdServiceSet/);
-  assert.match(outputs["npmpackage/types/index.d.ts"], /draft\(value: CdDraft\): void;/);
-  assert.match(outputs["npmpackage/types/index.d.ts"], /export interface CdServiceOnSlot \{\}/);
-  assert.match(outputs["npmpackage/types/index.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
-  assert.doesNotMatch(outputs["npmpackage/types/index.d.ts"], /Record<string/);
-  assert.match(outputs["npmpackage/index.ts"], /QtWebChannelAdapter/);
-  assert.match(outputs["npmpackage/index.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["npmpackage/index.ts"], /async validate\(draft: CdDraft\): Promise<boolean>/);
-  assert.doesNotMatch(outputs["npmpackage/index.ts"], /createNoopHost/);
+  assert.match(outputs["npmpackage/index.ts"], /export type Services = typeof import\("\.\/services"\);/);
+  assert.match(outputs["npmpackage/index.ts"], /export type Types = typeof import\("\.\/types"\);/);
+  assert.doesNotMatch(outputs["npmpackage/index.ts"], /@Injectable/);
+  assert.match(outputs["npmpackage/types/services.d.ts"], /export interface CdServiceSet/);
+  assert.match(outputs["npmpackage/types/services.d.ts"], /draft\(value: CdDraft\): void;/);
+  assert.match(outputs["npmpackage/types/services.d.ts"], /export interface CdServiceOnSlot \{\}/);
+  assert.match(outputs["npmpackage/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
+  assert.doesNotMatch(outputs["npmpackage/types/services.d.ts"], /Record<string/);
+  assert.match(outputs["npmpackage/services.ts"], /QtWebChannelAdapter/);
+  assert.match(outputs["npmpackage/services.ts"], /WebSocketBridgeAdapter/);
+  assert.match(outputs["npmpackage/services.ts"], /async validate\(draft: CdDraft\): Promise<boolean>/);
+  assert.doesNotMatch(outputs["npmpackage/services.ts"], /createNoopHost/);
   assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
   assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /bool enableDebug\(\)/);
   assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /kBootstrapEntryPoint/);
@@ -46,9 +54,9 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["CdWidget_QtWidget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
 
   // Bridge name is widget-specific, never the old "anqstHost"
-  assert.match(outputs["npmpackage/index.ts"], /channel\.objects\["CdWidgetBridge"\]/);
-  assert.doesNotMatch(outputs["npmpackage/index.ts"], /channel\.objects\["anqstHost"\]/);
-  assert.doesNotMatch(outputs["npmpackage/index.ts"], /anqstHost bridge object/);
+  assert.match(outputs["npmpackage/services.ts"], /channel\.objects\["CdWidgetBridge"\]/);
+  assert.doesNotMatch(outputs["npmpackage/services.ts"], /channel\.objects\["anqstHost"\]/);
+  assert.doesNotMatch(outputs["npmpackage/services.ts"], /anqstHost bridge object/);
 });
 
 test("generateOutputs emits only required imported type bindings", () => {
@@ -82,31 +90,56 @@ declare namespace DemoWidget {
 
   const parsed = parseSpecFile(specPath);
   const outputs = generateOutputs(parsed);
-  const tsIndex = outputs["npmpackage/index.ts"];
-  const dtsIndex = outputs["npmpackage/types/index.d.ts"];
+  const tsServices = outputs["npmpackage/services.ts"];
+  const tsTypes = outputs["npmpackage/types.ts"];
+  const dtsServices = outputs["npmpackage/types/services.d.ts"];
+  const dtsTypes = outputs["npmpackage/types/types.d.ts"];
 
-  assert.match(tsIndex, /import type \{ User \} from "\.\.\/\.\.\/types\/domain";/);
-  assert.doesNotMatch(tsIndex, /\bTeam\b/);
-  assert.doesNotMatch(tsIndex, /export interface User/);
+  assert.match(tsServices, /import type \{ User \} from "\.\.\/\.\.\/types\/domain";/);
+  assert.doesNotMatch(tsServices, /\bTeam\b/);
+  assert.doesNotMatch(tsServices, /export interface User/);
 
-  assert.match(dtsIndex, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
-  assert.doesNotMatch(dtsIndex, /\bTeam\b/);
-  assert.doesNotMatch(dtsIndex, /export interface User/);
+  assert.match(tsTypes, /import type \{ User \} from "\.\.\/\.\.\/types\/domain";/);
+  assert.doesNotMatch(tsTypes, /\bTeam\b/);
+  assert.doesNotMatch(tsTypes, /export interface User/);
+
+  assert.match(dtsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
+  assert.doesNotMatch(dtsServices, /\bTeam\b/);
+  assert.doesNotMatch(dtsServices, /export interface User/);
+
+  assert.match(dtsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
+  assert.doesNotMatch(dtsTypes, /\bTeam\b/);
+  assert.doesNotMatch(dtsTypes, /export interface User/);
 });
 
-test("generateOutputs can filter QWidget and AngularService outputs independently", () => {
+test("generateOutputs can filter QWidget, AngularService, and node_express_ws outputs independently", () => {
   const specPath = path.join(fixtures, "ValidCdSpec.AnQst.d.ts");
   const parsed = parseSpecFile(specPath);
 
-  const angularOnly = generateOutputs(parsed, { emitAngularService: true, emitQWidget: false });
+  const angularOnly = generateOutputs(parsed, { emitAngularService: true, emitQWidget: false, emitNodeExpressWs: false });
   assert.ok(angularOnly["npmpackage/index.ts"]);
+  assert.ok(angularOnly["npmpackage/services.ts"]);
+  assert.ok(angularOnly["npmpackage/types.ts"]);
   assert.equal(angularOnly["CdWidget_QtWidget/CdWidget.cpp"], undefined);
+  assert.equal(angularOnly["CdWidget_node_express_ws/index.ts"], undefined);
 
-  const qwidgetOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true });
+  const qwidgetOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
   assert.ok(qwidgetOnly["CdWidget_QtWidget/CdWidget.cpp"]);
   assert.equal(qwidgetOnly["npmpackage/index.ts"], undefined);
+  assert.equal(qwidgetOnly["npmpackage/services.ts"], undefined);
+  assert.equal(qwidgetOnly["npmpackage/types.ts"], undefined);
+  assert.equal(qwidgetOnly["CdWidget_node_express_ws/index.ts"], undefined);
 
-  const none = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false });
+  const nodeOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: true });
+  assert.ok(nodeOnly["CdWidget_node_express_ws/package.json"]);
+  assert.ok(nodeOnly["CdWidget_node_express_ws/index.ts"]);
+  assert.ok(nodeOnly["CdWidget_node_express_ws/types/index.d.ts"]);
+  assert.equal(nodeOnly["npmpackage/index.ts"], undefined);
+  assert.equal(nodeOnly["CdWidget_QtWidget/CdWidget.cpp"], undefined);
+  assert.match(nodeOnly["CdWidget_node_express_ws/index.ts"], /createCdWidgetNodeExpressWsBridge/);
+  assert.match(nodeOnly["CdWidget_node_express_ws/index.ts"], /subscribeDiagnostics/);
+
+  const none = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: false });
   assert.equal(Object.keys(none).length, 0);
 });
 
@@ -158,7 +191,7 @@ declare namespace CdEntryEditor {
   );
 
   const parsed = parseSpecFile(specPath);
-  const outputs = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true });
+  const outputs = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
   const typesHeader = outputs["CdEntryEditor_QtWidget/include/CdEntryEditorTypes.h"];
   const cppFile = outputs["CdEntryEditor_QtWidget/CdEntryEditor.cpp"];
 

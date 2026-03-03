@@ -933,11 +933,19 @@ function renderNpmPackage(spec: ParsedSpecModel): string {
       version: "0.1.0",
       private: true,
       types: "types/index.d.ts",
-      main: "index.js",
+      main: "services.js",
       exports: {
         ".": {
           types: "./types/index.d.ts",
           default: "./index.js"
+        },
+        "./services": {
+          types: "./types/services.d.ts",
+          default: "./services.js"
+        },
+        "./types": {
+          types: "./types/types.d.ts",
+          default: "./types.js"
         }
       },
       anqst: {
@@ -963,6 +971,12 @@ function renderTypeDeclarations(spec: ParsedSpecModel, exported = false): string
   return `${decls}\n`;
 }
 
+function renderLocalTypeImports(spec: ParsedSpecModel): string {
+  const localTypeNames = collectReachableNamespaceDecls(spec).map((decl) => decl.name);
+  if (localTypeNames.length === 0) return "";
+  return `import type { ${localTypeNames.join(", ")} } from "./types";`;
+}
+
 function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
   const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
 
@@ -971,7 +985,7 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
   const setMembers: string[] = [];
   const onSlotMembers: string[] = [];
   const constructorBodyLines: string[] = [];
-  constructorBodyLines.push("    this._bridge.ready().catch((error) => console.error(error));");
+  constructorBodyLines.push("    this._bridge.ready().catch((error) => console.error('AnQst bridge ready() failed', error, (error as { stack?: unknown })?.stack));");
 
   for (const m of members) {
     const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
@@ -1081,11 +1095,14 @@ export declare class ${serviceName} {
 }`;
 }
 
-function renderTsIndex(spec: ParsedSpecModel): string {
+function renderTsServices(spec: ParsedSpecModel): string {
   const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name)).join("\n");
-  const typeImports = renderRequiredTypeImports(spec, "npmpackage/index.ts");
+  const externalTypeImports = renderRequiredTypeImports(spec, "npmpackage/services.ts").trim();
+  const localTypeImports = renderLocalTypeImports(spec).trim();
+  const typeImports = [externalTypeImports, localTypeImports].filter((s) => s.length > 0).join("\n");
+  const typeImportsBlock = typeImports.length > 0 ? `${typeImports}\n\n` : "";
   return `import { Injectable, inject, signal } from "@angular/core";
-${typeImports}
+${typeImportsBlock}
 
 type SlotHandler = (...args: unknown[]) => unknown;
 type OutputHandler = (value: unknown) => void;
@@ -1136,12 +1153,16 @@ class QtWebChannelAdapter implements BridgeAdapter {
       try {
         const QWebChannel = anyWindow.QWebChannel as QWebChannelCtor;
         new QWebChannel(anyWindow.qt!.webChannelTransport, (channel) => {
-          const host = channel.objects["${spec.widgetName}Bridge"];
-          if (host === undefined) {
-            reject(new Error("${spec.widgetName}Bridge bridge object is unavailable."));
-            return;
+          try {
+            const host = channel.objects["${spec.widgetName}Bridge"];
+            if (host === undefined) {
+              reject(new Error("${spec.widgetName}Bridge bridge object is unavailable."));
+              return;
+            }
+            resolve(new QtWebChannelAdapter(host));
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
           }
-          resolve(new QtWebChannelAdapter(host));
         });
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -1291,11 +1312,23 @@ class AnQstBridgeRuntime {
   }
 
   emit(service: string, member: string, args: unknown[]): void {
-    this.requireAdapterSync().emit(service, member, args);
+    if (this.adapter !== null) {
+      this.adapter.emit(service, member, args);
+      return;
+    }
+    this.ready()
+      .then(() => this.requireAdapterSync().emit(service, member, args))
+      .catch((error) => console.error(error));
   }
 
   setInput(service: string, member: string, value: unknown): void {
-    this.requireAdapterSync().setInput(service, member, value);
+    if (this.adapter !== null) {
+      this.adapter.setInput(service, member, value);
+      return;
+    }
+    this.ready()
+      .then(() => this.requireAdapterSync().setInput(service, member, value))
+      .catch((error) => console.error(error));
   }
 
   registerSlot(service: string, member: string, handler: SlotHandler): void {
@@ -1370,26 +1403,838 @@ class AnQstBridgeRuntime {
   }
 
 }
-
-${renderTypeDeclarations(spec)}
 ${serviceClasses}
 `;
 }
 
-function renderTypeIndexDts(spec: ParsedSpecModel): string {
-  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types/index.d.ts").trim();
-  const serviceDecls = spec.services
-    .map((s) => renderTsServiceDts(spec, s.name))
-    .join("\n\n");
+function renderTsTypes(spec: ParsedSpecModel): string {
+  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types.ts").trim();
   const typeDecls = renderTypeDeclarations(spec, true).trim();
-  const sections = [typeImports, typeDecls, serviceDecls.trim()].filter((s) => s.length > 0);
+  const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
-function renderJsIndex(): string {
+function renderTypeServicesDts(spec: ParsedSpecModel): string {
+  const externalTypeImports = renderRequiredTypeImports(spec, "npmpackage/types/services.d.ts").trim();
+  const localTypeImports = renderLocalTypeImports(spec).trim();
+  const serviceDecls = spec.services
+    .map((s) => renderTsServiceDts(spec, s.name))
+    .join("\n\n");
+  const sections = [externalTypeImports, localTypeImports, serviceDecls.trim()].filter((s) => s.length > 0);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
+}
+
+function renderTypeTypesDts(spec: ParsedSpecModel): string {
+  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types/types.d.ts").trim();
+  const typeDecls = renderTypeDeclarations(spec, true).trim();
+  const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
+}
+
+function renderTsIndex(): string {
+  return `export type Services = typeof import("./services");
+export type Types = typeof import("./types");
+`;
+}
+
+function renderTypeIndexDts(): string {
+  return `export type Services = typeof import("../services");
+export type Types = typeof import("../types");
+`;
+}
+
+function renderJsModule(): string {
   return `"use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 `;
+}
+
+function renderJsIndex(): string {
+  return renderJsModule();
+}
+
+function renderJsServices(): string {
+  return renderJsModule();
+}
+
+function renderJsTypes(): string {
+  return renderJsModule();
+}
+
+function renderNodeExpressWsPackage(spec: ParsedSpecModel): string {
+  return JSON.stringify(
+    {
+      name: `${spec.widgetName.toLowerCase()}-node-express-ws-generated`,
+      version: "0.1.0",
+      private: true,
+      types: "types/index.d.ts",
+      main: "index.ts",
+      exports: {
+        ".": {
+          types: "./types/index.d.ts",
+          default: "./index.ts"
+        }
+      },
+      anqst: {
+        widget: spec.widgetName,
+        services: spec.services.map((s) => s.name),
+        target: "node_express_ws"
+      }
+    },
+    null,
+    2
+  );
+}
+
+function nodeParamTuple(member: ServiceMemberModel): string {
+  if (member.parameters.length === 0) return "[]";
+  return `[${member.parameters.map((p) => mapTypeTextToTs(p.typeText)).join(", ")}]`;
+}
+
+function nodeParamArgs(member: ServiceMemberModel): string {
+  return member.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
+}
+
+function nodeParamValues(member: ServiceMemberModel): string {
+  if (member.parameters.length === 0) return "[]";
+  return `[${member.parameters.map((p) => p.name).join(", ")}]`;
+}
+
+function nodeCap(value: string): string {
+  return value.length === 0 ? value : `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+function renderNodeExpressWsTypes(spec: ParsedSpecModel): string {
+  const typeImports = renderRequiredTypeImports(spec, `${generatedNodeExpressWsDirName(spec.widgetName)}/types/index.d.ts`).trim();
+  const typeDecls = renderTypeDeclarations(spec, true).trim();
+  const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
+}
+
+function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
+  const typeImports = renderRequiredTypeImports(spec, `${generatedNodeExpressWsDirName(spec.widgetName)}/index.ts`);
+  const typeDecls = renderTypeDeclarations(spec, true);
+  const handlerBridgeTypeName = `${spec.widgetName}HandlerBridge`;
+  const sessionBridgeTypeName = `${spec.widgetName}SessionBridge`;
+
+  const handlerInterfaces = spec.services
+    .map((service) => {
+      const lines: string[] = [];
+      for (const member of service.members) {
+        const args = nodeParamArgs(member);
+        const prefixedArgs = args.length > 0 ? `, ${args}` : "";
+        if (member.kind === "Call" && member.payloadTypeText) {
+          const ret = mapTypeTextToTs(member.payloadTypeText);
+          lines.push(`  ${member.name}(bridge: ${handlerBridgeTypeName}${prefixedArgs}): ${ret} | Promise<${ret}>;`);
+        } else if (member.kind === "Emitter") {
+          lines.push(`  ${member.name}(bridge: ${handlerBridgeTypeName}${prefixedArgs}): void | Promise<void>;`);
+        } else if (member.kind === "Input" && member.payloadTypeText) {
+          lines.push(`  ${member.name}(bridge: ${handlerBridgeTypeName}, value: ${mapTypeTextToTs(member.payloadTypeText)}): void | Promise<void>;`);
+        }
+      }
+      return `export interface ${service.name}NodeHandlers {\n${lines.join("\n")}\n}`;
+    })
+    .join("\n\n");
+
+  const implementationFields = spec.services.map((service) => `  ${service.name}: ${service.name}NodeHandlers;`).join("\n");
+
+  const slotHelpers = spec.services
+    .flatMap((service) =>
+      service.members
+        .filter((member) => member.kind === "Slot")
+        .map((member) => {
+          const ret = mapTypeTextToTs(member.payloadTypeText ?? "void");
+          const args = nodeParamArgs(member);
+          return `  ${service.name}_${member.name}(${args}${args ? ", " : ""}timeoutMs = this.defaultSlotTimeoutMs): Promise<${ret}> {
+    return this.invokeSlot("${service.name}", "${member.name}", ${nodeParamValues(member)}, timeoutMs) as Promise<${ret}>;
+  }`;
+        })
+    )
+    .join("\n");
+
+  const outputHelpers = spec.services
+    .flatMap((service) =>
+      service.members
+        .filter((member) => member.kind === "Output" && member.payloadTypeText)
+        .map((member) => {
+          const typeText = mapTypeTextToTs(member.payloadTypeText!);
+          return `  set${service.name}_${nodeCap(member.name)}(value: ${typeText}): void {
+    this.setOutputValue("${service.name}", "${member.name}", value);
+  }`;
+        })
+    )
+    .join("\n");
+
+  const sessionServiceInterfaces = spec.services
+    .map((service) => {
+      const slotLines = service.members
+        .filter((member) => member.kind === "Slot")
+        .map((member) => {
+          const ret = mapTypeTextToTs(member.payloadTypeText ?? "void");
+          const args = nodeParamArgs(member);
+          return `  ${member.name}(${args}${args.length > 0 ? ", " : ""}timeoutMs?: number): Promise<${ret}>;`;
+        });
+
+      const signalMembers = service.members
+        .filter((member) => member.kind === "Emitter")
+        .map((member) => {
+          const args = nodeParamArgs(member);
+          return `    ${member.name}(handler: (${args}) => void): () => void;`;
+        });
+
+      const propertyMembers = service.members
+        .filter((member) => (member.kind === "Input" || member.kind === "Output") && member.payloadTypeText)
+        .map((member) => {
+          const typeText = mapTypeTextToTs(member.payloadTypeText!);
+          if (member.kind === "Input") {
+            return `    ${member.name}: {\n      get(): Promise<${typeText}>;\n      on(handler: (value: ${typeText}) => void): () => void;\n    };`;
+          }
+          return `    ${member.name}: {\n      set(value: ${typeText}): void;\n    };`;
+        });
+
+      return `export interface ${service.name}SessionBridgeService {\n${slotLines.join("\n")}\n  signal: {\n${signalMembers.join("\n")}\n  };\n  property: {\n${propertyMembers.join("\n")}\n  };\n}`;
+    })
+    .join("\n\n");
+
+  const widgetServiceFields = spec.services.map((service) => `    ${service.name}: ${service.name}SessionBridgeService;`).join("\n");
+
+  const sessionBridgeFactory = spec.services
+    .map((service) => {
+      const slotMembers = service.members
+        .filter((member) => member.kind === "Slot")
+        .map((member) => {
+          const args = member.parameters.map((p) => p.name).join(", ");
+          const typedArgs = nodeParamArgs(member);
+          return `          ${member.name}: (${typedArgs}${typedArgs.length > 0 ? ", " : ""}timeoutMs = defaultSlotTimeoutMs) => session.${service.name}_${member.name}(${args}${args.length > 0 ? ", " : ""}timeoutMs),`;
+        })
+        .join("\n");
+
+      const signalMembers = service.members
+        .filter((member) => member.kind === "Emitter")
+        .map((member) => {
+          const args = nodeParamArgs(member);
+          return `            ${member.name}: (handler: (${args}) => void) => session.onSignal("${service.name}", "${member.name}", handler as (...args: unknown[]) => void),`;
+        })
+        .join("\n");
+
+      const propertyMembers = service.members
+        .filter((member) => (member.kind === "Input" || member.kind === "Output") && member.payloadTypeText)
+        .map((member) => {
+          const typeText = mapTypeTextToTs(member.payloadTypeText!);
+          if (member.kind === "Input") {
+            return `            ${member.name}: {\n              get: () => session.readInput("${service.name}", "${member.name}") as Promise<${typeText}>,\n              on: (handler: (value: ${typeText}) => void) => session.onInput("${service.name}", "${member.name}", handler as (value: unknown) => void)\n            },`;
+          }
+          return `            ${member.name}: {\n              set: (value: ${typeText}) => session.set${service.name}_${nodeCap(member.name)}(value)\n            },`;
+        })
+        .join("\n");
+
+      return `      ${service.name}: {\n${slotMembers}\n        signal: {\n${signalMembers}\n        },\n        property: {\n${propertyMembers}\n        }\n      },`;
+    })
+    .join("\n");
+
+  const callDispatch = spec.services
+    .flatMap((service) =>
+      service.members
+        .filter((member) => member.kind === "Call" && member.payloadTypeText)
+        .map((member) => {
+          return `    if (service === "${service.name}" && member === "${member.name}") {
+      const handler = implementation.${service.name}.${member.name};
+      if (typeof handler !== "function") {
+        const err = new Error("Missing Call handler ${service.name}.${member.name}");
+        emitDiagnostic({
+          code: "HandlerNotRegisteredError",
+          severity: "fatal",
+          category: "bridge",
+          recoverable: false,
+          message: err.message,
+          sessionId: session.id,
+          service,
+          member,
+          requestId
+        });
+        sendJson(session.socket, {
+          type: "callResult",
+          requestId,
+          result: { __anqstError: { code: "HandlerNotRegisteredError", message: err.message, service, member } }
+        });
+        throw err;
+      }
+      Promise.resolve(handler(buildHandlerBridge(session), ...(args as ${nodeParamTuple(member)})))
+        .then((result) => sendJson(session.socket, { type: "callResult", requestId, result }))
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          emitDiagnostic({
+            code: "CallHandlerError",
+            severity: "error",
+            category: "bridge",
+            recoverable: true,
+            message,
+            sessionId: session.id,
+            service,
+            member,
+            requestId
+          });
+          sendJson(session.socket, {
+            type: "callResult",
+            requestId,
+            result: { __anqstError: { code: "CallHandlerError", message, service, member } }
+          });
+        });
+      return;
+    }`;
+        })
+    )
+    .join("\n");
+
+  const emitterDispatch = spec.services
+    .flatMap((service) =>
+      service.members
+        .filter((member) => member.kind === "Emitter")
+        .map((member) => {
+          return `    if (service === "${service.name}" && member === "${member.name}") {
+      const handler = implementation.${service.name}.${member.name};
+      if (typeof handler !== "function") {
+        const err = new Error("Missing Emitter handler ${service.name}.${member.name}");
+        emitDiagnostic({
+          code: "HandlerNotRegisteredError",
+          severity: "fatal",
+          category: "bridge",
+          recoverable: false,
+          message: err.message,
+          sessionId: session.id,
+          service,
+          member
+        });
+        throw err;
+      }
+      void Promise.resolve(handler(buildHandlerBridge(session), ...(args as ${nodeParamTuple(member)}))).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        emitDiagnostic({
+          code: "EmitterHandlerError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message,
+          sessionId: session.id,
+          service,
+          member
+        });
+      });
+      return;
+    }`;
+        })
+    )
+    .join("\n");
+
+  const inputDispatch = spec.services
+    .flatMap((service) =>
+      service.members
+        .filter((member) => member.kind === "Input" && member.payloadTypeText)
+        .map((member) => {
+          return `    if (service === "${service.name}" && member === "${member.name}") {
+      const handler = implementation.${service.name}.${member.name};
+      if (typeof handler !== "function") {
+        const err = new Error("Missing Input handler ${service.name}.${member.name}");
+        emitDiagnostic({
+          code: "HandlerNotRegisteredError",
+          severity: "fatal",
+          category: "bridge",
+          recoverable: false,
+          message: err.message,
+          sessionId: session.id,
+          service,
+          member
+        });
+        throw err;
+      }
+      void Promise.resolve(handler(buildHandlerBridge(session), value as ${mapTypeTextToTs(member.payloadTypeText!)})).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        emitDiagnostic({
+          code: "InputHandlerError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message,
+          sessionId: session.id,
+          service,
+          member
+        });
+      });
+      return;
+    }`;
+        })
+    )
+    .join("\n");
+
+  return `import type { Express, Request } from "express";
+import type { WebSocket, WebSocketServer } from "ws";
+${typeImports}
+${typeDecls}
+
+${handlerInterfaces}
+
+export interface ${spec.widgetName}NodeImplementation {
+${implementationFields}
+}
+
+${sessionServiceInterfaces}
+
+export interface ${sessionBridgeTypeName} {
+  ${spec.widgetName}: {
+${widgetServiceFields}
+  };
+}
+
+export interface ${handlerBridgeTypeName} {
+  own: ${sessionBridgeTypeName};
+  others: Record<string, ${sessionBridgeTypeName}>;
+  sessions: Record<string, ${sessionBridgeTypeName}>;
+  sessionId: string;
+}
+
+export interface AnQstDiagnostic {
+  code: string;
+  severity: "info" | "warn" | "error" | "fatal";
+  category: string;
+  recoverable: boolean;
+  message: string;
+  timestamp: string;
+  sessionId?: string;
+  service?: string;
+  member?: string;
+  requestId?: string;
+  context?: Record<string, unknown>;
+}
+
+type SlotPending = {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+type QueuedSlotInvocation = {
+  requestId: string;
+  service: string;
+  member: string;
+  args: unknown[];
+  timeoutMs: number;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+};
+
+function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
+  if (socket.readyState === 1) {
+    socket.send(JSON.stringify(payload));
+  }
+}
+
+function makeWsUrl(req: Request, wsPath: string): string {
+  const forwarded = req.header("x-forwarded-proto");
+  const protocol = (forwarded ?? req.protocol).toLowerCase() === "https" ? "wss" : "ws";
+  return \`\${protocol}://\${req.get("host") ?? "localhost"}\${wsPath}\`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+class ${spec.widgetName}NodeSession {
+  readonly registeredSlots = new Set<string>();
+  private readonly pending = new Map<string, SlotPending>();
+  private readonly queued = new Map<string, QueuedSlotInvocation[]>();
+  private readonly signalListeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  private readonly inputListeners = new Map<string, Set<(value: unknown) => void>>();
+  private readonly inputState = new Map<string, unknown>();
+  private requestCounter = 0;
+
+  constructor(
+    readonly id: string,
+    readonly socket: WebSocket,
+    private readonly defaultSlotTimeoutMs: number,
+    private readonly maxQueuedPerSlot: number,
+    private readonly emitDiagnostic: (diagnostic: Omit<AnQstDiagnostic, "timestamp">) => void
+  ) {}
+
+  close(reason = "Session closed"): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(reason));
+    }
+    this.pending.clear();
+    for (const queue of this.queued.values()) {
+      for (const item of queue) item.reject(new Error(reason));
+    }
+    this.queued.clear();
+    this.signalListeners.clear();
+    this.inputListeners.clear();
+    this.inputState.clear();
+  }
+
+  registerSlot(service: string, member: string): void {
+    const key = \`\${service}::\${member}\`;
+    this.registeredSlots.add(key);
+    const queue = this.queued.get(key);
+    if (!queue || queue.length === 0) return;
+    this.queued.delete(key);
+    for (const item of queue) this.dispatchSlot(item);
+  }
+
+  resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void {
+    const pending = this.pending.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    this.pending.delete(requestId);
+    if (ok) {
+      pending.resolve(payload);
+      return;
+    }
+    pending.reject(new Error(error || "Slot invocation failed."));
+  }
+
+  invokeSlot(service: string, member: string, args: unknown[], timeoutMs = this.defaultSlotTimeoutMs): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const requestId = \`slot-\${this.id}-\${++this.requestCounter}\`;
+      const item: QueuedSlotInvocation = { requestId, service, member, args, timeoutMs, resolve, reject };
+      const key = \`\${service}::\${member}\`;
+      if (!this.registeredSlots.has(key)) {
+        const queue = this.queued.get(key) ?? [];
+        if (queue.length >= this.maxQueuedPerSlot) {
+          const dropped = queue.shift();
+          dropped?.reject(new Error("Slot queue overflow."));
+          this.emitDiagnostic({
+            code: "SlotQueueOverflowError",
+            severity: "warn",
+            category: "bridge",
+            recoverable: true,
+            message: "Slot queue exceeded capacity; oldest queued request dropped.",
+            sessionId: this.id,
+            service,
+            member,
+            context: { maxQueuedPerSlot: this.maxQueuedPerSlot }
+          });
+        }
+        queue.push(item);
+        this.queued.set(key, queue);
+        return;
+      }
+      this.dispatchSlot(item);
+    });
+  }
+
+  setOutputValue(service: string, member: string, value: unknown): void {
+    sendJson(this.socket, { type: "outputUpdated", service, member, value });
+  }
+
+  onSignal(service: string, member: string, handler: (...args: unknown[]) => void): () => void {
+    const key = \`\${service}::\${member}\`;
+    const listeners = this.signalListeners.get(key) ?? new Set<(...args: unknown[]) => void>();
+    listeners.add(handler);
+    this.signalListeners.set(key, listeners);
+    return () => {
+      const existing = this.signalListeners.get(key);
+      if (!existing) return;
+      existing.delete(handler);
+      if (existing.size === 0) this.signalListeners.delete(key);
+    };
+  }
+
+  emitSignal(service: string, member: string, args: unknown[]): void {
+    const key = \`\${service}::\${member}\`;
+    for (const handler of this.signalListeners.get(key) ?? []) {
+      try {
+        handler(...args);
+      } catch {
+        // Listener errors are intentionally isolated from protocol handling.
+      }
+    }
+  }
+
+  onInput(service: string, member: string, handler: (value: unknown) => void): () => void {
+    const key = \`\${service}::\${member}\`;
+    const listeners = this.inputListeners.get(key) ?? new Set<(value: unknown) => void>();
+    listeners.add(handler);
+    this.inputListeners.set(key, listeners);
+    if (this.inputState.has(key)) {
+      handler(this.inputState.get(key));
+    }
+    return () => {
+      const existing = this.inputListeners.get(key);
+      if (!existing) return;
+      existing.delete(handler);
+      if (existing.size === 0) this.inputListeners.delete(key);
+    };
+  }
+
+  setInputState(service: string, member: string, value: unknown): void {
+    const key = \`\${service}::\${member}\`;
+    this.inputState.set(key, value);
+    for (const handler of this.inputListeners.get(key) ?? []) {
+      try {
+        handler(value);
+      } catch {
+        // Listener errors are intentionally isolated from protocol handling.
+      }
+    }
+  }
+
+  readInput(service: string, member: string): Promise<unknown> {
+    const key = \`\${service}::\${member}\`;
+    if (!this.inputState.has(key)) {
+      return Promise.reject(new Error(\`Input value for \${service}.\${member} is unavailable\`));
+    }
+    return Promise.resolve(this.inputState.get(key));
+  }
+
+${slotHelpers}
+${outputHelpers}
+
+  private dispatchSlot(item: QueuedSlotInvocation): void {
+    const timeout = setTimeout(() => {
+      this.pending.delete(item.requestId);
+      item.reject(new Error("slot invocation timeout"));
+      this.emitDiagnostic({
+        code: "BridgeTimeoutError",
+        severity: "error",
+        category: "bridge",
+        recoverable: true,
+        message: "Slot invocation timed out.",
+        sessionId: this.id,
+        service: item.service,
+        member: item.member,
+        requestId: item.requestId
+      });
+    }, item.timeoutMs);
+    this.pending.set(item.requestId, { resolve: item.resolve, reject: item.reject, timeout });
+    sendJson(this.socket, {
+      type: "slotInvocationRequested",
+      requestId: item.requestId,
+      service: item.service,
+      member: item.member,
+      args: item.args
+    });
+  }
+}
+
+export interface ${spec.widgetName}NodeBridgeOptions {
+  app: Express;
+  wsServer: WebSocketServer;
+  implementation: ${spec.widgetName}NodeImplementation;
+  wsPath?: string;
+  wsUrl?: string;
+  devConfigPath?: string;
+  defaultSlotTimeoutMs?: number;
+  maxQueuedSlotInvocationsPerSlot?: number;
+}
+
+export interface ${spec.widgetName}NodeBridge {
+  onSession(listener: (session: ${spec.widgetName}NodeSession) => void): () => void;
+  subscribeDiagnostics(listener: (diagnostic: AnQstDiagnostic) => void): () => void;
+  getSessions(): ReadonlyArray<${spec.widgetName}NodeSession>;
+  getSessionInterfaces(): Record<string, ${sessionBridgeTypeName}>;
+  close(): void;
+}
+
+export function create${spec.widgetName}NodeExpressWsBridge(options: ${spec.widgetName}NodeBridgeOptions): ${spec.widgetName}NodeBridge {
+  const wsPath = options.wsPath ?? "/anqst-bridge";
+  const devConfigPath = options.devConfigPath ?? "/anqst-dev-config.json";
+  const defaultSlotTimeoutMs = options.defaultSlotTimeoutMs ?? 120000;
+  const maxQueuedPerSlot = options.maxQueuedSlotInvocationsPerSlot ?? 1024;
+  const sessions = new Map<WebSocket, ${spec.widgetName}NodeSession>();
+  const diagnosticListeners = new Set<(diagnostic: AnQstDiagnostic) => void>();
+  const sessionListeners = new Set<(session: ${spec.widgetName}NodeSession) => void>();
+  let sessionCounter = 0;
+  const implementation = options.implementation;
+
+  const emitDiagnostic = (diagnostic: Omit<AnQstDiagnostic, "timestamp">): void => {
+    const next: AnQstDiagnostic = { ...diagnostic, timestamp: nowIso() };
+    for (const listener of diagnosticListeners) listener(next);
+  };
+
+  const getSessionInterfaces = (): Record<string, ${sessionBridgeTypeName}> => {
+    const out: Record<string, ${sessionBridgeTypeName}> = {};
+    for (const session of sessions.values()) {
+      out[session.id] = {
+        ${spec.widgetName}: {
+${sessionBridgeFactory}
+        }
+      };
+    }
+    return out;
+  };
+
+  const buildHandlerBridge = (session: ${spec.widgetName}NodeSession): ${handlerBridgeTypeName} => {
+    const byId = getSessionInterfaces();
+    const others: Record<string, ${sessionBridgeTypeName}> = {};
+    for (const [id, view] of Object.entries(byId)) {
+      if (id === session.id) continue;
+      others[id] = view;
+    }
+    return {
+      own: byId[session.id],
+      others,
+      sessions: byId,
+      sessionId: session.id
+    };
+  };
+
+  options.app.get(devConfigPath, (req, res) => {
+    res.json({
+      wsUrl: options.wsUrl ?? makeWsUrl(req, wsPath),
+      bridgeObject: "${spec.widgetName}Bridge"
+    });
+  });
+
+  const handleMessage = (session: ${spec.widgetName}NodeSession, raw: string): void => {
+    let message: Record<string, unknown>;
+    try {
+      message = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      emitDiagnostic({
+        code: "DeserializationError",
+        severity: "warn",
+        category: "bridge",
+        recoverable: true,
+        message: "Incoming WS payload is not valid JSON.",
+        sessionId: session.id
+      });
+      return;
+    }
+    const type = String(message.type ?? "");
+    if (type === "registerSlot") {
+      session.registerSlot(String(message.service ?? ""), String(message.member ?? ""));
+      return;
+    }
+    if (type === "resolveSlot") {
+      session.resolveSlot(String(message.requestId ?? ""), Boolean(message.ok), message.payload, String(message.error ?? ""));
+      return;
+    }
+    if (type === "call") {
+      const service = String(message.service ?? "");
+      const member = String(message.member ?? "");
+      const requestId = String(message.requestId ?? "");
+      const args = Array.isArray(message.args) ? (message.args as unknown[]) : [];
+${callDispatch}
+      const err = new Error(\`No Call mapping found for \${service}.\${member}\`);
+      emitDiagnostic({
+        code: "HandlerNotRegisteredError",
+        severity: "fatal",
+        category: "bridge",
+        recoverable: false,
+        message: err.message,
+        sessionId: session.id,
+        service,
+        member,
+        requestId
+      });
+      sendJson(session.socket, {
+        type: "callResult",
+        requestId,
+        result: { __anqstError: { code: "HandlerNotRegisteredError", message: err.message, service, member } }
+      });
+      throw err;
+    }
+    if (type === "emit") {
+      const service = String(message.service ?? "");
+      const member = String(message.member ?? "");
+      const args = Array.isArray(message.args) ? (message.args as unknown[]) : [];
+      session.emitSignal(service, member, args);
+${emitterDispatch}
+      const err = new Error(\`No Emitter mapping found for \${service}.\${member}\`);
+      emitDiagnostic({
+        code: "HandlerNotRegisteredError",
+        severity: "fatal",
+        category: "bridge",
+        recoverable: false,
+        message: err.message,
+        sessionId: session.id,
+        service,
+        member
+      });
+      throw err;
+    }
+    if (type === "setInput") {
+      const service = String(message.service ?? "");
+      const member = String(message.member ?? "");
+      const value = message.value;
+      session.setInputState(service, member, value);
+${inputDispatch}
+      const err = new Error(\`No Input mapping found for \${service}.\${member}\`);
+      emitDiagnostic({
+        code: "HandlerNotRegisteredError",
+        severity: "fatal",
+        category: "bridge",
+        recoverable: false,
+        message: err.message,
+        sessionId: session.id,
+        service,
+        member
+      });
+      throw err;
+    }
+    emitDiagnostic({
+      code: "ProtocolMessageUnknown",
+      severity: "warn",
+      category: "bridge",
+      recoverable: true,
+      message: \`Unknown WS message type '\${type}'.\`,
+      sessionId: session.id
+    });
+  };
+
+  const onConnection = (socket: WebSocket): void => {
+    const session = new ${spec.widgetName}NodeSession(
+      \`session-\${++sessionCounter}\`,
+      socket,
+      defaultSlotTimeoutMs,
+      maxQueuedPerSlot,
+      emitDiagnostic
+    );
+    sessions.set(socket, session);
+    for (const listener of sessionListeners) listener(session);
+    sendJson(socket, { type: "hostReady" });
+    socket.on("message", (data) => {
+      handleMessage(session, typeof data === "string" ? data : data.toString());
+    });
+    socket.on("close", () => {
+      session.close("Session closed");
+      sessions.delete(socket);
+    });
+  };
+
+  options.wsServer.on("connection", onConnection);
+
+  return {
+    onSession(listener) {
+      sessionListeners.add(listener);
+      for (const session of sessions.values()) listener(session);
+      return () => sessionListeners.delete(listener);
+    },
+    subscribeDiagnostics(listener) {
+      diagnosticListeners.add(listener);
+      return () => diagnosticListeners.delete(listener);
+    },
+    getSessions() {
+      return [...sessions.values()];
+    },
+    getSessionInterfaces() {
+      return getSessionInterfaces();
+    },
+    close() {
+      options.wsServer.off("connection", onConnection);
+      for (const session of sessions.values()) session.close("Bridge closed");
+      sessions.clear();
+    }
+  };
+}
+`;
+}
+
+function renderTypeRootIndexDts(spec: ParsedSpecModel): string {
+  const indexDecls = renderTypeIndexDts().trim();
+  const typeDecls = renderTypeTypesDts(spec).trim();
+  const serviceDecls = renderTypeServicesDts(spec).trim();
+  const sections = [indexDecls, typeDecls, serviceDecls].filter((s) => s.length > 0);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
 export interface GeneratedFiles {
@@ -1399,23 +2244,35 @@ export interface GeneratedFiles {
 export interface GenerateOutputsOptions {
   emitQWidget: boolean;
   emitAngularService: boolean;
+  emitNodeExpressWs: boolean;
 }
 
 function generatedCppLibraryDirName(widgetName: string): string {
   return `${widgetName}_QtWidget`;
 }
 
+function generatedNodeExpressWsDirName(widgetName: string): string {
+  return `${widgetName}_node_express_ws`;
+}
+
 export function generateOutputs(
   spec: ParsedSpecModel,
-  options: GenerateOutputsOptions = { emitQWidget: true, emitAngularService: true }
+  options: GenerateOutputsOptions = { emitQWidget: true, emitAngularService: true, emitNodeExpressWs: false }
 ): GeneratedFiles {
   const cppDir = generatedCppLibraryDirName(spec.widgetName);
+  const nodeDir = generatedNodeExpressWsDirName(spec.widgetName);
   const outputs: GeneratedFiles = {};
   if (options.emitAngularService) {
     outputs["npmpackage/package.json"] = renderNpmPackage(spec);
-    outputs["npmpackage/index.ts"] = renderTsIndex(spec);
+    outputs["npmpackage/index.ts"] = renderTsIndex();
+    outputs["npmpackage/services.ts"] = renderTsServices(spec);
+    outputs["npmpackage/types.ts"] = renderTsTypes(spec);
     outputs["npmpackage/index.js"] = renderJsIndex();
-    outputs["npmpackage/types/index.d.ts"] = renderTypeIndexDts(spec);
+    outputs["npmpackage/services.js"] = renderJsServices();
+    outputs["npmpackage/types.js"] = renderJsTypes();
+    outputs["npmpackage/types/index.d.ts"] = renderTypeRootIndexDts(spec);
+    outputs["npmpackage/types/services.d.ts"] = renderTypeServicesDts(spec);
+    outputs["npmpackage/types/types.d.ts"] = renderTypeTypesDts(spec);
   }
   if (options.emitQWidget) {
     const cppTypes = buildCppTypeContext(spec);
@@ -1424,6 +2281,11 @@ export function generateOutputs(
     outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetHeader(spec, cppTypes);
     outputs[`${cppDir}/include/${spec.widgetName}Types.h`] = renderTypesHeader(spec, cppTypes);
     outputs[`${cppDir}/${spec.widgetName}.cpp`] = renderCppStub(spec, cppTypes);
+  }
+  if (options.emitNodeExpressWs) {
+    outputs[`${nodeDir}/package.json`] = renderNodeExpressWsPackage(spec);
+    outputs[`${nodeDir}/index.ts`] = renderNodeExpressWsIndex(spec);
+    outputs[`${nodeDir}/types/index.d.ts`] = renderNodeExpressWsTypes(spec);
   }
   return outputs;
 }
@@ -1611,11 +2473,36 @@ export function installEmbeddedWebBundle(cwd: string, widgetName: string): boole
   fs.rmSync(cppLibraryWebRoot, { recursive: true, force: true });
   fs.mkdirSync(cppLibraryWebRoot, { recursive: true });
   copyDirectoryRecursive(distWebRoot, cppLibraryWebRoot);
+  normalizeEmbeddedIndexHtml(path.join(cppLibraryWebRoot, "index.html"), cppLibraryWebRoot);
 
   const embeddedFiles = listFilesRecursively(cppLibraryWebRoot);
   const qrcPath = path.join(cppLibraryRoot, `${widgetName}.qrc`);
   fs.writeFileSync(qrcPath, renderEmbeddedQrc(widgetName, embeddedFiles), "utf8");
   return true;
+}
+
+function normalizeEmbeddedIndexHtml(indexPath: string, webRoot: string): void {
+  if (!fs.existsSync(indexPath)) {
+    return;
+  }
+  let html = fs.readFileSync(indexPath, "utf8");
+  if (html.includes('<base href="/">')) {
+    html = html.replace('<base href="/">', '<base href="./">');
+  }
+  html = html.replace(
+    /<link\b[^>]*href="([^"]+\.css)"[^>]*>\s*/g,
+    (full: string, href: string) => {
+      const absolute = path.join(webRoot, href);
+      if (!fs.existsSync(absolute)) {
+        return "";
+      }
+      if (fs.statSync(absolute).size === 0) {
+        return "";
+      }
+      return full;
+    }
+  );
+  fs.writeFileSync(indexPath, html, "utf8");
 }
 
 function renderQtIntegrationCMake(widgetName: string): string {

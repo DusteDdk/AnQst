@@ -490,7 +490,41 @@ QString AnQstWebHostBase::loadDefaultBridgeBootstrapScript() const {
     if (!scriptFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         return QString();
     }
-    return QString::fromUtf8(scriptFile.readAll());
+    QString script = QString::fromUtf8(scriptFile.readAll());
+    script.append(QStringLiteral(R"JS(
+;(() => {
+  const anyWindow = window;
+  const transport = anyWindow?.qt?.webChannelTransport;
+  if (!transport || typeof transport !== "object") {
+    return;
+  }
+  if (transport.__anqstMessageGuardInstalled) {
+    return;
+  }
+  let wrapped = null;
+  Object.defineProperty(transport, "onmessage", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return wrapped;
+    },
+    set(fn) {
+      if (typeof fn !== "function") {
+        wrapped = fn;
+        return;
+      }
+      wrapped = function guardedQtWebChannelMessage(message) {
+        if (message === undefined || message === null || message.data === undefined) {
+          return;
+        }
+        return fn.call(this, message);
+      };
+    }
+  });
+  transport.__anqstMessageGuardInstalled = true;
+})();
+)JS"));
+    return script;
 }
 
 void AnQstWebHostBase::setContextMenuEnabled(bool enabled) {

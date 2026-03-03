@@ -1,0 +1,133 @@
+<main class="page">
+  <header class="page-header">
+    <h1>Live User Editor</h1>
+    <p>Realtime user overview and collaborative editing presence.</p>
+  </header>
+
+  <section class="layout">
+    <aside class="panel overview-panel">
+      <h2>User Overview</h2>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <span class="stat-label">Connection</span>
+          <span class="stat-value">{{ currentConnectionState() }}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">User count</span>
+          <span class="stat-value">{{ userCount() }}</span>
+        </div>
+      </div>
+
+      <label class="field">
+        Search users
+        <input [ngModel]="filterSearch()" (ngModelChange)="filterSearch.set($event)" />
+      </label>
+
+      <label class="checkbox-field">
+        <input
+          type="checkbox"
+          [ngModel]="includeInactive()"
+          (ngModelChange)="includeInactive.set($event)"
+        />
+        Include inactive users
+      </label>
+
+      <div class="user-list">
+        @for (user of filteredUsers(); track user.id) {
+          <button
+            class="user-item"
+            [class.selected]="selectedUserId() === user.id && formMode() === 'edit'"
+            (click)="selectUser(user)"
+          >
+            <div class="user-item-main">
+              <strong>{{ user.displayName }}</strong>
+              <span class="role-pill">{{ user.role }}</span>
+              @if (!user.active) {
+                <span class="inactive-pill">Inactive</span>
+              }
+            </div>
+            <div class="user-item-meta">
+              <span>id: {{ user.id }}</span>
+              <span>logins: {{ user.loginCount }}</span>
+              <span>editing: {{ activeEditorCount(user.id) }}</span>
+            </div>
+          </button>
+        } @empty {
+          <p class="empty-state">No users match the current filters.</p>
+        }
+      </div>
+
+      <div class="audit">
+        <h3>Latest Audit</h3>
+        <p>{{ currentLatestAudit() }}</p>
+      </div>
+    </aside>
+
+    <section class="panel form-panel">
+      <div class="form-header">
+        <h2>{{ formTitle() }}</h2>
+        <div class="mode-actions">
+          <button
+            [class.active]="formMode() === 'create'"
+            (click)="enterCreateMode()"
+          >
+            New user
+          </button>
+          <button
+            [class.active]="formMode() === 'edit'"
+            [disabled]="selectedUserId() === null"
+          >
+            Editing selected
+          </button>
+        </div>
+      </div>
+
+      <p class="selected-user">Selected: {{ selectedUserDisplayName() }}</p>
+
+      <label class="field">
+        Display name
+        <input [ngModel]="formName()" (ngModelChange)="formName.set($event)" />
+      </label>
+
+      <label class="field">
+        Role
+        <select [ngModel]="formRole()" (ngModelChange)="formRole.set($event)">
+          <option value="Admin">Admin</option>
+          <option value="Editor">Editor</option>
+          <option value="Viewer">Viewer</option>
+        </select>
+      </label>
+
+      @if (formMode() === 'edit') {
+        <label class="checkbox-field">
+          <input
+            type="checkbox"
+            [ngModel]="formActive()"
+            (ngModelChange)="formActive.set($event)"
+          />
+          User is active
+        </label>
+      }
+
+      <div class="form-actions">
+        <button [disabled]="!canSubmit()" (click)="submitForm()">
+          {{ submitLabel() }}
+        </button>
+        <button class="secondary" (click)="enterCreateMode()">
+          Reset
+        </button>
+      </div>
+
+      @if (formNotice().length > 0) {
+        <p class="form-notice">{{ formNotice() }}</p>
+      }
+
+      <div class="slot-debug">
+        <h3>Reauth Slot Echo</h3>
+        <p>Latest reason: {{ slotReason() }}</p>
+        <p>Latest reply: {{ slotReply() }}</p>
+      </div>
+    </section>
+  </section>
+</main>
