@@ -1,15 +1,37 @@
 {
-  "name": "anqst",
+  "name": "@dusted/anqst",
   "version": "0.1.0",
   "private": false,
+  "description": "Opinionated backend generator for webapps.",
+  "keywords": [
+    "nodejs",
+    "qt",
+    "angular",
+    "webapp"
+  ],
+  "homepage": "https://github.com/DusteDdk/AnQst#readme",
+  "bugs": {
+    "url": "https://github.com/DusteDdk/AnQst/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DusteDdk/AnQst.git"
+  },
+  "license": "WTFPL",
+  "author": "DusteD",
+  "type": "commonjs",
+  "main": "anqst.js",
+  "bin": {
+    "anqst": "dist/src/bin/anqst.js"
+  },
+  "directories": {
+    "test": "test"
+  },
   "files": [
     "dist",
     "spec/AnQst-Spec-DSL.d.ts",
     "README.md"
   ],
-  "bin": {
-    "anqst": "dist/src/bin/anqst.js"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/src/bin/anqst.js",
     "prepare": "npm run build",
