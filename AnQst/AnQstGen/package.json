@@ -1,7 +1,6 @@
 {
   "name": "@dusted/anqst",
   "version": "0.1.0",
-  "private": false,
   "description": "Opinionated backend generator for webapps.",
   "keywords": [
     "nodejs",
@@ -15,31 +14,40 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DusteDdk/AnQst.git"
+    "url": "git+https://github.com/DusteDdk/AnQst.git",
+    "directory": "AnQstGen"
   },
   "license": "WTFPL",
   "author": "DusteD",
   "type": "commonjs",
-  "main": "anqst.js",
+  "main": "dist/src/app.js",
+  "exports": {
+    ".": "./dist/src/app.js"
+  },
   "bin": {
     "anqst": "dist/src/bin/anqst.js"
   },
-  "directories": {
-    "test": "test"
-  },
   "files": [
-    "dist",
+    "dist/src",
     "spec/AnQst-Spec-DSL.d.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/src/bin/anqst.js",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build:test": "npm run clean && tsc -p tsconfig.json",
     "prepare": "npm run build",
-    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "test": "npm run build:test && node --test dist/test/**/*.test.js",
     "start": "node dist/src/bin/anqst.js"
   },
-  "devDependencies": {
-    "@types/node": "^24.3.0",
+  "dependencies": {
     "typescript": "^5.9.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0"
   }
 }

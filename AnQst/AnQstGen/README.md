@@ -25,7 +25,7 @@ npm link
 Run via npx (preferred package workflow):
 
 ```bash
-npx anqst <command> [args]
+npx @dusted/anqst <command> [args]
 ```
 
 ## CLI commands
@@ -92,16 +92,16 @@ npx anqst <command> [args]
 
 ```bash
 # 1) in your widget project
-npx anqst instill BurgerConstructor
+npx @dusted/anqst instill BurgerConstructor
 
 # 2) edit generated spec scaffold
 code BurgerConstructor.AnQst.d.ts
 
 # 3) validate spec
-npx anqst test
+npx @dusted/anqst test
 
 # 4) generate and install artifacts
-npx anqst build
+npx @dusted/anqst build
 
 # or via npm scripts enriched by instill
 npm run test
