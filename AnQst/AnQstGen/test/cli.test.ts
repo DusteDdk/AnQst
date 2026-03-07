@@ -65,6 +65,22 @@ test("help option exits with status 0 and prints command list", () => {
   assert.match(captured, /instill <WidgetName>/);
 });
 
+test("package root exposes AnQst type declarations", () => {
+  const packageJsonPath = path.join(anqstGenRoot, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+    types?: string;
+    exports?: Record<string, unknown>;
+  };
+  assert.equal(packageJson.types, "index.d.ts");
+  const rootExport = packageJson.exports?.["."] as { types?: string } | undefined;
+  assert.equal(rootExport?.types, "./index.d.ts");
+
+  const indexDtsPath = path.join(anqstGenRoot, "index.d.ts");
+  assert.ok(fs.existsSync(indexDtsPath));
+  const indexDts = fs.readFileSync(indexDtsPath, "utf8");
+  assert.match(indexDts, /export\s+\{\s*AnQst\s*\}\s+from\s+"\.\/spec\/AnQst-Spec-DSL";/);
+});
+
 function withTempProject(fn: (projectDir: string) => void): void {
   const prev = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-cli-"));
@@ -206,7 +222,7 @@ test("instill patches package scripts and scaffolds spec", () => {
     assert.equal(pkg.scripts?.test, "npx anqst test && ng test");
     assert.ok(fs.existsSync(path.join(projectDir, "BurgerConstructor.AnQst.d.ts")));
     const scaffold = fs.readFileSync(path.join(projectDir, "BurgerConstructor.AnQst.d.ts"), "utf8");
-    assert.match(scaffold, /import\s+\{\s*AnQst\s*\}\s+from\s+"anqst";/);
+    assert.match(scaffold, /import\s+type\s+\{\s*AnQst\s*\}\s+from\s+"@dusted\/anqst";/);
   });
 });
 
@@ -264,7 +280,7 @@ declare namespace BurgerConstructor {
     const code = runCommand("instill", "BurgerConstructor");
     assert.equal(code, 0);
     const scaffold = fs.readFileSync(path.join(projectDir, "BurgerConstructor.AnQst.d.ts"), "utf8");
-    assert.match(scaffold, /import\s+\{\s*AnQst\s*\}\s+from\s+"anqst";/);
+    assert.match(scaffold, /import\s+type\s+\{\s*AnQst\s*\}\s+from\s+"@dusted\/anqst";/);
     assert.match(scaffold, /declare namespace BurgerConstructor/);
   });
 });
@@ -312,7 +328,7 @@ declare namespace ExistingWidget {
     assert.equal(fs.existsSync(path.join(projectDir, "BurgerConstructor.AnQst.d.ts")), false);
     assert.ok(fs.existsSync(path.join(projectDir, "ExistingWidget.AnQst.d.ts")));
     const scaffold = fs.readFileSync(path.join(projectDir, "ExistingWidget.AnQst.d.ts"), "utf8");
-    assert.match(scaffold, /import\s+\{\s*AnQst\s*\}\s+from\s+"anqst";/);
+    assert.match(scaffold, /import\s+type\s+\{\s*AnQst\s*\}\s+from\s+"@dusted\/anqst";/);
     assert.match(scaffold, /declare namespace ExistingWidget/);
   });
 });
@@ -407,7 +423,7 @@ test("test command verifies spec with npm package AnQst import", () => {
     );
     fs.writeFileSync(
       path.join(projectDir, "PackageDslWidget.AnQst.d.ts"),
-      `import { AnQst } from "anqst";
+      `import type { AnQst } from "@dusted/anqst";
 declare namespace PackageDslWidget {
   interface DemoService extends AnQst.Service {
     ping(): AnQst.Call<string>;

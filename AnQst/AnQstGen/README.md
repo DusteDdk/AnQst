@@ -38,7 +38,7 @@ npx @dusted/anqst <command> [args]
     - `build` script prefix: `npx anqst build`
     - `test` script prefix: `npx anqst test`
   - Scaffolds `<WidgetName>.AnQst.d.ts` in project root.
-  - New scaffolds import `AnQst` from the npm package (`import { AnQst } from "anqst";`).
+  - New scaffolds import `AnQst` from the package root (`import type { AnQst } from "@dusted/anqst";`).
   - If `<WidgetName>.AnQst.d.ts` already exists, instill preserves template content and only normalizes the `AnQst` import.
 
 - `anqst test`

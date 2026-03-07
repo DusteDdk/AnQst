@@ -15,7 +15,7 @@ interface PackageJsonLike {
 }
 
 export const DEFAULT_ANQST_GENERATE_TARGETS = ["QWidget", "AngularService", "//DOM", "//node_express_ws"] as const;
-const ANQST_DSL_IMPORT_LINE = 'import { AnQst } from "anqst";';
+const ANQST_DSL_IMPORT_LINE = 'import type { AnQst } from "@dusted/anqst";';
 
 function readJsonFile<T>(filePath: string): T {
   const raw = fs.readFileSync(filePath, "utf8");
@@ -92,7 +92,7 @@ declare namespace ${widgetName} {
 }
 
 function normalizeAnQstImport(sourceText: string): { nextText: string; changed: boolean } {
-  const importPattern = /^\s*import\s+\{\s*AnQst\s*\}\s+from\s+["'][^"']+["'];\s*$/m;
+  const importPattern = /^\s*import\s+(?:type\s+)?\{\s*AnQst\s*\}\s+from\s+["'][^"']+["'];\s*$/m;
   if (importPattern.test(sourceText)) {
     const nextText = sourceText.replace(importPattern, ANQST_DSL_IMPORT_LINE);
     return { nextText, changed: nextText !== sourceText };
