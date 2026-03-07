@@ -9,6 +9,8 @@ import type { User } from '../../types/User';
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
+
+
 export class App {
   readonly service = inject(CdEntryService);
   readonly genres: Genre[] = ['Rock', 'Pop', 'Jazz', 'Classical', 'Electronic', 'Other'];

@@ -2,8 +2,10 @@
 
 #include "AnQstBridgeProxy.h"
 #include "AnQstHostBridgeFacade.h"
+#include "AnQstWidgetDebugDialog.h"
 #include "AngularHttpBaseServer.h"
 
+#include <QDesktopServices>
 #include <QContextMenuEvent>
 #include <QDir>
 #include <QEvent>
@@ -11,6 +13,9 @@
 #include <QFileInfo>
 #include <QKeySequence>
 #include <QLabel>
+#include <QDebug>
+#include <QPushButton>
+#include <QProcessEnvironment>
 #include <QShortcut>
 #include <QVBoxLayout>
 #include <QWebChannel>
@@ -34,6 +39,20 @@ static QString normalizeQrcRoot(const QString& root) {
     return normalized;
 }
 
+static void disableWebEngineSandboxForTrustedHost() {
+    // The hosted page is considered trusted at application level.
+    qputenv("QTWEBENGINE_DISABLE_SANDBOX", QByteArrayLiteral("1"));
+
+    QByteArray flags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
+    if (!flags.contains("--no-sandbox")) {
+        if (!flags.trimmed().isEmpty()) {
+            flags.append(' ');
+        }
+        flags.append("--no-sandbox");
+    }
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
+}
+
 class LocalOnlyWebPage final : public QWebEnginePage {
 public:
     explicit LocalOnlyWebPage(QObject* parent = nullptr)
@@ -43,9 +62,14 @@ protected:
     bool acceptNavigationRequest(const QUrl& url, NavigationType type, bool isMainFrame) override {
         Q_UNUSED(type);
         Q_UNUSED(isMainFrame);
+        const QObject* host = parent();
+        const bool blockRemoteNavigation = host != nullptr
+            ? host->property("anqstBlockRemoteNavigation").toBool()
+            : true;
         const QString scheme = url.scheme().toLower();
-        if (scheme == QStringLiteral("http") || scheme == QStringLiteral("https") ||
-            scheme == QStringLiteral("ws") || scheme == QStringLiteral("wss")) {
+        if (blockRemoteNavigation &&
+            (scheme == QStringLiteral("http") || scheme == QStringLiteral("https") ||
+             scheme == QStringLiteral("ws") || scheme == QStringLiteral("wss"))) {
             if (parent() != nullptr) {
                 QMetaObject::invokeMethod(parent(), "handleNavigationPolicyError", Q_ARG(QUrl, url));
             }
@@ -81,6 +105,7 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     : QWidget(parent)
     , m_view(new LocalWebView(this))
     , m_devPlaceholder(new QLabel(this))
+    , m_reattachButton(new QPushButton(QStringLiteral("Reattach"), this))
     , m_webChannel(new QWebChannel(this))
     , m_bridgeFacade(new AnQstHostBridgeFacade(this))
     , m_bridgeProxy(new AnQstBridgeProxy(m_bridgeFacade, this))
@@ -93,11 +118,18 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_bridgeBootstrapInstalled(false)
     , m_developmentModeEnabled(false)
     , m_developmentModeAllowLan(false)
-    , m_textSelectionEnabled(true) {
+    , m_textSelectionEnabled(true)
+    , m_debugState()
+    , m_remoteNavigationBlocked(true)
+{
+    disableWebEngineSandboxForTrustedHost();
+    setProperty("anqstBlockRemoteNavigation", true);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_view);
     layout->addWidget(m_devPlaceholder);
+    layout->addWidget(m_reattachButton);
     setLayout(layout);
 
     m_devPlaceholder->setVisible(false);
@@ -105,10 +137,22 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     m_devPlaceholder->setObjectName(QStringLiteral("AnQstDevModePlaceholder"));
     m_devPlaceholder->setWordWrap(true);
     m_devPlaceholder->setAlignment(Qt::AlignCenter);
+    m_devPlaceholder->setTextFormat(Qt::RichText);
+    m_devPlaceholder->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    m_devPlaceholder->setOpenExternalLinks(true);
+    m_reattachButton->setVisible(false);
+    m_reattachButton->setObjectName(QStringLiteral("AnQstDevModeReattachButton"));
+    connect(m_reattachButton, &QPushButton::clicked, this, &AnQstWebHostBase::handleReattachRequested);
 
     m_view->setPage(new LocalOnlyWebPage(this));
     m_view->page()->setWebChannel(m_webChannel);
+    setRemoteNavigationBlocked(true);
     installBridgeBootstrapScript();
+    m_debugState.provider = AnQstWidgetResourceProvider::Qrc;
+    m_debugState.host = AnQstAngularAppHost::Application;
+    m_debugState.resourceUrl = QStringLiteral("http://localhost:4200/");
+    m_debugState.resourceDir = QDir::currentPath();
+    applyDebugBorderHint();
 
     connect(m_view, &QWebEngineView::loadFinished, this, &AnQstWebHostBase::handleLoadFinished);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, this, &AnQstWebHostBase::anQstBridge_outputUpdated);
@@ -120,7 +164,7 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
 
     auto* debugShortcut = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F12), this);
     debugShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(debugShortcut, &QShortcut::activated, this, &AnQstWebHostBase::enableDebug);
+    connect(debugShortcut, &QShortcut::activated, this, &AnQstWebHostBase::handleDebugShortcut);
 
     m_devServer->setFacade(m_bridgeFacade);
     connect(m_devServer, &AngularHttpBaseServer::serverError, this, [this](const QVariantMap& payload) {
@@ -572,71 +616,451 @@ void AnQstWebHostBase::setTextSelectionEnabled(bool enabled) {
     }
 }
 
-bool AnQstWebHostBase::enableDebug() {
+void AnQstWebHostBase::setRemoteNavigationBlocked(bool blocked) {
+    m_remoteNavigationBlocked = blocked;
+    setProperty("anqstBlockRemoteNavigation", blocked);
+}
+
+bool AnQstWebHostBase::remoteNavigationBlocked() const {
+    return m_remoteNavigationBlocked;
+}
+
+void AnQstWebHostBase::handleDebugShortcut() {
+    const DebugState previousState = currentDebugState();
+    const DebugDialogResult dialogResult = runDebugDialog(previousState);
+    if (!dialogResult.accepted) {
+        return;
+    }
+    applyDebugStateChange(previousState, dialogResult);
+}
+
+void AnQstWebHostBase::handleReattachRequested() {
+    if (m_debugState.host != AnQstAngularAppHost::Browser) {
+        return;
+    }
+
+    DebugDialogResult dialogResult;
+    dialogResult.accepted = true;
+    dialogResult.nextState = m_debugState;
+    dialogResult.nextState.host = AnQstAngularAppHost::Application;
+    dialogResult.openBrowser = false;
+    applyDebugStateChange(m_debugState, dialogResult);
+}
+
+AnQstWebHostBase::DebugState AnQstWebHostBase::currentDebugState() const {
+    return m_debugState;
+}
+
+AnQstWebHostBase::DebugDialogResult AnQstWebHostBase::runDebugDialog(const DebugState& initialState) {
+    AnQstWidgetDebugDialog::InitialState dialogState;
+    dialogState.widgetName = debugWidgetName();
+    dialogState.hostMode = initialState.host == AnQstAngularAppHost::Application
+        ? AnQstWidgetDebugDialog::HostMode::Application
+        : AnQstWidgetDebugDialog::HostMode::Browser;
+    switch (initialState.provider) {
+    case AnQstWidgetResourceProvider::Qrc:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Qrc;
+        break;
+    case AnQstWidgetResourceProvider::Dir:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Dir;
+        break;
+    case AnQstWidgetResourceProvider::Http:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Http;
+        break;
+    }
+    dialogState.resourceUrl = initialState.resourceUrl;
+    dialogState.resourceDirectory = initialState.resourceDir;
+
+    AnQstWidgetDebugDialog dialog(dialogState, this);
+    const int dialogCode = dialog.exec();
+    const AnQstWidgetDebugDialog::ResultState dialogResult = dialog.resultState();
+
+    DebugDialogResult result;
+    result.accepted = (dialogCode == QDialog::Accepted) && dialogResult.accepted;
+    result.nextState.host = dialogResult.hostMode == AnQstWidgetDebugDialog::HostMode::Application
+        ? AnQstAngularAppHost::Application
+        : AnQstAngularAppHost::Browser;
+    switch (dialogResult.resourceProvider) {
+    case AnQstWidgetDebugDialog::ResourceProvider::Qrc:
+        result.nextState.provider = AnQstWidgetResourceProvider::Qrc;
+        break;
+    case AnQstWidgetDebugDialog::ResourceProvider::Dir:
+        result.nextState.provider = AnQstWidgetResourceProvider::Dir;
+        break;
+    case AnQstWidgetDebugDialog::ResourceProvider::Http:
+        result.nextState.provider = AnQstWidgetResourceProvider::Http;
+        break;
+    }
+    result.nextState.resourceUrl = dialogResult.resourceUrl.trimmed();
+    result.nextState.resourceDir = dialogResult.resourceDirectory.trimmed();
+    result.openBrowser = dialogResult.openBrowserChecked;
+    return result;
+}
+
+bool AnQstWebHostBase::applyDebugStateChange(const DebugState& previousState, const DebugDialogResult& dialogResult) {
+    if (!dialogResult.accepted) {
+        return false;
+    }
+    DebugState nextState = dialogResult.nextState;
+    nextState.resourceDir = normalizedDirectoryRoot(nextState.resourceDir);
+    if (nextState.resourceDir.isEmpty()) {
+        nextState.resourceDir = normalizedDirectoryRoot(QDir::currentPath());
+    }
+
+    if (nextState.provider == AnQstWidgetResourceProvider::Dir) {
+        QString normalizedDirectory;
+        if (!ensureDirectoryProviderValid(nextState.resourceDir, &normalizedDirectory)) {
+            emitHostError(
+                QStringLiteral("HOST_WIDGET_DEBUG_DIR_INVALID"),
+                QStringLiteral("debug"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("The selected resource directory is invalid or not found."),
+                {
+                    {QStringLiteral("directory"), nextState.resourceDir},
+                });
+            return false;
+        }
+        nextState.resourceDir = normalizedDirectory;
+    }
+    if (nextState.provider == AnQstWidgetResourceProvider::Http) {
+        QUrl normalizedUrl;
+        if (!ensureHttpProviderValid(nextState.resourceUrl, &normalizedUrl)) {
+            emitHostError(
+                QStringLiteral("HOST_WIDGET_DEBUG_URL_INVALID"),
+                QStringLiteral("debug"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("The selected HTTP resource URL is invalid."),
+                {
+                    {QStringLiteral("resourceUrl"), nextState.resourceUrl},
+                });
+            return false;
+        }
+        nextState.resourceUrl = normalizedUrl.toString();
+    }
+
+    bool ok = false;
+    if (nextState.host == AnQstAngularAppHost::Application) {
+        ok = applyApplicationHostState(previousState, nextState);
+    } else {
+        ok = applyBrowserHostState(previousState, nextState, dialogResult.openBrowser);
+    }
+    if (!ok) {
+        return false;
+    }
+
+    m_debugState = nextState;
+    m_developmentModeEnabled = (nextState.host == AnQstAngularAppHost::Browser);
     if (m_developmentModeEnabled) {
-        return true;
+        m_developmentModeUrl = browserUrl();
+    } else {
+        m_developmentModeUrl.clear();
     }
-    if (!m_contentRootSet || m_entryPoint.trimmed().isEmpty()) {
-        emitHostError(
-            QStringLiteral("HOST_DEV_MODE_PRECONDITION_FAILED"),
-            QStringLiteral("lifecycle"),
-            QStringLiteral("error"),
-            true,
-            QStringLiteral("enableDebug() requires configured content root and entry point."));
-        return false;
-    }
-
-    AngularHttpBaseServer::ContentRootMode serverMode = AngularHttpBaseServer::ContentRootMode::Unset;
-    if (m_contentRootMode == ContentRootMode::Filesystem) {
-        serverMode = AngularHttpBaseServer::ContentRootMode::Filesystem;
-    } else if (m_contentRootMode == ContentRootMode::Qrc) {
-        serverMode = AngularHttpBaseServer::ContentRootMode::Qrc;
-    }
-
-    if (!m_devServer->configureContent(serverMode, m_contentRoot, m_entryPoint)) {
-        return false;
-    }
-    if (!m_devServer->start(m_developmentModeAllowLan)) {
-        emitHostError(
-            QStringLiteral("HOST_DEV_MODE_SERVER_START_FAILED"),
-            QStringLiteral("bridge"),
-            QStringLiteral("error"),
-            true,
-            QStringLiteral("Failed to start development mode HTTP/WebSocket server."));
-        return false;
-    }
-
-    m_developmentModeEnabled = true;
-    m_developmentModeUrl = m_devServer->url();
-    m_entryPointLoaded = true;
-
-    m_view->setUrl(QUrl(QStringLiteral("about:blank")));
-    m_view->setVisible(false);
-    m_devPlaceholder->setVisible(true);
-    m_devPlaceholder->setText(QStringLiteral("Development Mode Enabled: Connect to %1 to continue").arg(m_developmentModeUrl));
-
-    emit developmentModeEnabled(m_developmentModeUrl);
-    emitHostError(
-        QStringLiteral("HOST_DEV_MODE_ENABLED"),
-        QStringLiteral("lifecycle"),
-        QStringLiteral("info"),
-        true,
-        QStringLiteral("Development mode enabled."),
-        {
-            {QStringLiteral("url"), m_developmentModeUrl},
-            {QStringLiteral("httpPort"), static_cast<int>(m_devServer->httpPort())},
-            {QStringLiteral("wsPort"), static_cast<int>(m_devServer->wsPort())},
-        });
     emitOutputSnapshotIfReady();
     return true;
 }
 
+bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState, const DebugState& nextState) {
+    bool requiresServer = false;
+    const QUrl entryUrl = resolveEntryPointForProvider(nextState, &requiresServer);
+    if (requiresServer) {
+        const bool mustRestartServer = !m_devServer->isRunning() ||
+                                       previousState.host != AnQstAngularAppHost::Application ||
+                                       previousState.provider != nextState.provider ||
+                                       previousState.resourceUrl != nextState.resourceUrl;
+        if (mustRestartServer) {
+            if (m_devServer->isRunning()) {
+                m_devServer->stop();
+            }
+            if (!configureServerForProvider(nextState)) {
+                return false;
+            }
+            if (!m_devServer->start(m_developmentModeAllowLan)) {
+                emitHostError(
+                    QStringLiteral("HOST_WIDGET_DEBUG_SERVER_START_FAILED"),
+                    QStringLiteral("bridge"),
+                    QStringLiteral("error"),
+                    true,
+                    QStringLiteral("Failed to start local debug server for Application host."));
+                return false;
+            }
+        }
+        const QUrl proxyUrl(m_devServer->url() + QStringLiteral("/"));
+        if (!proxyUrl.isValid()) {
+            emitHostError(
+                QStringLiteral("HOST_WIDGET_DEBUG_PROXY_URL_INVALID"),
+                QStringLiteral("debug"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("Failed to resolve local proxy URL for Application host."));
+            return false;
+        }
+        setRemoteNavigationBlocked(false);
+        showEmbeddedView(proxyUrl);
+        return true;
+    }
+
+    if (!entryUrl.isValid()) {
+        return false;
+    }
+    if (m_devServer->isRunning()) {
+        m_devServer->stop();
+    }
+    setRemoteNavigationBlocked(true);
+    showEmbeddedView(entryUrl);
+    return true;
+}
+
+bool AnQstWebHostBase::applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser) {
+    const bool mustRestartServer = !m_devServer->isRunning() ||
+                                   previousState.host != AnQstAngularAppHost::Browser ||
+                                   previousState.provider != nextState.provider ||
+                                   previousState.resourceDir != nextState.resourceDir ||
+                                   previousState.resourceUrl != nextState.resourceUrl;
+    if (mustRestartServer) {
+        if (m_devServer->isRunning()) {
+            m_devServer->stop();
+        }
+        if (!configureServerForProvider(nextState)) {
+            return false;
+        }
+        if (!m_devServer->start(m_developmentModeAllowLan)) {
+            emitHostError(
+                QStringLiteral("HOST_WIDGET_DEBUG_SERVER_START_FAILED"),
+                QStringLiteral("bridge"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("Failed to start local debug server for Browser host."));
+            return false;
+        }
+    }
+    const QString url = browserUrl();
+    if (url.isEmpty()) {
+        emitHostError(
+            QStringLiteral("HOST_WIDGET_DEBUG_BROWSER_URL_MISSING"),
+            QStringLiteral("debug"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Browser host URL is unavailable."));
+        return false;
+    }
+    setRemoteNavigationBlocked(true);
+    showBrowserPlaceholder(url);
+    m_entryPointLoaded = true;
+    emit developmentModeEnabled(url);
+    if (openBrowser) {
+        openUrlInBrowser(url);
+    }
+    return true;
+}
+
+bool AnQstWebHostBase::configureServerForProvider(const DebugState& nextState) {
+    if (m_entryPoint.trimmed().isEmpty()) {
+        emitHostError(
+            QStringLiteral("HOST_WIDGET_DEBUG_ENTRYPOINT_MISSING"),
+            QStringLiteral("debug"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Entry point is missing for debug server configuration."));
+        return false;
+    }
+    switch (nextState.provider) {
+    case AnQstWidgetResourceProvider::Qrc:
+        if (!m_contentRootSet || m_contentRootMode != ContentRootMode::Qrc) {
+            emitHostError(
+                QStringLiteral("HOST_WIDGET_DEBUG_QRC_UNAVAILABLE"),
+                QStringLiteral("debug"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("QRC resource provider is unavailable for this widget."));
+            return false;
+        }
+        return m_devServer->configureContent(AngularHttpBaseServer::ContentRootMode::Qrc, m_contentRoot, m_entryPoint);
+    case AnQstWidgetResourceProvider::Dir: {
+        QString normalizedRoot;
+        if (!ensureDirectoryProviderValid(nextState.resourceDir, &normalizedRoot)) {
+            return false;
+        }
+        return m_devServer->configureContent(AngularHttpBaseServer::ContentRootMode::Filesystem, normalizedRoot, m_entryPoint);
+    }
+    case AnQstWidgetResourceProvider::Http: {
+        QUrl normalizedUrl;
+        if (!ensureHttpProviderValid(nextState.resourceUrl, &normalizedUrl)) {
+            return false;
+        }
+        return m_devServer->configureProxyTarget(normalizedUrl, m_entryPoint);
+    }
+    }
+    return false;
+}
+
+bool AnQstWebHostBase::ensureDirectoryProviderValid(const QString& directoryInput, QString* normalizedRoot) const {
+    if (normalizedRoot != nullptr) {
+        normalizedRoot->clear();
+    }
+    const QString normalized = normalizedDirectoryRoot(directoryInput);
+    if (normalized.isEmpty()) {
+        return false;
+    }
+    const QFileInfo info(normalized);
+    if (!info.exists() || !info.isDir()) {
+        return false;
+    }
+    if (normalizedRoot != nullptr) {
+        *normalizedRoot = normalized;
+    }
+    return true;
+}
+
+bool AnQstWebHostBase::ensureHttpProviderValid(const QString& urlText, QUrl* normalizedUrl) const {
+    if (normalizedUrl != nullptr) {
+        normalizedUrl->clear();
+    }
+    const QString trimmed = urlText.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    QUrl url(trimmed);
+    if (!url.isValid() || url.scheme().trimmed().isEmpty() || url.host().trimmed().isEmpty()) {
+        return false;
+    }
+    if (url.scheme().toLower() != QStringLiteral("http")) {
+        return false;
+    }
+    url.setPath(QStringLiteral("/"));
+    url.setQuery(QString());
+    url.setFragment(QString());
+    if (normalizedUrl != nullptr) {
+        *normalizedUrl = url;
+    }
+    return true;
+}
+
+QUrl AnQstWebHostBase::resolveEntryPointForProvider(const DebugState& state, bool* requiresServer) const {
+    if (requiresServer != nullptr) {
+        *requiresServer = false;
+    }
+    if (m_entryPoint.trimmed().isEmpty()) {
+        const_cast<AnQstWebHostBase*>(this)->emitHostError(
+            QStringLiteral("HOST_WIDGET_DEBUG_ENTRYPOINT_MISSING"),
+            QStringLiteral("debug"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Entry point must be configured before applying debug state."));
+        return QUrl();
+    }
+    if (state.provider == AnQstWidgetResourceProvider::Http) {
+        if (requiresServer != nullptr) {
+            *requiresServer = true;
+        }
+        return QUrl();
+    }
+    if (state.provider == AnQstWidgetResourceProvider::Qrc) {
+        return resolveAssetPath(m_entryPoint);
+    }
+
+    const QString normalizedRoot = normalizedDirectoryRoot(state.resourceDir);
+    const QString absoluteEntry = QDir(normalizedRoot).absoluteFilePath(m_entryPoint);
+    const QFileInfo entryInfo(absoluteEntry);
+    if (!entryInfo.exists()) {
+        const_cast<AnQstWebHostBase*>(this)->emitHostError(
+            QStringLiteral("HOST_WIDGET_DEBUG_ENTRY_NOT_FOUND"),
+            QStringLiteral("debug"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Directory provider entry point was not found."),
+            {
+                {QStringLiteral("entryPoint"), m_entryPoint},
+                {QStringLiteral("resourceDir"), normalizedRoot},
+            });
+        return QUrl();
+    }
+    return QUrl::fromLocalFile(entryInfo.absoluteFilePath());
+}
+
+void AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
+    m_devPlaceholder->setVisible(false);
+    m_reattachButton->setVisible(false);
+    m_view->setVisible(true);
+    m_entryPointLoaded = false;
+    m_view->setUrl(targetUrl);
+}
+
+void AnQstWebHostBase::showBrowserPlaceholder(const QString& browserUrlText) {
+    m_view->setUrl(QUrl(QStringLiteral("about:blank")));
+    m_view->setVisible(false);
+    m_devPlaceholder->setVisible(true);
+    m_reattachButton->setVisible(true);
+    const QString escapedUrl = browserUrlText.toHtmlEscaped();
+    m_devPlaceholder->setText(
+        QStringLiteral("Debug Browser Host: continue at <a href=\"%1\">%1</a>").arg(escapedUrl));
+}
+
+bool AnQstWebHostBase::openUrlInBrowser(const QString& urlText) const {
+    const QUrl url(urlText.trimmed());
+    if (!url.isValid()) {
+        return false;
+    }
+    return QDesktopServices::openUrl(url);
+}
+
+QString AnQstWebHostBase::normalizedDirectoryRoot(const QString& directoryInput) const {
+    const QString trimmed = directoryInput.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+    const QFileInfo directoryInfo(trimmed);
+    if (directoryInfo.isAbsolute()) {
+        return QDir::cleanPath(directoryInfo.absoluteFilePath());
+    }
+    return QDir::cleanPath(QDir::current().absoluteFilePath(trimmed));
+}
+
+QString AnQstWebHostBase::browserUrl() const {
+    if (!m_devServer->isRunning()) {
+        return QString();
+    }
+    return m_devServer->url() + QStringLiteral("/");
+}
+
+QString AnQstWebHostBase::debugWidgetName() const {
+    if (!objectName().trimmed().isEmpty()) {
+        return objectName().trimmed();
+    }
+    return QString::fromUtf8(metaObject()->className());
+}
+
+void AnQstWebHostBase::applyDebugBorderHint() {
+    const QString debugHint = QProcessEnvironment::systemEnvironment()
+                                  .value(QStringLiteral("ANQST_WIDGET_DEBUG"))
+                                  .trimmed()
+                                  .toLower();
+    if (debugHint == QStringLiteral("true")) {
+        m_view->setStyleSheet(QStringLiteral("border: 1px solid #6a1b9a;"));
+        return;
+    }
+    m_view->setStyleSheet(QString());
+}
+
+bool AnQstWebHostBase::enableDebug() {
+    const DebugState previousState = currentDebugState();
+    const DebugDialogResult dialogResult = runDebugDialog(previousState);
+    if (!dialogResult.accepted) {
+        return false;
+    }
+    return applyDebugStateChange(previousState, dialogResult);
+}
+
 bool AnQstWebHostBase::isDevelopmentModeEnabled() const {
-    return m_developmentModeEnabled;
+    return m_debugState.host == AnQstAngularAppHost::Browser;
 }
 
 QString AnQstWebHostBase::developmentModeUrl() const {
-    return m_developmentModeUrl;
+    if (m_debugState.host != AnQstAngularAppHost::Browser) {
+        return QString();
+    }
+    return browserUrl();
 }
 
 void AnQstWebHostBase::setDevelopmentModeAllowLan(bool allowLan) {

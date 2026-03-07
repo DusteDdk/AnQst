@@ -1,0 +1,1 @@
+export { generateOutputs } from "../../emit";

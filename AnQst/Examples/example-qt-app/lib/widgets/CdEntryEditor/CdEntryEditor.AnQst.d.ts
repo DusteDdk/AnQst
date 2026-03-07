@@ -1,4 +1,4 @@
-import { AnQst } from "AnQst-Spec-DSL";
+import { AnQst } from './node_modules/@dusted/anqst/spec/AnQst-Spec-DSL';
 import { User } from './types/User'
 
 declare namespace CdEntryEditor {

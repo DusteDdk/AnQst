@@ -1,0 +1,1 @@
+export { parseSpecFile } from "../../parser";

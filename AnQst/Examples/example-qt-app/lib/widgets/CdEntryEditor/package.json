@@ -4,8 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "anqst:build": "npm --prefix ../../../../../AnQstGen install && npm --prefix ../../../../../AnQstGen run build && PATH=\"$(pwd)/../../../../../AnQstGen/dist/src/bin:$PATH\" anqst.js build",
-    "anqst:test": "npm --prefix ../../../../../AnQstGen install && npm --prefix ../../../../../AnQstGen run build && PATH=\"$(pwd)/../../../../../AnQstGen/dist/src/bin:$PATH\" anqst.js test",
+    "anqst:build": "npx anqst build",
     "build": "npm run anqst:build && ng build",
     "watch": "ng build --watch --configuration development",
     "test": "npm run anqst:test && ng test"
@@ -19,6 +18,7 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
+    "@dusted/anqst": "file:../../../../../AnQstGen",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

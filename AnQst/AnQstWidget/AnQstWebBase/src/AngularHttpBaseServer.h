@@ -3,8 +3,10 @@
 #include "AnQstHostBridgeFacade.h"
 
 #include <QHostAddress>
+#include <QHash>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 
 class QTcpServer;
 class QTcpSocket;
@@ -26,8 +28,10 @@ public:
     void setFacade(AnQstHostBridgeFacade* facade);
     void setBridgeObjectName(const QString& name);
     bool configureContent(ContentRootMode mode, const QString& contentRoot, const QString& entryPoint);
+    bool configureProxyTarget(const QUrl& targetBaseUrl, const QString& entryPoint = QStringLiteral("index.html"));
     bool start(bool allowLan = false, quint16 startPort = 43000);
     void stop();
+    void notifyWidgetReattached();
     bool isRunning() const;
 
     QString url() const;
@@ -41,6 +45,11 @@ signals:
     void clientDetached();
 
 private:
+    enum class ServeMode {
+        LocalContent,
+        ProxyTarget
+    };
+
     void emitServerError(const QString& code, const QString& message, const QVariantMap& context = QVariantMap());
     bool startHttp(const QHostAddress& bindAddress, quint16 startPort);
     bool startWebSocket(const QHostAddress& bindAddress);
@@ -49,7 +58,12 @@ private:
 
     void handleHttpNewConnection();
     void handleHttpClient(QTcpSocket* socket);
+    bool isWebSocketUpgradeRequest(const QList<QByteArray>& lines) const;
+    void handleProxyHttpRequest(QTcpSocket* clientSocket, const QByteArray& rawRequest, const QString& requestTarget);
+    void handleProxyWebSocketUpgrade(QTcpSocket* clientSocket, const QByteArray& rawRequest, const QString& requestTarget);
+    void closeProxyPeer(QTcpSocket* socket);
     QByteArray readHttpAsset(const QString& requestPath, QString* contentType, int* statusCode) const;
+    QByteArray readHttpProxy(const QString& method, const QString& requestPath, const QByteArray& body, QString* contentType, int* statusCode) const;
     QString resolveFilePath(const QString& requestPath) const;
 
     void handleWebSocketConnected();
@@ -73,4 +87,7 @@ private:
     QHostAddress m_bindAddress;
     quint16 m_httpPort;
     quint16 m_wsPort;
+    ServeMode m_serveMode;
+    QUrl m_proxyBaseUrl;
+    QHash<QTcpSocket*, QTcpSocket*> m_proxyPeers;
 };

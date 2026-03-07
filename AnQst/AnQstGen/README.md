@@ -38,7 +38,8 @@ npx @dusted/anqst <command> [args]
     - `build` script prefix: `npx anqst build`
     - `test` script prefix: `npx anqst test`
   - Scaffolds `<WidgetName>.AnQst.d.ts` in project root.
-  - Installs a project-local DSL definition at `anqst-dsl/AnQst-Spec-DSL.d.ts`.
+  - New scaffolds import `AnQst` from the npm package (`import { AnQst } from "anqst";`).
+  - If `<WidgetName>.AnQst.d.ts` already exists, instill preserves template content and only normalizes the `AnQst` import.
 
 - `anqst test`
   - Reads `package.json.AnQst.spec`.
@@ -47,6 +48,22 @@ npx @dusted/anqst <command> [args]
   - On success: prints summary and exits `0`.
 
 - `anqst build`
+  - Optional backend selection: `--backend <id>` where `<id>` is `ast` (default) or `tsc`.
+  - Optional designer plugin build flag (build command only):
+    - Accepted enable forms: `--designerplugin`, `--designerplugin=true`, `--designerplugin true`.
+    - Any value other than `true` is treated as false.
+    - Plugin build runs only when backend is `tsc` and `QWidget` generation is enabled.
+    - If enabled but backend is not `tsc`, build prints a warning and skips plugin build.
+    - If enabled but `QWidget` is not selected, build prints a warning and skips plugin build.
+    - Requires `ANQST_WEBBASE_DIR` environment variable; `anqst build` forwards it to CMake as `-DANQST_WEBBASE_DIR=...`.
+    - Optional package config: `AnQst.widgetCategory` (string). If present, Qt Designer shows the widget under that category instead of `AnQst Widgets`.
+    - On success, CMake build output remains in `anqst-cmake/build-designerplugin`.
+    - On success, build summary also prints the plugin binary path, a Qt install-path copy hint (`qmake -query QT_INSTALL_PLUGINS` then copy into `<QT_INSTALL_PLUGINS>/designer`), and a user-local install example (`$HOME/.local/lib/qt5/plugins/designer`).
+    - Plugin icon generation (if favicon exists):
+      - Search order: `dist/**/favicon.ico` first, then `res/favicon.ico`, `src/favicon.ico`, `favicon.ico`.
+      - `favicon.ico` is converted to PNG for Designer plugin resources and wired as the widget icon.
+    - Plugin build invokes `cmake` from PATH and forces `Release` configuration.
+    - If plugin CMake configure/build fails, `anqst build` fails.
   - Reads `package.json.AnQst.spec`.
   - Reads optional `package.json.AnQst.generate` string array to select emitted outputs:
     - `"QWidget"` enables Qt/C++ emission and embedding flow.
@@ -65,8 +82,11 @@ npx @dusted/anqst <command> [args]
     - Writes Qt integration glue to `<cwd>/anqst-cmake/CMakeLists.txt` so Qt consumers can `add_subdirectory(...)` and link `<WidgetName>Widget`.
     - If an Angular project is detected (`angular.json` exists), runs a production `ng build`.
     - Embeds the built web bundle into the generated widget library under `generated_output/<WidgetName>_QtWidget/webapp/*`.
+  - `--backend tsc` uses TypeScript compiler APIs and currently emits a subset: `QWidget` and `node_express_ws`.
+  - `AngularService` emission is not implemented for `tsc` backend yet.
 
 - `anqst generate <specFile>`
+  - Optional backend selection: `--backend <id>` where `<id>` is `ast` (default) or `tsc`.
   - Verifies the provided spec file and generates raw output.
   - Also applies `package.json.AnQst.generate` when `package.json` is present and contains `AnQst`.
   - If `"AngularService"` is enabled, installs into `src/anqst-generated`.
@@ -74,9 +94,13 @@ npx @dusted/anqst <command> [args]
   - If `"node_express_ws"` is enabled, emits `generated_output/<WidgetName>_node_express_ws`.
   - If no package config is present, defaults to emitting both QWidget and AngularService outputs.
   - Writes to `<cwd>/generated_output`.
+  - `--backend tsc` uses TypeScript compiler APIs and currently emits a subset: `QWidget` and `node_express_ws`.
+  - `AngularService` emission is not implemented for `tsc` backend yet.
 
 - `anqst verify <specFile>`
+  - Optional backend selection: `--backend <id>` where `<id>` is `ast` (default) or `tsc`.
   - Verifies a spec file without generating artifacts.
+  - `--backend tsc` performs checker-backed validation using TypeScript compiler diagnostics.
 
 - `anqst clean <path> [-f|--force]`
   - `<path>` may be absolute or relative to current working directory.

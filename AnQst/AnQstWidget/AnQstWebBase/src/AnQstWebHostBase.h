@@ -14,6 +14,7 @@ class AnQstHostBridgeFacade;
 class AngularHttpBaseServer;
 class LocalWebView;
 class QLabel;
+class QPushButton;
 class QWebChannel;
 
 class AnQstWebHostBase : public QWidget {
@@ -26,6 +27,19 @@ public:
         Filesystem
     };
     Q_ENUM(ContentRootMode)
+
+    enum class AnQstWidgetResourceProvider {
+        Qrc,
+        Dir,
+        Http
+    };
+    Q_ENUM(AnQstWidgetResourceProvider)
+
+    enum class AnQstAngularAppHost {
+        Application,
+        Browser
+    };
+    Q_ENUM(AnQstAngularAppHost)
 
     explicit AnQstWebHostBase(QWidget* parent = nullptr);
 
@@ -48,6 +62,8 @@ public:
 
     void setContextMenuEnabled(bool enabled);
     void setTextSelectionEnabled(bool enabled);
+    void setRemoteNavigationBlocked(bool blocked);
+    bool remoteNavigationBlocked() const;
 
     void setCallHandler(const CallHandler& handler);
     void setEmitterHandler(const EmitterHandler& handler);
@@ -80,8 +96,39 @@ private slots:
     void handleLoadFinished(bool ok);
     void handleNavigationPolicyError(const QUrl& blockedUrl);
     void handleNetworkPolicyError(const QUrl& blockedUrl);
+    void handleDebugShortcut();
+    void handleReattachRequested();
 
 private:
+    struct DebugState {
+        AnQstWidgetResourceProvider provider = AnQstWidgetResourceProvider::Qrc;
+        AnQstAngularAppHost host = AnQstAngularAppHost::Application;
+        QString resourceUrl;
+        QString resourceDir;
+    };
+
+    struct DebugDialogResult {
+        bool accepted = false;
+        DebugState nextState;
+        bool openBrowser = false;
+    };
+
+    DebugState currentDebugState() const;
+    DebugDialogResult runDebugDialog(const DebugState& initialState);
+    bool applyDebugStateChange(const DebugState& previousState, const DebugDialogResult& dialogResult);
+    bool applyApplicationHostState(const DebugState& previousState, const DebugState& nextState);
+    bool applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser);
+    bool configureServerForProvider(const DebugState& nextState);
+    bool ensureDirectoryProviderValid(const QString& directoryInput, QString* normalizedRoot = nullptr) const;
+    bool ensureHttpProviderValid(const QString& urlText, QUrl* normalizedUrl = nullptr) const;
+    QUrl resolveEntryPointForProvider(const DebugState& state, bool* requiresServer) const;
+    void showEmbeddedView(const QUrl& targetUrl);
+    void showBrowserPlaceholder(const QString& browserUrl);
+    bool openUrlInBrowser(const QString& urlText) const;
+    QString normalizedDirectoryRoot(const QString& directoryInput) const;
+    QString browserUrl() const;
+    QString debugWidgetName() const;
+    void applyDebugBorderHint();
     void emitHostError(
         const QString& code,
         const QString& category,
@@ -98,6 +145,7 @@ private:
 
     LocalWebView* m_view;
     QLabel* m_devPlaceholder;
+    QPushButton* m_reattachButton;
     QWebChannel* m_webChannel;
     AnQstHostBridgeFacade* m_bridgeFacade;
     AnQstBridgeProxy* m_bridgeProxy;
@@ -115,4 +163,6 @@ private:
     bool m_developmentModeAllowLan;
     bool m_textSelectionEnabled;
     QString m_developmentModeUrl;
+    DebugState m_debugState;
+    bool m_remoteNavigationBlocked;
 };

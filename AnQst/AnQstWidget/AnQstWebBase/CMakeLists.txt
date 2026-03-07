@@ -52,12 +52,18 @@ endfunction()
 add_library(anqstwebhostbase STATIC
     src/AnQstBridgeProxy.cpp
     src/AnQstBridgeProxy.h
+    src/AnQstWidgetDebugDialog.cpp
+    src/AnQstWidgetDebugDialog.h
     src/AnQstWebHostBase.cpp
     src/AnQstWebHostBase.h
     src/AnQstHostBridgeFacade.cpp
     src/AnQstHostBridgeFacade.h
     src/AngularHttpBaseServer.cpp
     src/AngularHttpBaseServer.h
+    src/UI/AnQstWidgetDebugDialog.ui
+)
+set_target_properties(anqstwebhostbase PROPERTIES
+    AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/UI"
 )
 
 target_link_libraries(anqstwebhostbase

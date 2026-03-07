@@ -1,0 +1,24 @@
+{
+  "name": "anqst-dsl-torture-test",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "AnQst": {
+    "spec": "TortureWidget.AnQst.d.ts",
+    "generate": [
+      "QWidget",
+      "AngularService",
+      "//DOM",
+      "//node_express_ws"
+    ]
+  },
+  "dependencies": {
+    "@types/node": "^25.3.3",
+    "axios": "^1.13.6",
+    "date-fns": "^4.1.0",
+    "uuid": "^13.0.0",
+    "zod": "^4.3.6"
+  }
+}

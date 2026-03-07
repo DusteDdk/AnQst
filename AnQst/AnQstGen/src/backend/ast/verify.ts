@@ -1,0 +1,1 @@
+export { verifySpec } from "../../verify";

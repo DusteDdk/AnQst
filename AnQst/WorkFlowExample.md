@@ -16,7 +16,6 @@
 ### Look at what was installed
 ```
 ... plus your project files ...
-anqst-dsl/
 BurgerConstructor.AnQst.d.ts
 ```
 
@@ -25,7 +24,7 @@ BurgerConstructor.AnQst.d.ts
 ~/hax/AngularWidgets $ cat BurgerConstructor.AnQst.d.ts
 ```
 ```TypeScript
-import { AnQst } from "./anqst-dsl/AnQst-Spec-DSL";
+import { AnQst } from "anqst";
 
 declare namespace BurgerConstructor {
 
@@ -40,7 +39,7 @@ declare namespace BurgerConstructor {
 ~/hax/AngularWidgets $ cat BurgerConstructor.AnQst.d.ts # Cat haz cheezbrgr?
 ```
 ```TypeScript
-import { AnQst } from "./anqst-dsl/AnQst-Spec-DSL";
+import { AnQst } from "anqst";
 
 declare namespace BurgerConstructor {
     interface Burger {
@@ -80,3 +79,8 @@ declare namespace BurgerConstructor {
 
 - Angular application files stay framework-native and must not include Qt-specific bridge script tags manually.
 - `AnQstWebHostBase` injects bridge bootstrap automatically.
+
+## Existing template behavior
+
+- If `<WidgetName>.AnQst.d.ts` already exists, `anqst instill` only normalizes the `AnQst` import to `import { AnQst } from "anqst";`.
+- If the existing `declare namespace ...` differs from the command argument widget name, instill prompts for which name to use.

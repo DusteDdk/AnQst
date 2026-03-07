@@ -27,3 +27,6 @@ Makefile
 AnQst/AnQstGen/dist/
 AnQst/**/generated_output/
 AnQst/**/anqst-generated/
+
+# Angular
+**/.angular

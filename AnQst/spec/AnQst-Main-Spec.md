@@ -10,10 +10,12 @@ When running `anqst instill <widgetName>` in a directory, AnQst looks for `packa
     - Add key `"AnQst": { "spec": "<widgetName>.AnQst.d.ts", "generate": ["QWidget", "AngularService", "//DOM", "//node_express_ws"] }` to `package.json`
     - Enrich `package.json` build so first command run is `npx anqst build`
     - Enrich `package.json` test so first command run is `npx anqst test`
-    - Install project-local `anqst-dsl/AnQst-Spec-DSL.d.ts`
-      - Exposes DSL helpers for specifying the widget.
-    - Create `<widgetName>.AnQst.d.ts` scaffold in project root.
-      - Scaffold import must be local-relative (`./anqst-dsl/AnQst-Spec-DSL`).
+    - Create `<widgetName>.AnQst.d.ts` scaffold in project root when missing.
+      - Scaffold import is package-based: `import { AnQst } from "anqst";`.
+    - If `<widgetName>.AnQst.d.ts` already exists:
+      - Normalize only the `AnQst` import to package form.
+      - Compare `declare namespace <Name>` with `<widgetName>` argument.
+      - If names differ, prompt user to keep argument name or adopt template namespace as widget name source.
 
 ## Host bridge bootstrap contract
 

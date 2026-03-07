@@ -4,9 +4,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseSpecFile } from "../src/parser";
-import { generateOutputs } from "../src/emit";
+import { PNG } from "pngjs";
+import { generateOutputs, installQtDesignerPluginCMake } from "../src/emit";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
+
+function createSolidPng(r: number, g: number, b: number, a = 255): Buffer {
+  const png = new PNG({ width: 1, height: 1 });
+  png.data[0] = r;
+  png.data[1] = g;
+  png.data[2] = b;
+  png.data[3] = a;
+  return PNG.sync.write(png);
+}
+
+function createIcoFromPng(png: Buffer): Buffer {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
+  const entry = Buffer.alloc(16);
+  entry[0] = 1;
+  entry[1] = 1;
+  entry.writeUInt16LE(1, 4);
+  entry.writeUInt16LE(32, 6);
+  entry.writeUInt32LE(png.length, 8);
+  entry.writeUInt32LE(22, 12);
+  return Buffer.concat([header, entry, png]);
+}
 
 test("generateOutputs returns required tree", () => {
   const specPath = path.join(fixtures, "ValidCdSpec.AnQst.d.ts");
@@ -40,6 +65,12 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["npmpackage/services.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["npmpackage/services.ts"], /WebSocketBridgeAdapter/);
   assert.match(outputs["npmpackage/services.ts"], /async validate\(draft: CdDraft\): Promise<boolean>/);
+  assert.match(outputs["npmpackage/services.ts"], /if \(type === "widgetReattached"\)/);
+  assert.match(outputs["npmpackage/services.ts"], /document\.body\.textContent = "Widget Reattached";/);
+  assert.match(outputs["npmpackage/services.ts"], /this\.socket\.close\(\);/);
+  assert.match(outputs["npmpackage/services.ts"], /const config = \(await configResponse\.json\(\)\) as \{ wsUrl\?: string; wsPath\?: string \};/);
+  assert.match(outputs["npmpackage/services.ts"], /if \(!wsUrl && config\.wsPath\)/);
+  assert.match(outputs["npmpackage/services.ts"], /wsUrl\.startsWith\("http:\/\/"\)/);
   assert.doesNotMatch(outputs["npmpackage/services.ts"], /createNoopHost/);
   assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
   assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /bool enableDebug\(\)/);
@@ -211,4 +242,24 @@ declare namespace CdEntryEditor {
   assert.match(typesHeader, /bool operator==/);
   assert.doesNotMatch(cppFile, /return void\{\};/);
   assert.doesNotMatch(cppFile, /value<void>\(\)/);
+});
+
+test("installQtDesignerPluginCMake emits category override and favicon icon assets", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-plugin-"));
+  fs.mkdirSync(path.join(tempRoot, "dist", "app", "browser"), { recursive: true });
+  const png = createSolidPng(12, 34, 56);
+  fs.writeFileSync(path.join(tempRoot, "dist", "app", "browser", "favicon.ico"), createIcoFromPng(png));
+  installQtDesignerPluginCMake(tempRoot, "DemoWidget", { widgetCategory: "Demo Group" });
+
+  const pluginDir = path.join(tempRoot, "anqst-cmake", "designerplugin");
+  const cpp = fs.readFileSync(path.join(pluginDir, "DemoWidgetDesignerPlugin.cpp"), "utf8");
+  const cmake = fs.readFileSync(path.join(pluginDir, "CMakeLists.txt"), "utf8");
+  const qrc = fs.readFileSync(path.join(pluginDir, "designerplugin.qrc"), "utf8");
+  const icon = fs.readFileSync(path.join(pluginDir, "plugin-icon.png"));
+
+  assert.match(cpp, /QString group\(\) const override \{ return QStringLiteral\("Demo Group"\); \}/);
+  assert.match(cpp, /QIcon\(QStringLiteral\(":\/anqstdesignerplugin\/plugin-icon\.png"\)\)/);
+  assert.match(cmake, /designerplugin\.qrc/);
+  assert.match(qrc, /plugin-icon\.png/);
+  assert.deepEqual(icon, png);
 });

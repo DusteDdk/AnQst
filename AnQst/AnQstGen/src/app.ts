@@ -1,17 +1,23 @@
 import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
-import { parseSpecFile } from "./parser";
-import { verifySpec } from "./verify";
 import { formatVerifyError, VerifyError } from "./errors";
 import {
-  generateOutputs,
   installEmbeddedWebBundle,
+  installQtDesignerPluginCMake,
   installQtIntegrationCMake,
   installTypeScriptOutputs,
   writeGeneratedOutputs
 } from "./emit";
-import { DEFAULT_ANQST_GENERATE_TARGETS, resolveAnQstGenerateTargets, resolveAnQstSpecPath, runInstill } from "./project";
+import {
+  DEFAULT_ANQST_GENERATE_TARGETS,
+  resolveAnQstGenerateTargets,
+  resolveAnQstSpecPath,
+  resolveAnQstWidgetCategory,
+  runInstill
+} from "./project";
+import { isBackendId, resolveBackend } from "./backend";
+import type { BackendId } from "./backend/types";
 
 export interface VerifyResult {
   success: true;
@@ -42,6 +48,28 @@ interface CleanCommandArgs {
   force: boolean;
 }
 
+interface BackendCommandArgs {
+  backendId: BackendId;
+  specArg?: string;
+}
+
+interface BuildCommandArgs {
+  backendId: BackendId;
+  designerPlugin: boolean;
+}
+
+const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
+
+function generationTargetsForBackend(backendId: BackendId, targets: GenerationTargets): GenerationTargets {
+  if (backendId !== "tsc") return targets;
+  // tsc backend currently supports QWidget and node_express_ws emitters only.
+  return {
+    emitQWidget: targets.emitQWidget,
+    emitAngularService: false,
+    emitNodeExpressWs: targets.emitNodeExpressWs
+  };
+}
+
 function renderHelp(): string {
   return [
     "Usage:",
@@ -50,47 +78,61 @@ function renderHelp(): string {
     "Commands:",
     "  instill <WidgetName>       Initialize AnQst in current npm project",
     "  test                        Verify package.json AnQst spec",
-    "  build                       Generate artifacts from package.json AnQst spec",
-    "  generate <specFile>         Generate artifacts from explicit spec file",
-    "  verify <specFile>           Verify explicit spec file only",
+    "  build [--backend <id>] [--designerplugin[=true|false]]      Generate artifacts from package.json AnQst spec",
+    "  generate <specFile> [--backend <id>]  Generate artifacts from explicit spec file",
+    "  verify <specFile> [--backend <id>]    Verify explicit spec file only",
     "  clean <path> [-f|--force]   Remove generated artifacts under path",
     "",
     "Options:",
+    "  --backend <id>              Backend for build/generate/verify: ast|tsc",
+    "  --designerplugin            Build Qt Designer plugin (build command only, tsc + QWidget)",
     "  -h, --help                  Show this help output"
   ].join("\n");
 }
 
 function usageFor(command: string): string {
   if (command === "instill") return "Usage: anqst instill <WidgetName>";
-  if (command === "verify") return "Usage: anqst verify <specFile>";
-  if (command === "generate") return "Usage: anqst generate <specFile>";
+  if (command === "build") return "Usage: anqst build [--backend <id>] [--designerplugin[=true|false]]";
+  if (command === "verify") return "Usage: anqst verify <specFile> [--backend <id>]";
+  if (command === "generate") return "Usage: anqst generate <specFile> [--backend <id>]";
   if (command === "clean") return "Usage: anqst clean <path> [-f|--force]";
   return renderHelp();
 }
 
-export function runVerify(specArg: string): VerifyResult {
+export function runVerify(specArg: string, backendId: BackendId = "ast"): VerifyResult {
   const specPath = path.resolve(process.cwd(), specArg);
-  const parsed = parseSpecFile(specPath);
-  const verification = verifySpec(parsed);
+  const backend = resolveBackend(backendId);
+  const parsed = backend.parseSpecFile(specPath);
+  const verification = backend.verifySpec(parsed);
   return {
     success: true,
     message: verification.message
   };
 }
 
-export function runGenerate(specArg: string): VerifyResult {
+export function runGenerate(specArg: string, backendId: BackendId = "ast"): VerifyResult {
   const cwd = process.cwd();
   const specPath = path.resolve(cwd, specArg);
-  const parsed = parseSpecFile(specPath);
-  const verification = verifySpec(parsed);
-  const generationTargets = resolveGenerationTargetsFromCwd(cwd);
-  const outputs = generateOutputs(parsed, generationTargets);
-  writeGeneratedOutputs(cwd, outputs);
-  if (generationTargets.emitAngularService) {
-    installTypeScriptOutputs(cwd);
-  }
-  if (generationTargets.emitQWidget) {
-    installQtIntegrationCMake(cwd, parsed.widgetName);
+  const backend = resolveBackend(backendId);
+  const parsed = backend.parseSpecFile(specPath);
+  const verification = backend.verifySpec(parsed);
+  const generationTargets = generationTargetsForBackend(backend.id, resolveGenerationTargetsFromCwd(cwd));
+  const outputs = backend.generateOutputs(parsed, generationTargets);
+  if (backend.emitsArtifacts) {
+    writeGeneratedOutputs(cwd, outputs);
+    if (generationTargets.emitAngularService) {
+      installTypeScriptOutputs(cwd);
+    }
+    if (generationTargets.emitQWidget) {
+      installQtIntegrationCMake(cwd, parsed.widgetName);
+    }
+  } else {
+    const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
+    return {
+      success: true,
+      verificationMessage: verification.message,
+      message: `\nAnQst spec ${relativeSpecFile} built.\n    Backend '${backend.id}' is a non-emitting skeleton. No artifacts were generated.\n`
+    };
   }
   const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
   const relativeTypeScriptInstallPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "src", "anqst-generated")));
@@ -121,69 +163,295 @@ export function runGenerate(specArg: string): VerifyResult {
 
 export function runTest(cwd: string): VerifyResult {
   const specPath = resolveAnQstSpecPath(cwd);
-  const parsed = parseSpecFile(specPath);
-  const verification = verifySpec(parsed);
+  const backend = resolveBackend("ast");
+  const parsed = backend.parseSpecFile(specPath);
+  const verification = backend.verifySpec(parsed);
   return {
     success: true,
     message: verification.message
   };
 }
 
-export function runBuild(cwd: string): VerifyResult {
-  const specPath = resolveAnQstSpecPath(cwd);
-  const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
-  const parsed = parseSpecFile(specPath);
-  verifySpec(parsed);
-  const outputs = generateOutputs(parsed, generationTargets);
-  writeGeneratedOutputs(cwd, outputs);
-  if (generationTargets.emitAngularService) {
-    installTypeScriptOutputs(cwd);
+function resolveAnQstGenRoot(): string {
+  return path.resolve(__dirname, "..", "..");
+}
+
+function readActiveBuildStamp(): string {
+  if (process.env.ANQST_BUILD_STAMP && process.env.ANQST_BUILD_STAMP.trim().length > 0) {
+    return process.env.ANQST_BUILD_STAMP.trim();
   }
-  if (generationTargets.emitQWidget) {
-    installQtIntegrationCMake(cwd, parsed.widgetName);
+  const activePath = path.join(resolveAnQstGenRoot(), ANQSTGEN_ACTIVE_STAMP_FILE);
+  if (!fs.existsSync(activePath)) {
+    return "unknown_build_0";
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
+    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
+      return parsed.active.trim();
+    }
+  } catch {
+    // Fallback to deterministic unknown stamp.
+  }
+  return "unknown_build_0";
+}
+
+function runDesignerPluginBuild(cwd: string): void {
+  const pluginSourceDir = path.join(cwd, "anqst-cmake", "designerplugin");
+  const pluginBuildDir = path.join(cwd, "anqst-cmake", "build-designerplugin");
+  const webBaseDir = process.env.ANQST_WEBBASE_DIR?.trim();
+  if (!webBaseDir) {
+    throw new VerifyError("Missing ANQST_WEBBASE_DIR environment variable for --designerplugin build.");
   }
 
-  const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
-  if (hasAngularProject && generationTargets.emitQWidget) {
-    const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
+  const configureArgs = [
+    "-S",
+    pluginSourceDir,
+    "-B",
+    pluginBuildDir,
+    "-DCMAKE_BUILD_TYPE=Release",
+    `-DANQST_WEBBASE_DIR=${webBaseDir}`
+  ];
+  const configure = spawnSync(
+    "cmake",
+    configureArgs,
+    {
       cwd,
       stdio: "inherit",
       shell: process.platform === "win32"
-    });
-    if (angularBuild.status !== 0) {
-      throw new VerifyError("Angular build failed while preparing embedded widget assets.");
     }
+  );
+  if (configure.status !== 0) {
+    throw new VerifyError(
+      [
+        "CMake configure failed while building Qt Designer plugin.",
+        "If CMake reports missing Qt5UiPlugin, install qttools5-dev (Ubuntu/Debian) and re-run install_dependencies.sh."
+      ].join(" ")
+    );
   }
 
-  if (generationTargets.emitQWidget) {
-    const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
-    if (hasAngularProject && !embedded) {
-      throw new VerifyError("Unable to embed Angular output. Ensure ng build produced a dist bundle with index.html.");
-    }
+  const build = spawnSync("cmake", ["--build", pluginBuildDir, "--config", "Release"], {
+    cwd,
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
+  if (build.status !== 0) {
+    throw new VerifyError("CMake build failed while compiling Qt Designer plugin.");
   }
+}
 
-  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
+export function runBuild(cwd: string, backendId: BackendId = "ast", designerPlugin = false): VerifyResult {
+  const buildVersion = readActiveBuildStamp();
+  process.env.ANQST_BUILD_STAMP = buildVersion;
+  try {
+    const backend = resolveBackend(backendId);
+    const specPath = resolveAnQstSpecPath(cwd);
+    const generationTargets = generationTargetsForBackend(backend.id, resolveGenerationTargetsFromCwd(cwd, true));
+    const parsed = backend.parseSpecFile(specPath);
+    backend.verifySpec(parsed);
+    const outputs = backend.generateOutputs(parsed, generationTargets);
+    if (backend.emitsArtifacts) {
+      writeGeneratedOutputs(cwd, outputs);
+      if (generationTargets.emitAngularService) {
+        installTypeScriptOutputs(cwd);
+      }
+      if (generationTargets.emitQWidget) {
+        installQtIntegrationCMake(cwd, parsed.widgetName);
+      }
+    } else {
+      return {
+        success: true,
+        message: `Build completed: backend '${backend.id}' is a non-emitting skeleton; no artifacts were generated`
+      };
+    }
+
+    const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
+    if (hasAngularProject && generationTargets.emitQWidget) {
+      const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
+        cwd,
+        stdio: "inherit",
+        shell: process.platform === "win32"
+      });
+      if (angularBuild.status !== 0) {
+        throw new VerifyError("Angular build failed while preparing embedded widget assets.");
+      }
+    }
+
+    if (generationTargets.emitQWidget) {
+      const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
+      if (hasAngularProject && !embedded) {
+        throw new VerifyError("Unable to embed Angular output. Ensure ng build produced a dist bundle with index.html.");
+      }
+    }
+
+    let designerPluginBuilt = false;
+    if (designerPlugin) {
+      if (backend.id !== "tsc") {
+        console.warn("[AnQst] --designerplugin is only supported with --backend tsc. Skipping designer plugin build.");
+      } else if (!generationTargets.emitQWidget) {
+        console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
+      } else {
+        const widgetCategory = resolveAnQstWidgetCategory(cwd);
+        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory });
+        runDesignerPluginBuild(cwd);
+        designerPluginBuilt = true;
+      }
+    }
+
+    if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
+      return {
+        success: true,
+        message: [
+          "Build completed.",
+          `    anqst version ${buildVersion}`,
+          "    No outputs selected by AnQst.generate."
+        ].join("\n")
+      };
+    }
+
+    const detailLines: string[] = [];
+    if (generationTargets.emitAngularService) {
+      detailLines.push("    Target AngularService:");
+      detailLines.push("      - Services output: src/anqst-generated/services");
+      detailLines.push("      - Types output: src/anqst-generated/types");
+    }
+    if (generationTargets.emitQWidget) {
+      detailLines.push("    Target QWidget:");
+      detailLines.push("      - Qt integration CMake: anqst-cmake/CMakeLists.txt");
+      detailLines.push(`      - Widget output root: generated_output/${parsed.widgetName}_QtWidget`);
+      detailLines.push("      - Embedded web assets refreshed from Angular build");
+    }
+    if (generationTargets.emitNodeExpressWs) {
+      detailLines.push("    Target node_express_ws:");
+      detailLines.push(`      - Module output root: generated_output/${parsed.widgetName}_node_express_ws`);
+    }
+    if (designerPluginBuilt) {
+      const pluginBinaryPath = normalizeSlashes(
+        path.join("anqst-cmake", "build-designerplugin", designerPluginBinaryName(parsed.widgetName))
+      );
+      detailLines.push("    Target QtDesignerPlugin:");
+      detailLines.push("      - Build output: anqst-cmake/build-designerplugin");
+      detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
+      detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
+      detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS");
+      detailLines.push(`      - Example install: cp ${pluginBinaryPath} "$(qmake -query QT_INSTALL_PLUGINS)/designer/"`);
+      detailLines.push(`      - User-local install: mkdir -p "$HOME/.local/lib/qt5/plugins/designer" && cp ${pluginBinaryPath} "$HOME/.local/lib/qt5/plugins/designer/"`);
+    }
     return {
       success: true,
-      message: "Build completed: no outputs selected by AnQst.generate"
+      message: [
+        "Build completed.",
+        `    anqst version ${buildVersion}`,
+        ...detailLines
+      ].join("\n")
     };
+  } finally {
+    delete process.env.ANQST_BUILD_STAMP;
+  }
+}
+
+function parseBackendCommandArgs(
+  commandName: "build" | "verify" | "generate",
+  specArg: string | undefined,
+  extraArgs: string[],
+  requireSpec: boolean
+): BackendCommandArgs {
+  const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
+  let backendId: BackendId = "ast";
+  const positional: string[] = [];
+
+  for (let i = 0; i < allArgs.length; i += 1) {
+    const arg = allArgs[i];
+    if (arg === "--backend") {
+      const value = allArgs[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error(`Missing value for --backend. ${usageFor(commandName)}`);
+      }
+      if (!isBackendId(value)) {
+        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
+      }
+      backendId = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--backend=")) {
+      const value = arg.slice("--backend=".length);
+      if (!isBackendId(value)) {
+        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
+      }
+      backendId = value;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`Unknown ${commandName} flag '${arg}'. ${usageFor(commandName)}`);
+    }
+    positional.push(arg);
   }
 
-  const parts: string[] = [];
-  if (generationTargets.emitAngularService) {
-    parts.push("TypeScript installed to src/anqst-generated");
+  if (requireSpec) {
+    if (positional.length !== 1) {
+      throw new Error(usageFor(commandName));
+    }
+    return { backendId, specArg: positional[0] };
   }
-  if (generationTargets.emitQWidget) {
-    parts.push("Qt integration CMake emitted to anqst-cmake/");
-    parts.push("C++ widget library refreshed with embedded web assets");
+  if (positional.length > 0) {
+    throw new Error(`Unexpected extra argument '${positional[0]}'. ${usageFor(commandName)}`);
   }
-  if (generationTargets.emitNodeExpressWs) {
-    parts.push(`Node Express WS module emitted to generated_output/${parsed.widgetName}_node_express_ws`);
+  return { backendId };
+}
+
+function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[]): BuildCommandArgs {
+  const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
+  let backendId: BackendId = "ast";
+  let designerPlugin = false;
+  const positional: string[] = [];
+
+  for (let i = 0; i < allArgs.length; i += 1) {
+    const arg = allArgs[i];
+    if (arg === "--backend") {
+      const value = allArgs[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error(`Missing value for --backend. ${usageFor("build")}`);
+      }
+      if (!isBackendId(value)) {
+        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
+      }
+      backendId = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--backend=")) {
+      const value = arg.slice("--backend=".length);
+      if (!isBackendId(value)) {
+        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
+      }
+      backendId = value;
+      continue;
+    }
+    if (arg === "--designerplugin") {
+      const value = allArgs[i + 1];
+      if (value && !value.startsWith("-")) {
+        designerPlugin = value.toLowerCase() === "true";
+        i += 1;
+      } else {
+        designerPlugin = true;
+      }
+      continue;
+    }
+    if (arg.startsWith("--designerplugin=")) {
+      const value = arg.slice("--designerplugin=".length);
+      designerPlugin = value.toLowerCase() === "true";
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`Unknown build flag '${arg}'. ${usageFor("build")}`);
+    }
+    positional.push(arg);
   }
-  return {
-    success: true,
-    message: `Build completed: ${parts.join(", ")}`
-  };
+
+  if (positional.length > 0) {
+    throw new Error(`Unexpected extra argument '${positional[0]}'. ${usageFor("build")}`);
+  }
+  return { backendId, designerPlugin };
 }
 
 function parseCleanCommandArgs(specArg: string | undefined, extraArgs: string[]): CleanCommandArgs {
@@ -320,7 +588,7 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
   }
 
   const specPath = resolveAnQstSpecFromPackage(targetRoot);
-  const parsed = parseSpecFile(specPath);
+  const parsed = resolveBackend("ast").parseSpecFile(specPath);
   const widgetDirs = [
     path.join("generated_output", `${parsed.widgetName}_QtWidget`),
     path.join("generated_output", `${parsed.widgetName}_node_express_ws`),
@@ -339,6 +607,24 @@ function normalizeSlashes(inputPath: string): string {
   return inputPath.split(path.sep).join("/");
 }
 
+function designerPluginBinaryName(widgetName: string): string {
+  const targetName = `${widgetName}DesignerPlugin`;
+  if (process.platform === "win32") {
+    return `${targetName}.dll`;
+  }
+  if (process.platform === "darwin") {
+    return `${targetName}.dylib`;
+  }
+  return `${targetName}.so`;
+}
+
+function renderInstallAliasMessage(): string {
+  const useColor = process.stdout.isTTY;
+  const text = "[AnQst] 'install' spotted. Muscle memory is undefeated - running 'instill' for you.";
+  if (!useColor) return text;
+  return `\x1b[38;5;214m${text}\x1b[0m`;
+}
+
 export function runCommand(command: string | undefined, specArg: string | undefined, extraArgs: string[] = []): number {
   try {
     if (!command) {
@@ -349,7 +635,11 @@ export function runCommand(command: string | undefined, specArg: string | undefi
       console.log(renderHelp());
       return 0;
     }
-    if (command === "instill") {
+    const normalizedCommand = command === "install" ? "instill" : command;
+    if (command === "install") {
+      console.log(renderInstallAliasMessage());
+    }
+    if (normalizedCommand === "instill") {
       if (!specArg) {
         console.error(usageFor("instill"));
         return 1;
@@ -358,38 +648,33 @@ export function runCommand(command: string | undefined, specArg: string | undefi
       console.log(msg);
       return 0;
     }
-    if (command === "test") {
+    if (normalizedCommand === "test") {
       const res = runTest(process.cwd());
       console.log(res.message);
       return 0;
     }
-    if (command === "build") {
-      const res = runBuild(process.cwd());
+    if (normalizedCommand === "build") {
+      const parsedArgs = parseBuildCommandArgs(specArg, extraArgs);
+      const res = runBuild(process.cwd(), parsedArgs.backendId, parsedArgs.designerPlugin);
       console.log(res.message);
       return 0;
     }
-    if (command === "verify") {
-      if (!specArg) {
-        console.error(usageFor("verify"));
-        return 1;
-      }
-      const res = runVerify(specArg);
+    if (normalizedCommand === "verify") {
+      const parsedArgs = parseBackendCommandArgs("verify", specArg, extraArgs, true);
+      const res = runVerify(parsedArgs.specArg!, parsedArgs.backendId);
       console.log(res.message);
       return 0;
     }
-    if (command === "generate") {
-      if (!specArg) {
-        console.error(usageFor("generate"));
-        return 1;
-      }
-      const res = runGenerate(specArg);
+    if (normalizedCommand === "generate") {
+      const parsedArgs = parseBackendCommandArgs("generate", specArg, extraArgs, true);
+      const res = runGenerate(parsedArgs.specArg!, parsedArgs.backendId);
       if (res.verificationMessage) {
         console.log(res.verificationMessage);
       }
       console.log(res.message);
       return 0;
     }
-    if (command === "clean") {
+    if (normalizedCommand === "clean") {
       const parsed = parseCleanCommandArgs(specArg, extraArgs);
       const res = runClean(parsed.targetPathArg, parsed.force);
       console.log(res.message);
