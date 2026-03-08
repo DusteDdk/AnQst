@@ -1,5 +1,5 @@
-import { AnQst } from './node_modules/@dusted/anqst/spec/AnQst-Spec-DSL';
-import { User } from './types/User'
+import type { AnQst } from "@dusted/anqst";
+import type { User } from "../types/User";
 
 declare namespace CdEntryEditor {
   type Genre = "Rock" | "Pop" | "Jazz" | "Classical" | "Electronic" | "Other";

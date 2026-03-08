@@ -4,10 +4,14 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "anqst:build": "npx anqst build --backend=tsc",
+    "anqst:test": "npx anqst test",
+    "anqst:build": "npx anqst build",
     "build": "npm run anqst:build && ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "npm run anqst:test && ng test"
+    "test": "npm run anqst:test && ng test",
+    "postinstall": "npx anqst build",
+    "prebuild": "npx anqst build",
+    "prestart": "npx anqst build"
   },
   "private": true,
   "packageManager": "npm@10.9.2",
@@ -31,13 +35,5 @@
     "typescript": "~5.9.2",
     "vitest": "^4.0.8"
   },
-  "AnQst": {
-    "spec": "CdEntryEditor.AnQst.d.ts",
-    "generate": [
-      "QWidget",
-      "AngularService",
-      "//DOM",
-      "//node_express_ws"
-    ]
-  }
+  "AnQst": "./AnQst/CdEntryEditor.settings.json"
 }

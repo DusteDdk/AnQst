@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
-import { CdEntryService } from '../anqst-generated/services';
-import type { CdDraft, Genre, Track } from '../anqst-generated/types';
+import { CdEntryService } from 'anqst-generated/services';
+import type { CdDraft, Genre, Track } from 'anqst-generated/types';
 import type { User } from '../../types/User';
 
 @Component({

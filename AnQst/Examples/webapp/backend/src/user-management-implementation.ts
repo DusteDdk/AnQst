@@ -7,7 +7,7 @@ import type {
   UserFilter,
   UserManagementHandlerBridge,
   UserManagementNodeImplementation
-} from "../../frontend/generated_output/UserManagement_node_express_ws/index";
+} from "../../frontend/AnQst/generated/backend/node/express/UserManagement_anQst/index";
 import { syncOutputs } from "./bridge-sync";
 import { UserManagementState } from "./user-management-state";
 

@@ -17,6 +17,6 @@
   },
   "include": [
     "src/**/*.ts",
-    "../frontend/generated_output/UserManagement_node_express_ws/index.ts"
+    "../frontend/AnQst/generated/backend/node/express/UserManagement_anQst/index.ts"
   ]
 }

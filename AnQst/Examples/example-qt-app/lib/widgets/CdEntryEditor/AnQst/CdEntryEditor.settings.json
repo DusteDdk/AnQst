@@ -1,0 +1,10 @@
+{
+  "layoutVersion": 2,
+  "widgetName": "CdEntryEditor",
+  "spec": "./AnQst/CdEntryEditor.AnQst.d.ts",
+  "generate": [
+    "QWidget",
+    "AngularService"
+  ],
+  "widgetCategory": "AnQst Widgets"
+}

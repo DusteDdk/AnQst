@@ -1,6 +1,6 @@
 import type {
   UserManagementSessionBridge
-} from "../../frontend/generated_output/UserManagement_node_express_ws/index";
+} from "../../frontend/AnQst/generated/backend/node/express/UserManagement_anQst/index";
 import { UserManagementState } from "./user-management-state";
 
 export function syncOutputs(

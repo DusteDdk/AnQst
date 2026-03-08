@@ -1,4 +1,4 @@
-import { AnQst } from './node_modules/@dusted/anqst/spec/AnQst-Spec-DSL';
+import type { AnQst } from "@dusted/anqst";
 
 declare namespace UserManagement {
   type UserRole = "Admin" | "Editor" | "Viewer";

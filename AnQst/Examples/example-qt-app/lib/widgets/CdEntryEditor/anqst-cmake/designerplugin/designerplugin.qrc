@@ -1,5 +1,0 @@
-<RCC>
-  <qresource prefix="/anqstdesignerplugin">
-    <file>plugin-icon.png</file>
-  </qresource>
-</RCC>

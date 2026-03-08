@@ -1,6 +1,6 @@
 import { Component, OnDestroy, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { UserManagementService } from '../anqst-generated/services';
+import { UserManagementService } from 'anqst-generated/services';
 import type {
   AuditNotice,
   CreateUserResult,
@@ -8,7 +8,7 @@ import type {
   UserEditorPresence,
   UserRole,
   UserRecord
-} from '../anqst-generated/types';
+} from 'anqst-generated/types';
 
 @Component({
   selector: 'app-root',

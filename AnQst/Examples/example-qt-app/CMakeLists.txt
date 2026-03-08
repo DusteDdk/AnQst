@@ -17,7 +17,7 @@ if(NOT TARGET anqstwebhostbase)
     )
 endif()
 
-set(ANQST_WIDGET_INTEGRATION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/CdEntryEditor/anqst-cmake")
+set(ANQST_WIDGET_INTEGRATION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/CdEntryEditor/AnQst/generated/backend/cpp/cmake")
 if(NOT EXISTS "${ANQST_WIDGET_INTEGRATION_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
         "Missing ${ANQST_WIDGET_INTEGRATION_DIR}/CMakeLists.txt. "

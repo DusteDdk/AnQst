@@ -8,7 +8,7 @@ import type {
   UserEditorPresence,
   UserFilter,
   UserRecord
-} from "../../frontend/generated_output/UserManagement_node_express_ws/index";
+} from "../../frontend/AnQst/generated/backend/node/express/UserManagement_anQst/index";
 
 export class UserManagementState {
   private readonly users = new Map<string, UserRecord>([
