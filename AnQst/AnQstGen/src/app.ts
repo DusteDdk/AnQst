@@ -2,21 +2,28 @@ import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { formatVerifyError, VerifyError } from "./errors";
+import { isDebugEnabled } from "./debug-dump";
 import {
   generateOutputs,
   installEmbeddedWebBundle,
   installQtDesignerPluginCMake,
   installQtIntegrationCMake,
-  installTypeScriptOutputs,
   writeGeneratedOutputs
 } from "./emit";
 import {
   DEFAULT_ANQST_GENERATE_TARGETS,
   resolveAnQstGenerateTargets,
+  resolveAnQstSettings,
   resolveAnQstSpecPath,
   resolveAnQstWidgetCategory,
+  resolveAnQstWidgetName,
   runInstill
 } from "./project";
+import {
+  normalizeSlashes,
+  resolveGeneratedLayoutPaths,
+  toProjectRelative
+} from "./layout";
 import { parseSpecFile } from "./parser";
 import { verifySpec } from "./verify";
 
@@ -62,8 +69,8 @@ function renderHelp(): string {
     "",
     "Commands:",
     "  instill <WidgetName>       Initialize AnQst in current npm project",
-    "  test                        Verify package.json AnQst spec",
-    "  build [--designerplugin[=true|false]]   Generate artifacts from package.json AnQst spec",
+    "  test                        Verify AnQst spec from package settings",
+    "  build [--designerplugin[=true|false]]   Generate artifacts from package settings",
     "  generate <specFile>         Generate artifacts from explicit spec file",
     "  verify <specFile>           Verify explicit spec file only",
     "  clean <path> [-f|--force]   Remove generated artifacts under path",
@@ -83,6 +90,53 @@ function usageFor(command: string): string {
   return renderHelp();
 }
 
+function resetGeneratedTargets(cwd: string, widgetName: string, targets: GenerationTargets): void {
+  const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
+  const roots = new Set<string>();
+  if (targets.emitAngularService) {
+    roots.add(layout.frontendRoot);
+  }
+  if (targets.emitNodeExpressWs) {
+    roots.add(layout.nodeExpressRoot);
+  }
+  if (targets.emitQWidget) {
+    roots.add(layout.cppQtWidgetRoot);
+    roots.add(layout.cppCmakeRoot);
+  }
+  if (isDebugEnabled()) {
+    roots.add(layout.debugIntermediateRoot);
+  }
+  for (const root of roots) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function buildGenerateSummary(cwd: string, specPath: string, widgetName: string, generationTargets: GenerationTargets): string {
+  const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
+  const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
+  const servicePath = toProjectRelative(cwd, path.join(layout.frontendRoot, "services"));
+  const typePath = toProjectRelative(cwd, path.join(layout.frontendRoot, "types"));
+  const widgetRootPath = toProjectRelative(cwd, layout.cppQtWidgetRoot);
+  const nodePath = toProjectRelative(cwd, layout.nodeExpressRoot);
+
+  const messageLines: string[] = [];
+  messageLines.push(`AnQst spec ${relativeSpecFile} built.`);
+  if (generationTargets.emitAngularService) {
+    messageLines.push(`    Services are available from ${servicePath}.`);
+    messageLines.push(`    Generated types are available from ${typePath}.`);
+  }
+  if (generationTargets.emitQWidget) {
+    messageLines.push(`    Widget library available in ${widgetRootPath}.`);
+  }
+  if (generationTargets.emitNodeExpressWs) {
+    messageLines.push(`    Node Express WS module available in ${nodePath}.`);
+  }
+  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
+    messageLines.push("    No outputs selected by AnQst.generate.");
+  }
+  return `\n${messageLines.join("\n")}\n`;
+}
+
 export function runVerify(specArg: string): VerifyResult {
   const specPath = path.resolve(process.cwd(), specArg);
   const parsed = parseSpecFile(specPath);
@@ -99,38 +153,18 @@ export function runGenerate(specArg: string): VerifyResult {
   const parsed = parseSpecFile(specPath);
   const verification = verifySpec(parsed);
   const generationTargets = resolveGenerationTargetsFromCwd(cwd);
+
+  resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
   const outputs = generateOutputs(parsed, generationTargets);
   writeGeneratedOutputs(cwd, outputs);
-  if (generationTargets.emitAngularService) {
-    installTypeScriptOutputs(cwd);
-  }
   if (generationTargets.emitQWidget) {
     installQtIntegrationCMake(cwd, parsed.widgetName);
   }
-  const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
-  const relativeTypeScriptInstallPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "src", "anqst-generated")));
-  const relativeCppLibraryPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "generated_output", `${parsed.widgetName}_QtWidget`)));
-  const relativeNodeModulePath = normalizeSlashes(path.relative(cwd, path.join(cwd, "generated_output", `${parsed.widgetName}_node_express_ws`)));
-  const serviceList = parsed.services.map((s) => s.name).join(", ");
-  const messageLines: string[] = [];
-  messageLines.push(`AnQst spec ${relativeSpecFile} built.`);
-  if (generationTargets.emitAngularService) {
-    messageLines.push(`    Services ${serviceList} are available from ${relativeTypeScriptInstallPath}/services.`);
-    messageLines.push(`    Generated types are available from ${relativeTypeScriptInstallPath}/types.`);
-  }
-  if (generationTargets.emitQWidget) {
-    messageLines.push(`    Widget library available in ${relativeCppLibraryPath}.`);
-  }
-  if (generationTargets.emitNodeExpressWs) {
-    messageLines.push(`    Node Express WS module available in ${relativeNodeModulePath}.`);
-  }
-  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
-    messageLines.push("    No outputs selected by AnQst.generate.");
-  }
+
   return {
     success: true,
     verificationMessage: verification.message,
-    message: `\n${messageLines.join("\n")}\n`
+    message: buildGenerateSummary(cwd, specPath, parsed.widgetName, generationTargets)
   };
 }
 
@@ -167,9 +201,10 @@ function readActiveBuildStamp(): string {
   return "unknown_build_0";
 }
 
-function runDesignerPluginBuild(cwd: string): void {
-  const pluginSourceDir = path.join(cwd, "anqst-cmake", "designerplugin");
-  const pluginBuildDir = path.join(cwd, "anqst-cmake", "build-designerplugin");
+function runDesignerPluginBuild(cwd: string, widgetName: string): void {
+  const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
+  const pluginSourceDir = layout.designerPluginRoot;
+  const pluginBuildDir = layout.designerPluginBuildRoot;
   const webBaseDir = process.env.ANQST_WEBBASE_DIR?.trim();
   if (!webBaseDir) {
     throw new VerifyError("Missing ANQST_WEBBASE_DIR environment variable for --designerplugin build.");
@@ -216,20 +251,27 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
   process.env.ANQST_BUILD_STAMP = buildVersion;
   try {
     const specPath = resolveAnQstSpecPath(cwd);
+    const configuredWidgetName = resolveAnQstWidgetName(cwd);
     const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
     const parsed = parseSpecFile(specPath);
     verifySpec(parsed);
+
+    if (parsed.widgetName !== configuredWidgetName) {
+      throw new VerifyError(
+        `Settings widgetName '${configuredWidgetName}' does not match spec namespace '${parsed.widgetName}'.`
+      );
+    }
+
+    resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
+
     const outputs = generateOutputs(parsed, generationTargets);
     writeGeneratedOutputs(cwd, outputs);
-    if (generationTargets.emitAngularService) {
-      installTypeScriptOutputs(cwd);
-    }
     if (generationTargets.emitQWidget) {
       installQtIntegrationCMake(cwd, parsed.widgetName);
     }
 
     const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
-    if (hasAngularProject && generationTargets.emitQWidget) {
+    if (hasAngularProject) {
       const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
         cwd,
         stdio: "inherit",
@@ -254,7 +296,7 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       } else {
         const widgetCategory = resolveAnQstWidgetCategory(cwd);
         installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory });
-        runDesignerPluginBuild(cwd);
+        runDesignerPluginBuild(cwd, parsed.widgetName);
         designerPluginBuilt = true;
       }
     }
@@ -270,33 +312,36 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       };
     }
 
+    const layout = resolveGeneratedLayoutPaths(cwd, parsed.widgetName);
     const detailLines: string[] = [];
     if (generationTargets.emitAngularService) {
       detailLines.push("    Target AngularService:");
-      detailLines.push("      - Services output: src/anqst-generated/services");
-      detailLines.push("      - Types output: src/anqst-generated/types");
+      detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "services"))}`);
+      detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "types"))}`);
     }
     if (generationTargets.emitQWidget) {
       detailLines.push("    Target QWidget:");
-      detailLines.push("      - Qt integration CMake: anqst-cmake/CMakeLists.txt");
-      detailLines.push(`      - Widget output root: generated_output/${parsed.widgetName}_QtWidget`);
+      detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
+      detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
       detailLines.push("      - Embedded web assets refreshed from Angular build");
     }
     if (generationTargets.emitNodeExpressWs) {
       detailLines.push("    Target node_express_ws:");
-      detailLines.push(`      - Module output root: generated_output/${parsed.widgetName}_node_express_ws`);
+      detailLines.push(`      - Module output root: ${toProjectRelative(cwd, layout.nodeExpressRoot)}`);
     }
     if (designerPluginBuilt) {
       const pluginBinaryPath = normalizeSlashes(
-        path.join("anqst-cmake", "build-designerplugin", designerPluginBinaryName(parsed.widgetName))
+        path.join(toProjectRelative(cwd, layout.designerPluginBuildRoot), designerPluginBinaryName(parsed.widgetName))
       );
       detailLines.push("    Target QtDesignerPlugin:");
-      detailLines.push("      - Build output: anqst-cmake/build-designerplugin");
+      detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
       detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
       detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
       detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS");
-      detailLines.push(`      - Example install: cp ${pluginBinaryPath} "$(qmake -query QT_INSTALL_PLUGINS)/designer/"`);
-      detailLines.push(`      - User-local install: mkdir -p "$HOME/.local/lib/qt5/plugins/designer" && cp ${pluginBinaryPath} "$HOME/.local/lib/qt5/plugins/designer/"`);
+      detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
+      detailLines.push(
+        `      - User-local install: mkdir -p \"$HOME/.local/lib/qt5/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt5/plugins/designer/\"`
+      );
     }
     return {
       success: true,
@@ -315,11 +360,7 @@ function parseSpecCommandArg(commandName: string, specArg: string | undefined, e
   const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
   const positional: string[] = [];
 
-  for (let i = 0; i < allArgs.length; i += 1) {
-    const arg = allArgs[i];
-    if (arg === "--backend" || arg.startsWith("--backend=")) {
-      throw new Error("--backend flag has been removed. AnQst now uses a single unified pipeline.");
-    }
+  for (const arg of allArgs) {
     if (arg.startsWith("-")) {
       throw new Error(`Unknown ${commandName} flag '${arg}'. ${usageFor(commandName)}`);
     }
@@ -339,9 +380,6 @@ function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[])
 
   for (let i = 0; i < allArgs.length; i += 1) {
     const arg = allArgs[i];
-    if (arg === "--backend" || arg.startsWith("--backend=")) {
-      throw new Error("--backend flag has been removed. AnQst now uses a single unified pipeline.");
-    }
     if (arg === "--designerplugin") {
       const value = allArgs[i + 1];
       if (value && !value.startsWith("-")) {
@@ -446,17 +484,19 @@ function resolveGenerationTargetsFromCwd(cwd: string, requirePackageAnQst = fals
   const packagePath = path.join(cwd, "package.json");
   if (!fs.existsSync(packagePath)) {
     if (requirePackageAnQst) {
-      throw new VerifyError("No package.json: Can only build AnQst inside an npm project.");
+      throw new VerifyError("No package.json: AnQst commands must run inside an npm project.");
     }
     return toGenerationTargets([...DEFAULT_ANQST_GENERATE_TARGETS]);
   }
+
   const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { AnQst?: unknown };
   if (packageJson.AnQst === undefined) {
     if (requirePackageAnQst) {
-      throw new VerifyError("Missing package.json key 'AnQst.spec'. Run 'anqst instill <WidgetName>' first.");
+      throw new VerifyError("Missing package.json key 'AnQst'. Run 'anqst instill <WidgetName>' first.");
     }
     return toGenerationTargets([...DEFAULT_ANQST_GENERATE_TARGETS]);
   }
+
   return toGenerationTargets(resolveAnQstGenerateTargets(cwd));
 }
 
@@ -468,33 +508,11 @@ function toGenerationTargets(targets: string[]): GenerationTargets {
   };
 }
 
-function resolveAnQstSpecFromPackage(targetRoot: string): string {
-  const packagePath = path.join(targetRoot, "package.json");
-  if (!fs.existsSync(packagePath)) {
-    throw new Error(
-      `No package.json with an AnQst key found at '${normalizeSlashes(targetRoot)}'. Use 'anqst clean ${normalizeSlashes(targetRoot)} --force' to clean anyway.`
-    );
-  }
-  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { AnQst?: { spec?: string } };
-  const spec = packageJson.AnQst?.spec;
-  if (!spec || spec.trim().length === 0) {
-    throw new Error(
-      `No package.json with an AnQst key found at '${normalizeSlashes(targetRoot)}'. Use 'anqst clean ${normalizeSlashes(targetRoot)} --force' to clean anyway.`
-    );
-  }
-  return path.resolve(targetRoot, spec);
-}
-
 export function runClean(pathArg: string, force: boolean): CleanResult {
   const targetRoot = path.resolve(process.cwd(), pathArg);
-  const broadDirs = [
-    "generated_output",
-    path.join("src", "anqst-generated"),
-    "anqst-cmake"
-  ];
 
   if (force) {
-    const rows = runCleanup(targetRoot, broadDirs);
+    const rows = runCleanup(targetRoot, [normalizeSlashes(path.join("AnQst", "generated"))]);
     return {
       success: true,
       message: formatCleanResult(targetRoot, rows),
@@ -502,13 +520,14 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
     };
   }
 
-  const specPath = resolveAnQstSpecFromPackage(targetRoot);
-  const parsed = parseSpecFile(specPath);
+  const context = resolveAnQstSettings(targetRoot);
+  const layout = resolveGeneratedLayoutPaths(targetRoot, context.settings.widgetName);
   const widgetDirs = [
-    path.join("generated_output", `${parsed.widgetName}_QtWidget`),
-    path.join("generated_output", `${parsed.widgetName}_node_express_ws`),
-    path.join("src", "anqst-generated"),
-    "anqst-cmake"
+    normalizeSlashes(path.relative(targetRoot, layout.frontendRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.nodeExpressRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.cppQtWidgetRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.cppCmakeRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.debugIntermediateRoot))
   ];
   const rows = runCleanup(targetRoot, widgetDirs);
   return {
@@ -516,10 +535,6 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
     message: formatCleanResult(targetRoot, rows),
     hadFailures: rows.some((row) => row.status === "failed")
   };
-}
-
-function normalizeSlashes(inputPath: string): string {
-  return inputPath.split(path.sep).join("/");
 }
 
 function designerPluginBinaryName(widgetName: string): string {

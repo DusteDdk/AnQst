@@ -3,6 +3,13 @@ import path from "node:path";
 import ts from "typescript";
 import { PNG } from "pngjs";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
+import {
+  anqstGeneratedRootDir,
+  generatedFrontendDirName,
+  generatedNodeExpressDirName,
+  generatedQtWidgetDirName,
+  resolveGeneratedLayoutPaths
+} from "./layout";
 
 function stripAnQstType(typeText: string): string {
   return typeText
@@ -317,7 +324,7 @@ function normalizeImportPathForGenerated(specFilePath: string, generatedFileRelP
     return moduleSpecifier;
   }
   const specDir = path.dirname(specFilePath);
-  const generatedAbs = path.resolve(path.dirname(specFilePath), "generated_output", generatedFileRelPath);
+  const generatedAbs = path.resolve(path.dirname(specFilePath), "generated", generatedFileRelPath);
   const generatedDir = path.dirname(generatedAbs);
   const resolvedModulePath = path.resolve(specDir, moduleSpecifier);
   const relative = path.relative(generatedDir, resolvedModulePath);
@@ -1236,7 +1243,10 @@ export declare class ${serviceName} {
 
 function renderTsServices(spec: ParsedSpecModel): string {
   const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name)).join("\n");
-  const externalTypeImports = renderRequiredTypeImports(spec, "npmpackage/services.ts").trim();
+  const externalTypeImports = renderRequiredTypeImports(
+    spec,
+    `frontend/${generatedFrontendDirName(spec.widgetName)}/services.ts`
+  ).trim();
   const localTypeImports = renderLocalTypeImports(spec).trim();
   const typeImports = [externalTypeImports, localTypeImports].filter((s) => s.length > 0).join("\n");
   const typeImportsBlock = typeImports.length > 0 ? `${typeImports}\n\n` : "";
@@ -1562,14 +1572,20 @@ ${serviceClasses}
 }
 
 function renderTsTypes(spec: ParsedSpecModel): string {
-  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types.ts").trim();
+  const typeImports = renderRequiredTypeImports(
+    spec,
+    `frontend/${generatedFrontendDirName(spec.widgetName)}/types.ts`
+  ).trim();
   const typeDecls = renderTypeDeclarations(spec, true).trim();
   const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
 function renderTypeServicesDts(spec: ParsedSpecModel): string {
-  const externalTypeImports = renderRequiredTypeImports(spec, "npmpackage/types/services.d.ts").trim();
+  const externalTypeImports = renderRequiredTypeImports(
+    spec,
+    `frontend/${generatedFrontendDirName(spec.widgetName)}/types/services.d.ts`
+  ).trim();
   const localTypeImports = renderLocalTypeImports(spec).trim();
   const serviceDecls = spec.services
     .map((s) => renderTsServiceDts(spec, s.name))
@@ -1579,7 +1595,10 @@ function renderTypeServicesDts(spec: ParsedSpecModel): string {
 }
 
 function renderTypeTypesDts(spec: ParsedSpecModel): string {
-  const typeImports = renderRequiredTypeImports(spec, "npmpackage/types/types.d.ts").trim();
+  const typeImports = renderRequiredTypeImports(
+    spec,
+    `frontend/${generatedFrontendDirName(spec.widgetName)}/types/types.d.ts`
+  ).trim();
   const typeDecls = renderTypeDeclarations(spec, true).trim();
   const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
@@ -1659,14 +1678,20 @@ function nodeCap(value: string): string {
 }
 
 function renderNodeExpressWsTypes(spec: ParsedSpecModel): string {
-  const typeImports = renderRequiredTypeImports(spec, `${generatedNodeExpressWsDirName(spec.widgetName)}/types/index.d.ts`).trim();
+  const typeImports = renderRequiredTypeImports(
+    spec,
+    `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}/types/index.d.ts`
+  ).trim();
   const typeDecls = renderTypeDeclarations(spec, true).trim();
   const sections = [typeImports, typeDecls].filter((s) => s.length > 0);
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
 function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
-  const typeImports = renderRequiredTypeImports(spec, `${generatedNodeExpressWsDirName(spec.widgetName)}/index.ts`);
+  const typeImports = renderRequiredTypeImports(
+    spec,
+    `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}/index.ts`
+  );
   const typeDecls = renderTypeDeclarations(spec, true);
   const handlerBridgeTypeName = `${spec.widgetName}HandlerBridge`;
   const sessionBridgeTypeName = `${spec.widgetName}SessionBridge`;
@@ -2402,31 +2427,32 @@ export interface GenerateOutputsOptions {
 }
 
 function generatedCppLibraryDirName(widgetName: string): string {
-  return `${widgetName}_QtWidget`;
+  return generatedQtWidgetDirName(widgetName);
 }
 
 function generatedNodeExpressWsDirName(widgetName: string): string {
-  return `${widgetName}_node_express_ws`;
+  return generatedNodeExpressDirName(widgetName);
 }
 
 export function generateOutputs(
   spec: ParsedSpecModel,
   options: GenerateOutputsOptions = { emitQWidget: true, emitAngularService: true, emitNodeExpressWs: false }
 ): GeneratedFiles {
-  const cppDir = generatedCppLibraryDirName(spec.widgetName);
-  const nodeDir = generatedNodeExpressWsDirName(spec.widgetName);
+  const frontendDir = `frontend/${generatedFrontendDirName(spec.widgetName)}`;
+  const cppDir = `backend/cpp/qt/${generatedCppLibraryDirName(spec.widgetName)}`;
+  const nodeDir = `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}`;
   const outputs: GeneratedFiles = {};
   if (options.emitAngularService) {
-    outputs["npmpackage/package.json"] = renderNpmPackage(spec);
-    outputs["npmpackage/index.ts"] = renderTsIndex();
-    outputs["npmpackage/services.ts"] = renderTsServices(spec);
-    outputs["npmpackage/types.ts"] = renderTsTypes(spec);
-    outputs["npmpackage/index.js"] = renderJsIndex();
-    outputs["npmpackage/services.js"] = renderJsServices();
-    outputs["npmpackage/types.js"] = renderJsTypes();
-    outputs["npmpackage/types/index.d.ts"] = renderTypeRootIndexDts(spec);
-    outputs["npmpackage/types/services.d.ts"] = renderTypeServicesDts(spec);
-    outputs["npmpackage/types/types.d.ts"] = renderTypeTypesDts(spec);
+    outputs[`${frontendDir}/package.json`] = renderNpmPackage(spec);
+    outputs[`${frontendDir}/index.ts`] = renderTsIndex();
+    outputs[`${frontendDir}/services.ts`] = renderTsServices(spec);
+    outputs[`${frontendDir}/types.ts`] = renderTsTypes(spec);
+    outputs[`${frontendDir}/index.js`] = renderJsIndex();
+    outputs[`${frontendDir}/services.js`] = renderJsServices();
+    outputs[`${frontendDir}/types.js`] = renderJsTypes();
+    outputs[`${frontendDir}/types/index.d.ts`] = renderTypeRootIndexDts(spec);
+    outputs[`${frontendDir}/types/services.d.ts`] = renderTypeServicesDts(spec);
+    outputs[`${frontendDir}/types/types.d.ts`] = renderTypeTypesDts(spec);
   }
   if (options.emitQWidget) {
     const cppTypes = buildCppTypeContext(spec);
@@ -2445,37 +2471,11 @@ export function generateOutputs(
 }
 
 export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): void {
-  const outputRoot = path.join(cwd, "generated_output");
+  const outputRoot = anqstGeneratedRootDir(cwd);
   for (const [relPath, content] of Object.entries(outputs)) {
     const filePath = path.join(outputRoot, relPath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, withBuildStamp(relPath, content), "utf8");
-  }
-}
-
-export function installTypeScriptOutputs(cwd: string): void {
-  const sourceDir = path.join(cwd, "generated_output", "npmpackage");
-  const targetDir = path.join(cwd, "src", "anqst-generated");
-  if (!fs.existsSync(sourceDir)) return;
-
-  fs.rmSync(targetDir, { recursive: true, force: true });
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  const queue: string[] = [sourceDir];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const abs = path.join(current, entry.name);
-      const rel = path.relative(sourceDir, abs);
-      const dst = path.join(targetDir, rel);
-      if (entry.isDirectory()) {
-        fs.mkdirSync(dst, { recursive: true });
-        queue.push(abs);
-      } else if (entry.isFile()) {
-        fs.mkdirSync(path.dirname(dst), { recursive: true });
-        fs.copyFileSync(abs, dst);
-      }
-    }
   }
 }
 
@@ -2622,7 +2622,7 @@ export function installEmbeddedWebBundle(cwd: string, widgetName: string): boole
     return false;
   }
 
-  const cppLibraryRoot = path.join(cwd, "generated_output", generatedCppLibraryDirName(widgetName));
+  const cppLibraryRoot = resolveGeneratedLayoutPaths(cwd, widgetName).cppQtWidgetRoot;
   const cppLibraryWebRoot = path.join(cppLibraryRoot, "webapp");
   fs.rmSync(cppLibraryWebRoot, { recursive: true, force: true });
   fs.mkdirSync(cppLibraryWebRoot, { recursive: true });
@@ -2660,15 +2660,15 @@ function normalizeEmbeddedIndexHtml(indexPath: string, webRoot: string): void {
 }
 
 function renderQtIntegrationCMake(widgetName: string): string {
-  const generatedRootVar = "ANQST_GENERATED_CPP_DIR";
+  const generatedRootVar = "ANQST_GENERATED_WIDGET_DIR";
   const generatedIncludeVar = "ANQST_GENERATED_INCLUDE_DIR";
-  const webappRootVar = "ANQST_WEBAPP_ROOT";
+  const projectRootVar = "ANQST_PROJECT_ROOT";
   const widgetTarget = `${widgetName}Widget`;
   const autogenTarget = `${widgetTarget}_anqst_codegen`;
   return `cmake_minimum_required(VERSION 3.21)
 
-set(${webappRootVar} "\${CMAKE_CURRENT_LIST_DIR}/..")
-set(${generatedRootVar} "\${${webappRootVar}}/generated_output/${generatedCppLibraryDirName(widgetName)}")
+set(${projectRootVar} "\${CMAKE_CURRENT_LIST_DIR}/../../../../..")
+set(${generatedRootVar} "\${CMAKE_CURRENT_LIST_DIR}/../qt/${generatedCppLibraryDirName(widgetName)}")
 set(${generatedIncludeVar} "\${${generatedRootVar}}/include")
 
 if(TARGET ${widgetTarget})
@@ -2676,7 +2676,7 @@ if(TARGET ${widgetTarget})
 endif()
 
 if(NOT TARGET anqstwebhostbase)
-    message(FATAL_ERROR "Target 'anqstwebhostbase' must exist before including anqst-cmake for ${widgetName}.")
+    message(FATAL_ERROR "Target 'anqstwebhostbase' must exist before including generated AnQst CMake for ${widgetName}.")
 endif()
 
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
@@ -2696,7 +2696,7 @@ add_custom_command(
         "\${${generatedRootVar}}/webapp/index.html"
     COMMAND "\${ANQST_NPM_EXECUTABLE}" install
     COMMAND "\${ANQST_NPM_EXECUTABLE}" run anqst:build
-    WORKING_DIRECTORY "\${${webappRootVar}}"
+    WORKING_DIRECTORY "\${${projectRootVar}}"
     COMMENT "Generating AnQst widget library (${widgetTarget}) from Angular project"
     VERBATIM
 )
@@ -2738,11 +2738,11 @@ target_link_libraries(${widgetTarget}
 }
 
 export function installQtIntegrationCMake(cwd: string, widgetName: string): void {
-  const integrationDir = path.join(cwd, "anqst-cmake");
+  const integrationDir = resolveGeneratedLayoutPaths(cwd, widgetName).cppCmakeRoot;
   fs.mkdirSync(integrationDir, { recursive: true });
   fs.writeFileSync(
     path.join(integrationDir, "CMakeLists.txt"),
-    withBuildStamp("anqst-cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName)),
+    withBuildStamp("backend/cpp/cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName)),
     "utf8"
   );
 }
@@ -3000,8 +3000,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-set(ANQST_WEBAPP_ROOT "\${CMAKE_CURRENT_LIST_DIR}/../..")
-set(ANQST_WIDGET_DIR "\${ANQST_WEBAPP_ROOT}/generated_output/${generatedCppLibraryDirName(widgetName)}")
+set(ANQST_PROJECT_ROOT "\${CMAKE_CURRENT_LIST_DIR}/../../../../../../..")
+set(ANQST_WIDGET_DIR "\${CMAKE_CURRENT_LIST_DIR}/..")
 set(ANQST_WEBBASE_DIR "" CACHE PATH "Path to AnQstWebBase source directory")
 
 if(NOT EXISTS "\${ANQST_WIDGET_DIR}/CMakeLists.txt")
@@ -3010,10 +3010,10 @@ endif()
 
 if(NOT ANQST_WEBBASE_DIR)
     foreach(candidate
-        "\${ANQST_WEBAPP_ROOT}/AnQstWidget/AnQstWebBase"
-        "\${ANQST_WEBAPP_ROOT}/../AnQstWidget/AnQstWebBase"
-        "\${ANQST_WEBAPP_ROOT}/../../AnQstWidget/AnQstWebBase"
-        "\${ANQST_WEBAPP_ROOT}/../../../AnQstWidget/AnQstWebBase")
+        "\${ANQST_PROJECT_ROOT}/AnQstWidget/AnQstWebBase"
+        "\${ANQST_PROJECT_ROOT}/../AnQstWidget/AnQstWebBase"
+        "\${ANQST_PROJECT_ROOT}/../../AnQstWidget/AnQstWebBase"
+        "\${ANQST_PROJECT_ROOT}/../../../AnQstWidget/AnQstWebBase")
         if(EXISTS "\${candidate}/CMakeLists.txt")
             set(ANQST_WEBBASE_DIR "\${candidate}")
             break()
@@ -3058,20 +3058,23 @@ set_target_properties(${pluginTarget} PROPERTIES
 }
 
 export function installQtDesignerPluginCMake(cwd: string, widgetName: string, options: InstallQtDesignerPluginOptions = {}): void {
-  const pluginDir = path.join(cwd, "anqst-cmake", "designerplugin");
+  const pluginDir = resolveGeneratedLayoutPaths(cwd, widgetName).designerPluginRoot;
   fs.mkdirSync(pluginDir, { recursive: true });
   const assets = installDesignerPluginIconAssets(cwd, pluginDir);
   const pluginTarget = `${widgetName}DesignerPlugin`;
   const widgetCategory = options.widgetCategory ?? "AnQst Widgets";
   fs.writeFileSync(
     path.join(pluginDir, "CMakeLists.txt"),
-    withBuildStamp("anqst-cmake/designerplugin/CMakeLists.txt", renderQtDesignerPluginCMake(widgetName, assets.hasIcon)),
+    withBuildStamp(
+      `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/CMakeLists.txt`,
+      renderQtDesignerPluginCMake(widgetName, assets.hasIcon)
+    ),
     "utf8"
   );
   fs.writeFileSync(
     path.join(pluginDir, `${pluginTarget}.cpp`),
     withBuildStamp(
-      `anqst-cmake/designerplugin/${pluginTarget}.cpp`,
+      `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/${pluginTarget}.cpp`,
       renderQtDesignerPluginCpp(widgetName, widgetCategory, assets.hasIcon)
     ),
     "utf8"

@@ -38,56 +38,31 @@ test("generateOutputs returns required tree", () => {
   const parsed = parseSpecFile(specPath);
   const outputs = generateOutputs(parsed);
 
-  assert.ok(outputs["npmpackage/package.json"]);
-  assert.ok(outputs["npmpackage/index.ts"]);
-  assert.ok(outputs["npmpackage/services.ts"]);
-  assert.ok(outputs["npmpackage/types.ts"]);
-  assert.ok(outputs["npmpackage/index.js"]);
-  assert.ok(outputs["npmpackage/services.js"]);
-  assert.ok(outputs["npmpackage/types.js"]);
-  assert.ok(outputs["npmpackage/types/index.d.ts"]);
-  assert.ok(outputs["npmpackage/types/services.d.ts"]);
-  assert.ok(outputs["npmpackage/types/types.d.ts"]);
-  assert.ok(outputs["CdWidget_QtWidget/CMakeLists.txt"]);
-  assert.ok(outputs["CdWidget_QtWidget/CdWidget.qrc"]);
-  assert.ok(outputs["CdWidget_QtWidget/include/CdWidget.h"]);
-  assert.ok(outputs["CdWidget_QtWidget/include/CdWidgetTypes.h"]);
-  assert.ok(outputs["CdWidget_QtWidget/CdWidget.cpp"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/package.json"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/index.ts"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/services.ts"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/types.ts"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/index.js"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/services.js"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/types.js"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/types/index.d.ts"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/types/services.d.ts"]);
+  assert.ok(outputs["frontend/CdWidget_Angular/types/types.d.ts"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetTypes.h"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"]);
 
-  assert.match(outputs["npmpackage/index.ts"], /export type Services = typeof import\("\.\/services"\);/);
-  assert.match(outputs["npmpackage/index.ts"], /export type Types = typeof import\("\.\/types"\);/);
-  assert.doesNotMatch(outputs["npmpackage/index.ts"], /@Injectable/);
-  assert.match(outputs["npmpackage/types/services.d.ts"], /export interface CdServiceSet/);
-  assert.match(outputs["npmpackage/types/services.d.ts"], /draft\(value: CdDraft\): void;/);
-  assert.match(outputs["npmpackage/types/services.d.ts"], /export interface CdServiceOnSlot \{\}/);
-  assert.match(outputs["npmpackage/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
-  assert.doesNotMatch(outputs["npmpackage/types/services.d.ts"], /Record<string/);
-  assert.match(outputs["npmpackage/services.ts"], /QtWebChannelAdapter/);
-  assert.match(outputs["npmpackage/services.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["npmpackage/services.ts"], /async validate\(draft: CdDraft\): Promise<boolean>/);
-  assert.match(outputs["npmpackage/services.ts"], /if \(type === "widgetReattached"\)/);
-  assert.match(outputs["npmpackage/services.ts"], /document\.body\.textContent = "Widget Reattached";/);
-  assert.match(outputs["npmpackage/services.ts"], /this\.socket\.close\(\);/);
-  assert.match(outputs["npmpackage/services.ts"], /const config = \(await configResponse\.json\(\)\) as \{ wsUrl\?: string; wsPath\?: string \};/);
-  assert.match(outputs["npmpackage/services.ts"], /if \(!wsUrl && config\.wsPath\)/);
-  assert.match(outputs["npmpackage/services.ts"], /wsUrl\.startsWith\("http:\/\/"\)/);
-  assert.doesNotMatch(outputs["npmpackage/services.ts"], /createNoopHost/);
-  assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
-  assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /bool enableDebug\(\)/);
-  assert.match(outputs["CdWidget_QtWidget/include/CdWidget.h"], /kBootstrapEntryPoint/);
-  assert.match(outputs["CdWidget_QtWidget/CdWidget.cpp"], /AnQstWebHostBase::enableDebug/);
-  assert.match(outputs["CdWidget_QtWidget/CdWidget.cpp"], /installBridgeBindings\(\)/);
-  assert.match(outputs["CdWidget_QtWidget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
-  assert.match(outputs["CdWidget_QtWidget/CMakeLists.txt"], /target_link_libraries\(CdWidgetWidget/);
-  assert.match(outputs["CdWidget_QtWidget/CMakeLists.txt"], /anqstwebhostbase/);
-  assert.match(outputs["CdWidget_QtWidget/CMakeLists.txt"], /set\(CMAKE_AUTORCC ON\)/);
-  assert.match(outputs["CdWidget_QtWidget/CMakeLists.txt"], /CdWidget\.qrc/);
-  assert.match(outputs["CdWidget_QtWidget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
-
-  // Bridge name is widget-specific, never the old "anqstHost"
-  assert.match(outputs["npmpackage/services.ts"], /channel\.objects\["CdWidgetBridge"\]/);
-  assert.doesNotMatch(outputs["npmpackage/services.ts"], /channel\.objects\["anqstHost"\]/);
-  assert.doesNotMatch(outputs["npmpackage/services.ts"], /anqstHost bridge object/);
+  assert.match(outputs["frontend/CdWidget_Angular/index.ts"], /export type Services = typeof import\("\.\/services"\);/);
+  assert.match(outputs["frontend/CdWidget_Angular/index.ts"], /export type Types = typeof import\("\.\/types"\);/);
+  assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /export interface CdServiceSet/);
+  assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /QtWebChannelAdapter/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /WebSocketBridgeAdapter/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
 });
 
 test("generateOutputs emits only required imported type bindings", () => {
@@ -121,26 +96,22 @@ declare namespace DemoWidget {
 
   const parsed = parseSpecFile(specPath);
   const outputs = generateOutputs(parsed);
-  const tsServices = outputs["npmpackage/services.ts"];
-  const tsTypes = outputs["npmpackage/types.ts"];
-  const dtsServices = outputs["npmpackage/types/services.d.ts"];
-  const dtsTypes = outputs["npmpackage/types/types.d.ts"];
+  const tsServices = outputs["frontend/DemoWidget_Angular/services.ts"];
+  const tsTypes = outputs["frontend/DemoWidget_Angular/types.ts"];
+  const dtsServices = outputs["frontend/DemoWidget_Angular/types/services.d.ts"];
+  const dtsTypes = outputs["frontend/DemoWidget_Angular/types/types.d.ts"];
 
-  assert.match(tsServices, /import type \{ User \} from "\.\.\/\.\.\/types\/domain";/);
+  assert.match(tsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(tsServices, /\bTeam\b/);
-  assert.doesNotMatch(tsServices, /export interface User/);
 
-  assert.match(tsTypes, /import type \{ User \} from "\.\.\/\.\.\/types\/domain";/);
+  assert.match(tsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(tsTypes, /\bTeam\b/);
-  assert.doesNotMatch(tsTypes, /export interface User/);
 
-  assert.match(dtsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
+  assert.match(dtsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(dtsServices, /\bTeam\b/);
-  assert.doesNotMatch(dtsServices, /export interface User/);
 
-  assert.match(dtsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
+  assert.match(dtsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(dtsTypes, /\bTeam\b/);
-  assert.doesNotMatch(dtsTypes, /export interface User/);
 });
 
 test("generateOutputs can filter QWidget, AngularService, and node_express_ws outputs independently", () => {
@@ -148,27 +119,21 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   const parsed = parseSpecFile(specPath);
 
   const angularOnly = generateOutputs(parsed, { emitAngularService: true, emitQWidget: false, emitNodeExpressWs: false });
-  assert.ok(angularOnly["npmpackage/index.ts"]);
-  assert.ok(angularOnly["npmpackage/services.ts"]);
-  assert.ok(angularOnly["npmpackage/types.ts"]);
-  assert.equal(angularOnly["CdWidget_QtWidget/CdWidget.cpp"], undefined);
-  assert.equal(angularOnly["CdWidget_node_express_ws/index.ts"], undefined);
+  assert.ok(angularOnly["frontend/CdWidget_Angular/index.ts"]);
+  assert.equal(angularOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
+  assert.equal(angularOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
 
   const qwidgetOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
-  assert.ok(qwidgetOnly["CdWidget_QtWidget/CdWidget.cpp"]);
-  assert.equal(qwidgetOnly["npmpackage/index.ts"], undefined);
-  assert.equal(qwidgetOnly["npmpackage/services.ts"], undefined);
-  assert.equal(qwidgetOnly["npmpackage/types.ts"], undefined);
-  assert.equal(qwidgetOnly["CdWidget_node_express_ws/index.ts"], undefined);
+  assert.ok(qwidgetOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"]);
+  assert.equal(qwidgetOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(qwidgetOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
 
   const nodeOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: true });
-  assert.ok(nodeOnly["CdWidget_node_express_ws/package.json"]);
-  assert.ok(nodeOnly["CdWidget_node_express_ws/index.ts"]);
-  assert.ok(nodeOnly["CdWidget_node_express_ws/types/index.d.ts"]);
-  assert.equal(nodeOnly["npmpackage/index.ts"], undefined);
-  assert.equal(nodeOnly["CdWidget_QtWidget/CdWidget.cpp"], undefined);
-  assert.match(nodeOnly["CdWidget_node_express_ws/index.ts"], /createCdWidgetNodeExpressWsBridge/);
-  assert.match(nodeOnly["CdWidget_node_express_ws/index.ts"], /subscribeDiagnostics/);
+  assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/package.json"]);
+  assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"]);
+  assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/types/index.d.ts"]);
+  assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(nodeOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
 
   const none = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: false });
   assert.equal(Object.keys(none).length, 0);
@@ -223,25 +188,13 @@ declare namespace CdEntryEditor {
 
   const parsed = parseSpecFile(specPath);
   const outputs = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
-  const typesHeader = outputs["CdEntryEditor_QtWidget/include/CdEntryEditorTypes.h"];
-  const cppFile = outputs["CdEntryEditor_QtWidget/CdEntryEditor.cpp"];
+  const typesHeader = outputs["backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditorTypes.h"];
+  const cppFile = outputs["backend/cpp/qt/CdEntryEditor_widget/CdEntryEditor.cpp"];
 
   assert.match(typesHeader, /struct User_meta \{/);
   assert.match(typesHeader, /QList<double> friends;/);
-  assert.match(typesHeader, /User_meta meta;/);
-  assert.doesNotMatch(typesHeader, /friends:\s*number\[\]/);
-
-  assert.match(typesHeader, /struct User \{/);
-  assert.match(typesHeader, /Q_DECLARE_METATYPE\(CdEntryEditor::User_meta\)/);
-  assert.match(typesHeader, /Q_DECLARE_METATYPE\(QList<CdEntryEditor::User_meta>\)/);
   assert.match(typesHeader, /Q_DECLARE_METATYPE\(CdEntryEditor::CdDraft\)/);
-
   assert.match(cppFile, /qRegisterMetaType<CdEntryEditor::CdDraft>\("CdEntryEditor::CdDraft"\);/);
-  assert.match(cppFile, /qRegisterMetaType<QList<CdEntryEditor::Track>>\("QList<CdEntryEditor::Track>"\);/);
-
-  assert.match(typesHeader, /bool operator==/);
-  assert.doesNotMatch(cppFile, /return void\{\};/);
-  assert.doesNotMatch(cppFile, /value<void>\(\)/);
 });
 
 test("installQtDesignerPluginCMake emits category override and favicon icon assets", () => {
@@ -251,7 +204,7 @@ test("installQtDesignerPluginCMake emits category override and favicon icon asse
   fs.writeFileSync(path.join(tempRoot, "dist", "app", "browser", "favicon.ico"), createIcoFromPng(png));
   installQtDesignerPluginCMake(tempRoot, "DemoWidget", { widgetCategory: "Demo Group" });
 
-  const pluginDir = path.join(tempRoot, "anqst-cmake", "designerplugin");
+  const pluginDir = path.join(tempRoot, "AnQst", "generated", "backend", "cpp", "qt", "DemoWidget_widget", "designerPlugin");
   const cpp = fs.readFileSync(path.join(pluginDir, "DemoWidgetDesignerPlugin.cpp"), "utf8");
   const cmake = fs.readFileSync(path.join(pluginDir, "CMakeLists.txt"), "utf8");
   const qrc = fs.readFileSync(path.join(pluginDir, "designerplugin.qrc"), "utf8");

@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 anqstgen_dir="$(cd "${script_dir}/.." && pwd)"
 torture_dir="${script_dir}/torture"
 cli_entry="${anqstgen_dir}/dist/src/bin/anqst.js"
-spec_file="${torture_dir}/TortureWidget.AnQst.d.ts"
+spec_file="${torture_dir}/AnQst/TortureWidget.AnQst.d.ts"
 build_root="${torture_dir}/cpp-smoke/build"
 
 echo "[torture] repo: ${anqstgen_dir}"
@@ -30,7 +30,7 @@ run_step() {
 
   (
     cd "${torture_dir}"
-    ANQST_DEBUG=true node ../../dist/src/bin/anqst.js generate TortureWidget.AnQst.d.ts --backend tsc
+    ANQST_DEBUG=true node ../../dist/src/bin/anqst.js build
   ) || return $?
 
   stage="cmake-configure"
@@ -161,4 +161,4 @@ echo
 echo "[torture] no failure found in configured steps"
 
 echo "[torture] debug artifacts:"
-ls -R "${torture_dir}/generated_output/intermediate"
+ls -R "${torture_dir}/AnQst/generated/debug/intermediate"

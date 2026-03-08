@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import util from "node:util";
+import { anqstDebugIntermediateRootDir } from "./layout";
 
 export function isDebugEnabled(): boolean {
   return process.env.ANQST_DEBUG === "true";
 }
 
 function baseIntermediateDir(cwd: string): string {
-  return path.join(cwd, "generated_output", "intermediate");
+  return anqstDebugIntermediateRootDir(cwd);
 }
 
 export function writeDebugFile(cwd: string, relativePath: string, content: string): void {

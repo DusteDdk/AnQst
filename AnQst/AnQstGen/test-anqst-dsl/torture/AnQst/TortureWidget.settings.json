@@ -1,0 +1,11 @@
+{
+  "layoutVersion": 2,
+  "widgetName": "TortureWidget",
+  "spec": "./AnQst/TortureWidget.AnQst.d.ts",
+  "generate": [
+    "QWidget",
+    "AngularService",
+    "node_express_ws"
+  ],
+  "widgetCategory": "AnQst Widgets"
+}

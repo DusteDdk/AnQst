@@ -4,8 +4,9 @@ This guide describes how to build and install an AnQst-generated Qt Designer plu
 
 ## Prerequisites
 
-- A widget project with `package.json.AnQst` configured.
-- `QWidget` target enabled in `package.json.AnQst.generate`.
+- A widget project with `package.json` containing:
+  - `"AnQst": "./AnQst/<WidgetName>.settings.json"`
+- `QWidget` target enabled in `./AnQst/<WidgetName>.settings.json` under `generate`.
 - `ANQST_WEBBASE_DIR` set to your `AnQstWidget/AnQstWebBase` source directory.
 - Qt5 Designer tooling installed (`designer`, `qmake`, Qt5 UiPlugin development files).
 
@@ -14,28 +15,28 @@ This guide describes how to build and install an AnQst-generated Qt Designer plu
 From the widget project root:
 
 ```bash
-ANQST_WEBBASE_DIR=/abs/path/to/AnQstWidget/AnQstWebBase npx anqst build --backend tsc --designerplugin
+ANQST_WEBBASE_DIR=/abs/path/to/AnQstWidget/AnQstWebBase npx anqst build --designerplugin
 ```
 
 On success, output is placed in:
 
-- `anqst-cmake/build-designerplugin/<WidgetName>DesignerPlugin.so` (Linux)
-- `anqst-cmake/build-designerplugin/<WidgetName>DesignerPlugin.dylib` (macOS)
-- `anqst-cmake/build-designerplugin/<WidgetName>DesignerPlugin.dll` (Windows)
+- `AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so` (Linux)
+- `AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.dylib` (macOS)
+- `AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.dll` (Windows)
 
 ## Install the plugin
 
 ### System Qt plugin path
 
 ```bash
-cp anqst-cmake/build-designerplugin/<WidgetName>DesignerPlugin.so "$(qmake -query QT_INSTALL_PLUGINS)/designer/"
+cp AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so "$(qmake -query QT_INSTALL_PLUGINS)/designer/"
 ```
 
 ### User-local Qt5 plugin path
 
 ```bash
 mkdir -p "$HOME/.local/lib/qt5/plugins/designer"
-cp anqst-cmake/build-designerplugin/<WidgetName>DesignerPlugin.so "$HOME/.local/lib/qt5/plugins/designer/"
+cp AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so "$HOME/.local/lib/qt5/plugins/designer/"
 ```
 
 ## Verify plugin loading
@@ -49,14 +50,14 @@ QT_DEBUG_PLUGINS=1 designer
 Useful checks:
 
 - Ensure metadata is found for `<WidgetName>DesignerPlugin`.
-- Ensure library is loaded without `Cannot load library ...` errors.
+- Ensure library loads without `Cannot load library ...` errors.
 - Confirm widget appears under:
   - `AnQst Widgets` (default), or
-  - `AnQst.widgetCategory` if configured.
+  - `widgetCategory` from settings file.
 
-## Optional package.json settings
+## Optional settings
 
-Under `package.json.AnQst`:
+In `./AnQst/<WidgetName>.settings.json`:
 
 - `widgetCategory` (optional string): overrides Designer category name.
 
@@ -64,11 +65,11 @@ Example:
 
 ```json
 {
-  "AnQst": {
-    "spec": "CdEntryEditor.AnQst.d.ts",
-    "generate": ["QWidget", "AngularService"],
-    "widgetCategory": "Internal Widgets"
-  }
+  "layoutVersion": 2,
+  "widgetName": "CdEntryEditor",
+  "spec": "./AnQst/CdEntryEditor.AnQst.d.ts",
+  "generate": ["QWidget", "AngularService"],
+  "widgetCategory": "Internal Widgets"
 }
 ```
 

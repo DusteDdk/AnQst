@@ -11,7 +11,7 @@
  *   Not for use by TypeScript application implementation.
  * @example
  * package.json:
- * - "AnQst": { "WidgetSpec": "MyUserMgmtWidget.AnQstSpec.d.ts" }
+ * - "AnQst": "./AnQst/MyUserMgmtWidget.settings.json"
  */
 
 export namespace AnQst {

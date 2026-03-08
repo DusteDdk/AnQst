@@ -5,15 +5,7 @@
   "author": "",
   "license": "ISC",
   "description": "",
-  "AnQst": {
-    "spec": "TortureWidget.AnQst.d.ts",
-    "generate": [
-      "QWidget",
-      "AngularService",
-      "//DOM",
-      "//node_express_ws"
-    ]
-  },
+  "AnQst": "./AnQst/TortureWidget.settings.json",
   "dependencies": {
     "@types/node": "^25.3.3",
     "axios": "^1.13.6",
