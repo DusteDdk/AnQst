@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { formatVerifyError, VerifyError } from "./errors";
 import {
+  generateOutputs,
   installEmbeddedWebBundle,
   installQtDesignerPluginCMake,
   installQtIntegrationCMake,
@@ -16,8 +17,8 @@ import {
   resolveAnQstWidgetCategory,
   runInstill
 } from "./project";
-import { isBackendId, resolveBackend } from "./backend";
-import type { BackendId } from "./backend/types";
+import { parseSpecFile } from "./parser";
+import { verifySpec } from "./verify";
 
 export interface VerifyResult {
   success: true;
@@ -48,27 +49,11 @@ interface CleanCommandArgs {
   force: boolean;
 }
 
-interface BackendCommandArgs {
-  backendId: BackendId;
-  specArg?: string;
-}
-
 interface BuildCommandArgs {
-  backendId: BackendId;
   designerPlugin: boolean;
 }
 
 const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
-
-function generationTargetsForBackend(backendId: BackendId, targets: GenerationTargets): GenerationTargets {
-  if (backendId !== "tsc") return targets;
-  // tsc backend currently supports QWidget and node_express_ws emitters only.
-  return {
-    emitQWidget: targets.emitQWidget,
-    emitAngularService: false,
-    emitNodeExpressWs: targets.emitNodeExpressWs
-  };
-}
 
 function renderHelp(): string {
   return [
@@ -78,61 +63,49 @@ function renderHelp(): string {
     "Commands:",
     "  instill <WidgetName>       Initialize AnQst in current npm project",
     "  test                        Verify package.json AnQst spec",
-    "  build [--backend <id>] [--designerplugin[=true|false]]      Generate artifacts from package.json AnQst spec",
-    "  generate <specFile> [--backend <id>]  Generate artifacts from explicit spec file",
-    "  verify <specFile> [--backend <id>]    Verify explicit spec file only",
+    "  build [--designerplugin[=true|false]]   Generate artifacts from package.json AnQst spec",
+    "  generate <specFile>         Generate artifacts from explicit spec file",
+    "  verify <specFile>           Verify explicit spec file only",
     "  clean <path> [-f|--force]   Remove generated artifacts under path",
     "",
     "Options:",
-    "  --backend <id>              Backend for build/generate/verify: ast|tsc",
-    "  --designerplugin            Build Qt Designer plugin (build command only, tsc + QWidget)",
+    "  --designerplugin            Build Qt Designer plugin (build command only, QWidget target required)",
     "  -h, --help                  Show this help output"
   ].join("\n");
 }
 
 function usageFor(command: string): string {
   if (command === "instill") return "Usage: anqst instill <WidgetName>";
-  if (command === "build") return "Usage: anqst build [--backend <id>] [--designerplugin[=true|false]]";
-  if (command === "verify") return "Usage: anqst verify <specFile> [--backend <id>]";
-  if (command === "generate") return "Usage: anqst generate <specFile> [--backend <id>]";
+  if (command === "build") return "Usage: anqst build [--designerplugin[=true|false]]";
+  if (command === "verify") return "Usage: anqst verify <specFile>";
+  if (command === "generate") return "Usage: anqst generate <specFile>";
   if (command === "clean") return "Usage: anqst clean <path> [-f|--force]";
   return renderHelp();
 }
 
-export function runVerify(specArg: string, backendId: BackendId = "ast"): VerifyResult {
+export function runVerify(specArg: string): VerifyResult {
   const specPath = path.resolve(process.cwd(), specArg);
-  const backend = resolveBackend(backendId);
-  const parsed = backend.parseSpecFile(specPath);
-  const verification = backend.verifySpec(parsed);
+  const parsed = parseSpecFile(specPath);
+  const verification = verifySpec(parsed);
   return {
     success: true,
     message: verification.message
   };
 }
 
-export function runGenerate(specArg: string, backendId: BackendId = "ast"): VerifyResult {
+export function runGenerate(specArg: string): VerifyResult {
   const cwd = process.cwd();
   const specPath = path.resolve(cwd, specArg);
-  const backend = resolveBackend(backendId);
-  const parsed = backend.parseSpecFile(specPath);
-  const verification = backend.verifySpec(parsed);
-  const generationTargets = generationTargetsForBackend(backend.id, resolveGenerationTargetsFromCwd(cwd));
-  const outputs = backend.generateOutputs(parsed, generationTargets);
-  if (backend.emitsArtifacts) {
-    writeGeneratedOutputs(cwd, outputs);
-    if (generationTargets.emitAngularService) {
-      installTypeScriptOutputs(cwd);
-    }
-    if (generationTargets.emitQWidget) {
-      installQtIntegrationCMake(cwd, parsed.widgetName);
-    }
-  } else {
-    const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
-    return {
-      success: true,
-      verificationMessage: verification.message,
-      message: `\nAnQst spec ${relativeSpecFile} built.\n    Backend '${backend.id}' is a non-emitting skeleton. No artifacts were generated.\n`
-    };
+  const parsed = parseSpecFile(specPath);
+  const verification = verifySpec(parsed);
+  const generationTargets = resolveGenerationTargetsFromCwd(cwd);
+  const outputs = generateOutputs(parsed, generationTargets);
+  writeGeneratedOutputs(cwd, outputs);
+  if (generationTargets.emitAngularService) {
+    installTypeScriptOutputs(cwd);
+  }
+  if (generationTargets.emitQWidget) {
+    installQtIntegrationCMake(cwd, parsed.widgetName);
   }
   const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
   const relativeTypeScriptInstallPath = normalizeSlashes(path.relative(cwd, path.join(cwd, "src", "anqst-generated")));
@@ -163,9 +136,8 @@ export function runGenerate(specArg: string, backendId: BackendId = "ast"): Veri
 
 export function runTest(cwd: string): VerifyResult {
   const specPath = resolveAnQstSpecPath(cwd);
-  const backend = resolveBackend("ast");
-  const parsed = backend.parseSpecFile(specPath);
-  const verification = backend.verifySpec(parsed);
+  const parsed = parseSpecFile(specPath);
+  const verification = verifySpec(parsed);
   return {
     success: true,
     message: verification.message
@@ -239,29 +211,21 @@ function runDesignerPluginBuild(cwd: string): void {
   }
 }
 
-export function runBuild(cwd: string, backendId: BackendId = "ast", designerPlugin = false): VerifyResult {
+export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
   const buildVersion = readActiveBuildStamp();
   process.env.ANQST_BUILD_STAMP = buildVersion;
   try {
-    const backend = resolveBackend(backendId);
     const specPath = resolveAnQstSpecPath(cwd);
-    const generationTargets = generationTargetsForBackend(backend.id, resolveGenerationTargetsFromCwd(cwd, true));
-    const parsed = backend.parseSpecFile(specPath);
-    backend.verifySpec(parsed);
-    const outputs = backend.generateOutputs(parsed, generationTargets);
-    if (backend.emitsArtifacts) {
-      writeGeneratedOutputs(cwd, outputs);
-      if (generationTargets.emitAngularService) {
-        installTypeScriptOutputs(cwd);
-      }
-      if (generationTargets.emitQWidget) {
-        installQtIntegrationCMake(cwd, parsed.widgetName);
-      }
-    } else {
-      return {
-        success: true,
-        message: `Build completed: backend '${backend.id}' is a non-emitting skeleton; no artifacts were generated`
-      };
+    const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
+    const parsed = parseSpecFile(specPath);
+    verifySpec(parsed);
+    const outputs = generateOutputs(parsed, generationTargets);
+    writeGeneratedOutputs(cwd, outputs);
+    if (generationTargets.emitAngularService) {
+      installTypeScriptOutputs(cwd);
+    }
+    if (generationTargets.emitQWidget) {
+      installQtIntegrationCMake(cwd, parsed.widgetName);
     }
 
     const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
@@ -285,9 +249,7 @@ export function runBuild(cwd: string, backendId: BackendId = "ast", designerPlug
 
     let designerPluginBuilt = false;
     if (designerPlugin) {
-      if (backend.id !== "tsc") {
-        console.warn("[AnQst] --designerplugin is only supported with --backend tsc. Skipping designer plugin build.");
-      } else if (!generationTargets.emitQWidget) {
+      if (!generationTargets.emitQWidget) {
         console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
       } else {
         const widgetCategory = resolveAnQstWidgetCategory(cwd);
@@ -349,37 +311,14 @@ export function runBuild(cwd: string, backendId: BackendId = "ast", designerPlug
   }
 }
 
-function parseBackendCommandArgs(
-  commandName: "build" | "verify" | "generate",
-  specArg: string | undefined,
-  extraArgs: string[],
-  requireSpec: boolean
-): BackendCommandArgs {
+function parseSpecCommandArg(commandName: string, specArg: string | undefined, extraArgs: string[]): string {
   const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
-  let backendId: BackendId = "ast";
   const positional: string[] = [];
 
   for (let i = 0; i < allArgs.length; i += 1) {
     const arg = allArgs[i];
-    if (arg === "--backend") {
-      const value = allArgs[i + 1];
-      if (!value || value.startsWith("-")) {
-        throw new Error(`Missing value for --backend. ${usageFor(commandName)}`);
-      }
-      if (!isBackendId(value)) {
-        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
-      }
-      backendId = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--backend=")) {
-      const value = arg.slice("--backend=".length);
-      if (!isBackendId(value)) {
-        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
-      }
-      backendId = value;
-      continue;
+    if (arg === "--backend" || arg.startsWith("--backend=")) {
+      throw new Error("--backend flag has been removed. AnQst now uses a single unified pipeline.");
     }
     if (arg.startsWith("-")) {
       throw new Error(`Unknown ${commandName} flag '${arg}'. ${usageFor(commandName)}`);
@@ -387,45 +326,21 @@ function parseBackendCommandArgs(
     positional.push(arg);
   }
 
-  if (requireSpec) {
-    if (positional.length !== 1) {
-      throw new Error(usageFor(commandName));
-    }
-    return { backendId, specArg: positional[0] };
+  if (positional.length !== 1) {
+    throw new Error(usageFor(commandName));
   }
-  if (positional.length > 0) {
-    throw new Error(`Unexpected extra argument '${positional[0]}'. ${usageFor(commandName)}`);
-  }
-  return { backendId };
+  return positional[0];
 }
 
 function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[]): BuildCommandArgs {
   const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
-  let backendId: BackendId = "ast";
   let designerPlugin = false;
   const positional: string[] = [];
 
   for (let i = 0; i < allArgs.length; i += 1) {
     const arg = allArgs[i];
-    if (arg === "--backend") {
-      const value = allArgs[i + 1];
-      if (!value || value.startsWith("-")) {
-        throw new Error(`Missing value for --backend. ${usageFor("build")}`);
-      }
-      if (!isBackendId(value)) {
-        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
-      }
-      backendId = value;
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--backend=")) {
-      const value = arg.slice("--backend=".length);
-      if (!isBackendId(value)) {
-        throw new Error(`Unknown backend '${value}'. Allowed backends: ast, tsc.`);
-      }
-      backendId = value;
-      continue;
+    if (arg === "--backend" || arg.startsWith("--backend=")) {
+      throw new Error("--backend flag has been removed. AnQst now uses a single unified pipeline.");
     }
     if (arg === "--designerplugin") {
       const value = allArgs[i + 1];
@@ -451,7 +366,7 @@ function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[])
   if (positional.length > 0) {
     throw new Error(`Unexpected extra argument '${positional[0]}'. ${usageFor("build")}`);
   }
-  return { backendId, designerPlugin };
+  return { designerPlugin };
 }
 
 function parseCleanCommandArgs(specArg: string | undefined, extraArgs: string[]): CleanCommandArgs {
@@ -588,7 +503,7 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
   }
 
   const specPath = resolveAnQstSpecFromPackage(targetRoot);
-  const parsed = resolveBackend("ast").parseSpecFile(specPath);
+  const parsed = parseSpecFile(specPath);
   const widgetDirs = [
     path.join("generated_output", `${parsed.widgetName}_QtWidget`),
     path.join("generated_output", `${parsed.widgetName}_node_express_ws`),
@@ -655,19 +570,19 @@ export function runCommand(command: string | undefined, specArg: string | undefi
     }
     if (normalizedCommand === "build") {
       const parsedArgs = parseBuildCommandArgs(specArg, extraArgs);
-      const res = runBuild(process.cwd(), parsedArgs.backendId, parsedArgs.designerPlugin);
+      const res = runBuild(process.cwd(), parsedArgs.designerPlugin);
       console.log(res.message);
       return 0;
     }
     if (normalizedCommand === "verify") {
-      const parsedArgs = parseBackendCommandArgs("verify", specArg, extraArgs, true);
-      const res = runVerify(parsedArgs.specArg!, parsedArgs.backendId);
+      const specArgParsed = parseSpecCommandArg("verify", specArg, extraArgs);
+      const res = runVerify(specArgParsed);
       console.log(res.message);
       return 0;
     }
     if (normalizedCommand === "generate") {
-      const parsedArgs = parseBackendCommandArgs("generate", specArg, extraArgs, true);
-      const res = runGenerate(parsedArgs.specArg!, parsedArgs.backendId);
+      const specArgParsed = parseSpecCommandArg("generate", specArg, extraArgs);
+      const res = runGenerate(specArgParsed);
       if (res.verificationMessage) {
         console.log(res.verificationMessage);
       }

@@ -812,11 +812,22 @@ test("generate command honors package AnQst.generate", () => {
   });
 });
 
-test("verify command accepts --backend tsc", () => {
+test("commands reject --backend flag", () => {
   withTempProject((projectDir) => {
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
-    const code = runCommand("verify", "CdWidget.AnQst.d.ts", ["--backend", "tsc"]);
-    assert.equal(code, 0);
+    const originalError = console.error;
+    const lines: string[] = [];
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      assert.equal(runCommand("verify", "CdWidget.AnQst.d.ts", ["--backend", "tsc"]), 1);
+      assert.equal(runCommand("generate", "CdWidget.AnQst.d.ts", ["--backend", "tsc"]), 1);
+      assert.equal(runCommand("build", "--backend", ["tsc"]), 1);
+    } finally {
+      console.error = originalError;
+    }
+    assert.ok(lines.some((line) => line.includes("--backend flag has been removed")));
   });
 });
 
@@ -854,7 +865,7 @@ declare namespace ZInferWidget {
       "utf8"
     );
 
-    const code = runCommand("generate", "ZInferWidget.AnQst.d.ts", ["--backend", "tsc"]);
+    const code = runCommand("generate", "ZInferWidget.AnQst.d.ts");
     assert.equal(code, 0);
 
     const headerPath = path.join(projectDir, "generated_output/ZInferWidget_QtWidget/include/ZInferWidgetTypes.h");
@@ -867,18 +878,23 @@ declare namespace ZInferWidget {
   });
 });
 
-test("generate command with --backend tsc emits QWidget subset artifacts", () => {
+test("generate command emits configured artifacts", () => {
   withTempProject((projectDir) => {
+    fs.writeFileSync(
+      path.join(projectDir, "package.json"),
+      JSON.stringify({ name: "tmp-widget", version: "1.0.0", AnQst: { spec: "CdWidget.AnQst.d.ts", generate: ["QWidget"] } }, null, 2),
+      "utf8"
+    );
     fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
-    const result = runGenerate("CdWidget.AnQst.d.ts", "tsc");
+    const result = runGenerate("CdWidget.AnQst.d.ts");
     assert.match(result.message, /Widget library available in generated_output\/CdWidget_QtWidget/);
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
     assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated")), false);
   });
 });
 
-test("build command with --backend tsc emits QWidget subset artifacts", () => {
+test("build command emits all configured artifacts including AngularService", () => {
   withTempProject((projectDir) => {
     fs.writeFileSync(
       path.join(projectDir, "package.json"),
@@ -898,15 +914,15 @@ test("build command with --backend tsc emits QWidget subset artifacts", () => {
     );
     fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
-    const code = runCommand("build", "--backend", ["tsc"]);
+    const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")));
-    assert.equal(fs.existsSync(path.join(projectDir, "src/anqst-generated")), false);
+    assert.ok(fs.existsSync(path.join(projectDir, "src/anqst-generated")));
     assert.ok(fs.existsSync(path.join(projectDir, "anqst-cmake/CMakeLists.txt")));
   });
 });
 
-test("build command with --backend tsc emits node_express_ws when configured", () => {
+test("build command emits node_express_ws when configured", () => {
   withTempProject((projectDir) => {
     fs.writeFileSync(
       path.join(projectDir, "package.json"),
@@ -926,14 +942,14 @@ test("build command with --backend tsc emits node_express_ws when configured", (
     );
     fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
-    const code = runCommand("build", "--backend", ["tsc"]);
+    const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.ok(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_node_express_ws/index.ts")));
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output/CdWidget_QtWidget/CdWidget.cpp")), false);
   });
 });
 
-test("build command accepts designer plugin enable forms", () => {
+test("build command accepts --designerplugin flag forms", () => {
   withTempProject((projectDir) => {
     fs.writeFileSync(
       path.join(projectDir, "package.json"),
@@ -954,24 +970,22 @@ test("build command accepts designer plugin enable forms", () => {
     fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
 
-    const originalWarn = console.warn;
-    const warnings: string[] = [];
-    console.warn = (...args: unknown[]) => {
-      warnings.push(args.map((arg) => String(arg)).join(" "));
+    // false forms — no cmake build attempted, exit 0
+    assert.equal(runCommand("build", "--designerplugin=false"), 0);
+    assert.equal(runCommand("build", "--designerplugin", ["false"]), 0);
+
+    // --backend is now rejected with exit 1
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((arg) => String(arg)).join(" "));
     };
     try {
-      assert.equal(runCommand("build", "--designerplugin", ["--backend", "ast"]), 0);
-      assert.equal(runCommand("build", "--designerplugin=true", ["--backend", "ast"]), 0);
-      assert.equal(runCommand("build", "--designerplugin", ["true", "--backend", "ast"]), 0);
-      assert.equal(runCommand("build", "--designerplugin=false", ["--backend", "ast"]), 0);
-      assert.equal(runCommand("build", "--designerplugin", ["false", "--backend", "ast"]), 0);
+      assert.equal(runCommand("build", "--backend", ["tsc"]), 1);
     } finally {
-      console.warn = originalWarn;
+      console.error = originalError;
     }
-    const unsupportedWarnings = warnings.filter((line) =>
-      line.includes("--designerplugin is only supported with --backend tsc")
-    );
-    assert.equal(unsupportedWarnings.length, 3);
+    assert.ok(errors.some((line) => line.includes("--backend flag has been removed")));
   });
 });
 
@@ -1001,7 +1015,7 @@ test("build command warns and ignores --designerplugin when QWidget target is of
       warnings.push(args.map((arg) => String(arg)).join(" "));
     };
     try {
-      const code = runCommand("build", "--backend", ["tsc", "--designerplugin"]);
+      const code = runCommand("build", "--designerplugin");
       assert.equal(code, 0);
     } finally {
       console.warn = originalWarn;
@@ -1044,7 +1058,7 @@ test("build command runs cmake configure/build when --designerplugin is enabled 
           logs.push(args.map((arg) => String(arg)).join(" "));
         };
         try {
-          const code = runCommand("build", "--backend", ["tsc", "--designerplugin"]);
+          const code = runCommand("build", "--designerplugin");
           assert.equal(code, 0);
         } finally {
           console.log = originalLog;
@@ -1114,7 +1128,7 @@ test("build command fails when AnQst.widgetCategory is not a string", () => {
     try {
       withEnvVar("ANQST_WEBBASE_DIR", "/tmp/anqst-webbase", () => {
         withFakeCmake(0, 0, () => {
-          const code = runCommand("build", "--backend", ["tsc", "--designerplugin"]);
+          const code = runCommand("build", "--designerplugin");
           assert.equal(code, 1);
         });
       });
@@ -1147,7 +1161,7 @@ test("build command without --designerplugin does not run cmake or generate desi
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
     withEnvVar("ANQST_WEBBASE_DIR", "/tmp/anqst-webbase", () => {
       withFakeCmake(0, 0, () => {
-        const code = runCommand("build", "--backend", ["tsc"]);
+        const code = runCommand("build", undefined);
         assert.equal(code, 0);
         const logPath = process.env.ANQST_FAKE_CMAKE_LOG!;
         const calls = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean) : [];
@@ -1186,7 +1200,7 @@ test("build command fails when designer plugin cmake build fails", () => {
     try {
       withEnvVar("ANQST_WEBBASE_DIR", "/tmp/anqst-webbase", () => {
         withFakeCmake(0, 1, () => {
-          const code = runCommand("build", "--backend", ["tsc", "--designerplugin"]);
+          const code = runCommand("build", "--designerplugin");
           assert.equal(code, 1);
         });
       });
@@ -1224,7 +1238,7 @@ test("build command fails when --designerplugin is enabled without ANQST_WEBBASE
     };
     try {
       withEnvVar("ANQST_WEBBASE_DIR", undefined, () => {
-        const code = runCommand("build", "--backend", ["tsc", "--designerplugin"]);
+        const code = runCommand("build", "--designerplugin");
         assert.equal(code, 1);
       });
     } finally {
@@ -1234,7 +1248,7 @@ test("build command fails when --designerplugin is enabled without ANQST_WEBBASE
   });
 });
 
-test("generate command rejects unknown backend", () => {
+test("generate command rejects --backend flag", () => {
   withTempProject((projectDir) => {
     fs.writeFileSync(path.join(projectDir, "CdWidget.AnQst.d.ts"), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
     const originalError = console.error;
@@ -1243,11 +1257,11 @@ test("generate command rejects unknown backend", () => {
       lines.push(args.map((arg) => String(arg)).join(" "));
     };
     try {
-      const code = runCommand("generate", "CdWidget.AnQst.d.ts", ["--backend", "invalid"]);
+      const code = runCommand("generate", "CdWidget.AnQst.d.ts", ["--backend", "tsc"]);
       assert.equal(code, 1);
     } finally {
       console.error = originalError;
     }
-    assert.ok(lines.some((line) => line.includes("Unknown backend 'invalid'")));
+    assert.ok(lines.some((line) => line.includes("--backend flag has been removed")));
   });
 });

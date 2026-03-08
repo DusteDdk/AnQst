@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "anqst:build": "npx anqst build",
+    "anqst:build": "npx anqst build --backend=tsc",
     "build": "npm run anqst:build && ng build",
     "watch": "ng build --watch --configuration development",
     "test": "npm run anqst:test && ng test"
@@ -18,7 +18,7 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
-    "@dusted/anqst": "*.*.*",
+    "@dusted/anqst": "file:../../../../../AnQstGen",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

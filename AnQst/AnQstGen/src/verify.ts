@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { VerifyError } from "./errors";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel, VerificationStats } from "./model";
+import { getProgramDiagnostics } from "./program";
 
 export interface VerificationResult {
   stats: VerificationStats;
@@ -169,7 +170,7 @@ function collectReachableTypeNames(spec: ParsedSpecModel): Set<string> {
   return seen;
 }
 
-export function verifySpec(spec: ParsedSpecModel): VerificationResult {
+function verifySpecSemantics(spec: ParsedSpecModel): VerificationResult {
   checkServiceDuplicates(spec);
 
   for (const service of spec.services) {
@@ -198,4 +199,12 @@ export function verifySpec(spec: ParsedSpecModel): VerificationResult {
     stats,
     message: `AnQst spec valid:\n    ${stats.namespaceDeclaredTypes} types.\n    ${stats.serviceCount} services.`
   };
+}
+
+export function verifySpec(spec: ParsedSpecModel): VerificationResult {
+  const diagnostics = getProgramDiagnostics(spec.filePath);
+  if (diagnostics.length > 0) {
+    throw new VerifyError(`TypeScript diagnostics in spec:\n    ${diagnostics.join("\n    ")}`);
+  }
+  return verifySpecSemantics(spec);
 }

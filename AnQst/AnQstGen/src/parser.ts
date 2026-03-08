@@ -12,6 +12,9 @@ import type {
   SourceLoc,
   TypeDeclModel
 } from "./model";
+import { createTscProgramContext } from "./program";
+import { applyResolvedTypeGraph } from "./typegraph";
+import { inspectText, isDebugEnabled, writeDebugFile } from "./debug-dump";
 
 function locFromNode(source: ts.SourceFile, node: ts.Node): SourceLoc {
   const lc = source.getLineAndCharacterOfPosition(node.getStart(source));
@@ -217,7 +220,7 @@ function serviceBaseType(iface: ts.InterfaceDeclaration): "Service" | "AngularHT
   return null;
 }
 
-export function parseSpecFile(specFilePath: string): ParsedSpecModel {
+function parseSpecFileAst(specFilePath: string): ParsedSpecModel {
   if (!fs.existsSync(specFilePath)) throw new VerifyError(`Spec file does not exist: ${specFilePath}`);
   const text = fs.readFileSync(specFilePath, "utf8");
   const source = ts.createSourceFile(specFilePath, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -264,4 +267,25 @@ export function parseSpecFile(specFilePath: string): ParsedSpecModel {
     importedTypeSymbols: importInfo.importedTypeSymbols,
     specImports: importInfo.specImports
   };
+}
+
+export function parseSpecFile(specFilePath: string): ParsedSpecModel {
+  createTscProgramContext(specFilePath);
+  const parsed = parseSpecFileAst(specFilePath);
+  if (isDebugEnabled()) {
+    writeDebugFile(
+      process.cwd(),
+      "anqstmodel/parsed-before-typegraph.txt",
+      `${inspectText(parsed)}\n`
+    );
+  }
+  const normalized = applyResolvedTypeGraph(parsed);
+  if (isDebugEnabled()) {
+    writeDebugFile(
+      process.cwd(),
+      "anqstmodel/parsed-after-typegraph.txt",
+      `${inspectText(normalized)}\n`
+    );
+  }
+  return normalized;
 }

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnQst Architecture Flow</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 0.25rem;
+      color: #e6edf3;
+    }
+    p.subtitle {
+      color: #8b949e;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+    .diagram-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    h2 {
+      font-size: 1rem;
+      color: #58a6ff;
+      border-bottom: 1px solid #21262d;
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>AnQst — Full System Architecture Flow</h1>
+  <p class="subtitle">Spec authoring → CLI → Generator → Generated Artifacts → Host Runtime → Angular App</p>
+
+  <div class="diagram-box">
+    <h2>1. End-to-End Pipeline</h2>
+    <div class="mermaid">
+flowchart TD
+    subgraph Author["Spec Authoring"]
+        SpecFile["WidgetName.AnQst.d.ts\n(declare namespace WidgetName)"]
+        AnQstDSL["AnQst DSL types\n(AnQst.Service / Call / Slot / Emitter / Input / Output)"]
+        SpecFile -- imports --> AnQstDSL
+    end
+
+    subgraph CLI["CLI Layer  (anqst)"]
+        InstillCmd["anqst instill WidgetName\n→ scaffold .AnQst.d.ts\n→ patch package.json"]
+        TestCmd["anqst test\n→ parse + verify only"]
+        BuildCmd["anqst build [--backend ast|tsc]\n→ full pipeline"]
+        GenerateCmd["anqst generate specFile\n→ raw artifact write"]
+        VerifyCmd["anqst verify specFile\n→ parse + verify"]
+        CleanCmd["anqst clean path\n→ remove generated dirs"]
+    end
+
+    subgraph Backend["Backend Layer"]
+        BackendResolver["backend/index.ts\nresolveBackend(ast|tsc)"]
+        ASTBackend["AST Backend\n(baseline parser + emitter)"]
+        TSCBackend["TSC Backend\n(TypeChecker-augmented)"]
+        TSCProgram["tsc/program.ts\nTS Program + diagnostics"]
+        TSCTypegraph["tsc/typegraph.ts\nresolved type text"]
+        TSCDebugDump["tsc/debug-dump.ts\nANQST_DEBUG=true dumps"]
+    end
+
+    subgraph Parse["Parse + Verify"]
+        Parser["parser.ts\nparseSpecFile()"]
+        Verify["verify.ts\nverifySpec()"]
+        ParsedModel["ParsedSpecModel\nwidgetName / services / typeDecls / imports"]
+    end
+
+    subgraph Generate["Emit Layer"]
+        EmitTs["emit.ts\ngenerateOutputs()"]
+        AngularService["AngularService target\nnpmpackage/ artifacts"]
+        QtWidget["QWidget target\nWidgetName_QtWidget/ artifacts"]
+        NodeTarget["node_express_ws target\nWidgetName_node_express_ws/ artifacts"]
+    end
+
+    subgraph AngularArtifacts["Generated TypeScript (Angular)"]
+        TsServices["services.ts\nAngular @Injectable classes\n+ AnQstBridgeRuntime"]
+        TsTypes["types.ts\nexported type declarations"]
+        TsDts["types/services.d.ts\n types/types.d.ts"]
+        TsPackage["package.json\nnpmpackage metadata"]
+    end
+
+    subgraph QtArtifacts["Generated C++ (Qt Widget)"]
+        CppHeader["include/WidgetName.h\nclass WidgetName : public AnQstWebHostBase"]
+        CppTypes["include/WidgetNameTypes.h\nC++ structs + Q_DECLARE_METATYPE"]
+        CppImpl["WidgetName.cpp\nbridge binding + member impl"]
+        CMakeFile["CMakeLists.txt\nadd_library(WidgetNameWidget)"]
+        QrcFile["WidgetName.qrc\nweb assets under webapp/"]
+    end
+
+    subgraph HostBase["Host Runtime (AnQstWebBase C++)"]
+        HostBaseClass["AnQstWebHostBase\nQWidget + QWebEngineView"]
+        BridgeFacade["AnQstHostBridgeFacade\ngeneric Call/Slot/Emitter/Input/Output dispatch"]
+        BridgeProxy["AnQstBridgeProxy\nQObject exposed to QWebChannel"]
+        DebugDialog["AnQstWidgetDebugDialog\nShift+F12 debug UI"]
+        HttpServer["AngularHttpBaseServer\ndev HTTP + WS server"]
+    end
+
+    subgraph AngularRuntime["Angular Runtime (in browser / QWebEngine)"]
+        BridgeRuntime["AnQstBridgeRuntime\n(generated, injected)"]
+        QtTransport["QtWebChannelAdapter\n→ QWebChannel transport"]
+        WsTransport["WebSocketBridgeAdapter\n→ WebSocket dev transport"]
+        GeneratedServices["Generated Angular services\n(injected into components)"]
+    end
+
+    SpecFile --> CLI
+    CLI --> BackendResolver
+    BackendResolver --> ASTBackend
+    BackendResolver --> TSCBackend
+    TSCBackend --> TSCProgram
+    TSCBackend --> TSCTypegraph
+    TSCBackend --> TSCDebugDump
+    ASTBackend --> Parser
+    TSCBackend --> Parser
+    Parser --> ParsedModel
+    ParsedModel --> Verify
+    ParsedModel --> EmitTs
+    EmitTs --> AngularService
+    EmitTs --> QtWidget
+    EmitTs --> NodeTarget
+    AngularService --> TsServices
+    AngularService --> TsTypes
+    AngularService --> TsDts
+    AngularService --> TsPackage
+    QtWidget --> CppHeader
+    QtWidget --> CppTypes
+    QtWidget --> CppImpl
+    QtWidget --> CMakeFile
+    QtWidget --> QrcFile
+
+    CppHeader -- "inherits" --> HostBaseClass
+    HostBaseClass --> BridgeFacade
+    HostBaseClass --> BridgeProxy
+    HostBaseClass --> DebugDialog
+    HostBaseClass --> HttpServer
+    BridgeProxy -- "QWebChannel" --> BridgeRuntime
+    HttpServer -- "WebSocket" --> WsTransport
+    BridgeRuntime --> QtTransport
+    BridgeRuntime --> WsTransport
+    BridgeRuntime --> GeneratedServices
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>2. Call&lt;T&gt; Interaction Flow</h2>
+    <div class="mermaid">
+sequenceDiagram
+    participant Angular as Angular Component
+    participant BridgeRuntime as AnQstBridgeRuntime
+    participant Adapter as Bridge Adapter (Qt or WS)
+    participant HostBase as AnQstWebHostBase
+    participant Facade as AnQstHostBridgeFacade
+    participant GenWidget as Generated Widget Class
+    participant Parent as Qt Parent App
+
+    Angular->>BridgeRuntime: await userService.getUserById("abc")
+    BridgeRuntime->>Adapter: call("UserService", "getUserById", ["abc"])
+    Adapter->>HostBase: anQstBridge_call(service, member, args)
+    HostBase->>Facade: call(service, member, args)
+    Facade->>GenWidget: handleGeneratedCall("UserService", "getUserById", args)
+    GenWidget->>Parent: m_getUserByIdHandler(userId) [Handler-based in impl]
+    Note over GenWidget,Parent: SPEC says: emit Qt signal getUserById(userId, callback)
+    Parent-->>GenWidget: return User
+    GenWidget-->>Facade: QVariant result
+    Facade-->>HostBase: return QVariant
+    HostBase-->>Adapter: return value via QWebChannel callback
+    Adapter-->>BridgeRuntime: resolve Promise
+    BridgeRuntime-->>Angular: User object
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>3. Transport Selection (Generated TS Runtime)</h2>
+    <div class="mermaid">
+flowchart TD
+    Init["AnQstBridgeRuntime.init()"]
+    CheckQt{"window.QWebChannel\n&&\nwindow.qt.webChannelTransport\navailable?"}
+    QtAdapter["QtWebChannelAdapter.create()\n→ QWebChannel handshake\n→ register bridge object"]
+    WsAdapter["WebSocketBridgeAdapter.create()\n→ fetch /config for wsUrl\n→ WebSocket connect"]
+    Ready["adapter ready\nslot handlers replayed\noutput listeners wired"]
+
+    Init --> CheckQt
+    CheckQt -- yes --> QtAdapter
+    CheckQt -- no --> WsAdapter
+    QtAdapter --> Ready
+    WsAdapter --> Ready
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: "dark" });
+  </script>
+</body>
+</html>

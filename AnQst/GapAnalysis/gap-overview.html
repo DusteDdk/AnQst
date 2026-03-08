@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnQst Gap Overview</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.4rem;
+      color: #e6edf3;
+      margin-bottom: 0.25rem;
+    }
+    p.subtitle {
+      color: #8b949e;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    .diagram-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+    }
+    h2 {
+      font-size: 1rem;
+      color: #58a6ff;
+      border-bottom: 1px solid #21262d;
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .legend {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+      font-size: 0.85rem;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .critical { background: #da3633; }
+    .high     { background: #d29922; }
+    .medium   { background: #388bfd; }
+    .low      { background: #3fb950; }
+  </style>
+</head>
+<body>
+  <h1>AnQst — Gap Analysis Overview</h1>
+  <p class="subtitle">Visual map of all 23 identified gaps across system layers</p>
+
+  <div class="legend">
+    <div class="legend-item"><div class="swatch critical"></div> Critical</div>
+    <div class="legend-item"><div class="swatch high"></div> High</div>
+    <div class="legend-item"><div class="swatch medium"></div> Medium</div>
+    <div class="legend-item"><div class="swatch low"></div> Low</div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>1. Gaps by Layer — Doc Stronger Than Implementation</h2>
+    <div class="mermaid">
+flowchart TD
+    subgraph DSL["DSL / Parser Layer"]
+        D10["GAP-D10 LOW\nnamespace import prohibition\nnot in DSL spec"]
+    end
+
+    subgraph Generator["Generator / Emit Layer"]
+        D03["GAP-D03 CRITICAL\nAnQst.Type.* advisory\ndiagnostics never emitted"]
+        D07["GAP-D07 MEDIUM\nC++ / TS keyword collision\ndetection absent"]
+        D08["GAP-D08 MEDIUM\nno output contract version\nbuild stamp ≠ contract ver"]
+    end
+
+    subgraph TSApi["Generated TypeScript API"]
+        D06["GAP-D06 HIGH\nOutput-T missing set.prop\nin generated TS service"]
+        D05["GAP-D05 HIGH\n4 of 6 standard error codes\nnot named in bridge"]
+    end
+
+    subgraph CppApi["Generated C++ API"]
+        D01["GAP-D01 CRITICAL\nCall-T: Qt signal+callback\nvs handler-based impl"]
+        D02["GAP-D02 CRITICAL\nEmitter: Qt signal\nvs handler-based impl"]
+        D09["GAP-D09 MEDIUM\nnull C++ call handler\nnot HandlerNotRegisteredError"]
+    end
+
+    subgraph HostRuntime["Host Runtime / Bridge"]
+        D04["GAP-D04 HIGH\nslot queue: 1024 in spec\nvs 10M in impl"]
+    end
+
+    subgraph CLI["CLI / Workflow"]
+        D11["GAP-D11 LOW\nANQST_INSTILL_WIDGET_NAME_CHOICE\nenv var undocumented"]
+        D12["GAP-D12 LOW\ntsc backend disables\nAngularService — not in user docs"]
+    end
+
+    style D01 fill:#da3633,color:#fff,stroke:#b22222
+    style D02 fill:#da3633,color:#fff,stroke:#b22222
+    style D03 fill:#da3633,color:#fff,stroke:#b22222
+    style D04 fill:#d29922,color:#000,stroke:#a07010
+    style D05 fill:#d29922,color:#000,stroke:#a07010
+    style D06 fill:#d29922,color:#000,stroke:#a07010
+    style D07 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style D08 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style D09 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style D10 fill:#3fb950,color:#000,stroke:#288a3c
+    style D11 fill:#3fb950,color:#000,stroke:#288a3c
+    style D12 fill:#3fb950,color:#000,stroke:#288a3c
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>2. Gaps by Layer — Implementation Stronger Than Documentation</h2>
+    <div class="mermaid">
+flowchart TD
+    subgraph CLI2["CLI / Workflow"]
+        I02["GAP-I02 HIGH\n--designerplugin flag\n+ Qt Designer plugin gen\nzero documentation"]
+        I07["GAP-I07 MEDIUM\nclean command exists\nnot in user docs"]
+        I08["GAP-I08 LOW\ninstall→instill alias\nundocumented"]
+    end
+
+    subgraph Generator2["Generator / Emit"]
+        I09["GAP-I09 LOW\nPNG/ICO icon embedding\nnot documented"]
+        I10["GAP-I10 LOW\nbuild stamp in all\ngenerated files — no docs"]
+        I11["GAP-I11 LOW\nAngularHTTPBaseServerClass\nflag effects unspecified"]
+    end
+
+    subgraph NodeTarget["node_express_ws Target"]
+        I01["GAP-I01 HIGH\ncomplete Node/WS bridge:\nsession API, diagnostics,\nreconnect — zero docs"]
+    end
+
+    subgraph CppApi2["Generated C++ API"]
+        I05["GAP-I05 MEDIUM\npublishXxx convenience\nmethod not in spec"]
+    end
+
+    subgraph TSRuntime["Generated TS Runtime"]
+        I06["GAP-I06 MEDIUM\nreattach flow, /config\nbootstrap, slot replay\nundocumented"]
+    end
+
+    subgraph HostRuntime2["Host Runtime / Debug"]
+        I03["GAP-I03 HIGH\ndebug dialog Shift+F12\nresource modes, LAN toggle\nbrowser host — no docs"]
+        I04["GAP-I04 MEDIUM\nAnQstHostBridgeFacade /\nAnQstBridgeProxy split\nnot described"]
+    end
+
+    style I01 fill:#d29922,color:#000,stroke:#a07010
+    style I02 fill:#d29922,color:#000,stroke:#a07010
+    style I03 fill:#d29922,color:#000,stroke:#a07010
+    style I04 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style I05 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style I06 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style I07 fill:#388bfd,color:#fff,stroke:#1a6fd4
+    style I08 fill:#3fb950,color:#000,stroke:#288a3c
+    style I09 fill:#3fb950,color:#000,stroke:#288a3c
+    style I10 fill:#3fb950,color:#000,stroke:#288a3c
+    style I11 fill:#3fb950,color:#000,stroke:#288a3c
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>3. C++ Generated API Contract — Spec vs Implementation</h2>
+    <div class="mermaid">
+classDiagram
+    class SpecMandatedWidget {
+        +using GetUserByIdCallback = function~void~const User ref~~
+        +using BadWordCallback = function~void~QString~~
+        +signal void getUserById(QString userId, GetUserByIdCallback reply)
+        +signal void badWord(QString word)
+        +bool editUser(const User ref user)
+        +Q_PROPERTY activeUsers READ activeUsers WRITE setActiveUsers
+        +double activeUsers() const
+        +void setActiveUsers(double value)
+    }
+    class ActualGeneratedWidget {
+        +using GetUserByIdHandler = function~User~QString~~
+        +using BadWordHandler = function~void~QString~~
+        +void setGetUserByIdHandler(const GetUserByIdHandler ref handler)
+        +void setBadWordHandler(const BadWordHandler ref handler)
+        +bool editUser(bool ok, QString error)
+        +Q_PROPERTY activeUsers READ activeUsers WRITE setActiveUsers
+        +double activeUsers() const
+        +void setActiveUsers(double value)
+        +void publishActiveUsers(double value)
+    }
+    note for SpecMandatedWidget "From RefinedSpecs/03 and\n04-Canonical-UserManagement-Example"
+    note for ActualGeneratedWidget "From AnQstGen/src/emit.ts\nrenderWidgetHeader() / renderCppStub()"
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>4. TypeScript Service Surface — Spec vs Implementation (Output&lt;T&gt;)</h2>
+    <div class="mermaid">
+classDiagram
+    class SpecMandatedFormState {
+        +activeUsers() number
+        +set_activeUsers(value: number) void
+        +currentUsername() string
+        +set_currentUsername(value: string) void
+        +badWord(word: string) void
+        +onSlot_resetForm(handler) void
+        +onSlot_stocks(handler) void
+    }
+    class ActualGeneratedFormState {
+        +activeUsers() number
+        +currentUsername() string
+        +set_currentUsername(value: string) void
+        +badWord(word: string) void
+        +onSlot_resetForm(handler) void
+        +onSlot_stocks(handler) void
+    }
+    note for SpecMandatedFormState "set.activeUsers EXISTS in spec\n(RefinedSpecs/02 §4.4 and\n04-Canonical-UserManagement §2)"
+    note for ActualGeneratedFormState "set.activeUsers ABSENT\nOnly Input gets set.xxx\n(emit.ts renderTsService)"
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>5. Slot Queue Back-Pressure</h2>
+    <div class="mermaid">
+xychart-beta
+    title "Slot Queue Limit: Spec vs Implementation"
+    x-axis ["Spec (RefinedSpecs/02 §3.2.1)", "Implementation (AnQstHostBridgeFacade.h)"]
+    y-axis "Max queued invocations" 0 --> 10000100
+    bar [1024, 10000000]
+    </div>
+  </div>
+
+  <div class="diagram-box">
+    <h2>6. Prioritized Remediation Roadmap</h2>
+    <div class="mermaid">
+gantt
+    title Gap Remediation — Suggested Priority Order
+    dateFormat X
+    axisFormat %s
+
+    section Critical
+    GAP-D01 Resolve Call-T C++ API shape              :crit, d01, 0, 3
+    GAP-D02 Resolve Emitter C++ API shape             :crit, d02, 0, 2
+    GAP-D03 Wire advisory-mismatch diagnostics        :crit, d03, 0, 4
+
+    section High (Doc > Impl)
+    GAP-D06 Add Output-T set.prop to TS              :active, d06, 4, 2
+    GAP-D04 Reconcile slot queue limit               :active, d04, 4, 1
+    GAP-D05 Add missing error identifiers            :d05, 5, 2
+
+    section High (Impl > Doc)
+    GAP-I01 Write node_express_ws docs               :i01, 6, 4
+    GAP-I02 Write --designerplugin docs              :i02, 6, 2
+    GAP-I03 Write runtime debug dialog docs          :i03, 6, 3
+
+    section Medium
+    GAP-D07 Add keyword collision detection          :d07, 10, 3
+    GAP-D08 Add contract version encoding            :d08, 10, 2
+    GAP-D09 Null handler safety in C++ call path     :d09, 10, 2
+    GAP-I04 Document bridge facade architecture      :i04, 12, 1
+    GAP-I05 Document publishXxx method               :i05, 12, 1
+    GAP-I06 Document reattach/config bootstrap       :i06, 12, 2
+    GAP-I07 Add clean command to user docs           :i07, 13, 1
+
+    section Low
+    GAP-D10 Document namespace import restriction    :d10, 14, 1
+    GAP-D11 Document ANQST_INSTILL env var           :d11, 14, 1
+    GAP-D12 Document tsc/AngularService restriction  :d12, 14, 1
+    GAP-I08 Document install alias                   :i08, 15, 1
+    GAP-I09 Document icon embedding                  :i09, 15, 1
+    GAP-I10 Document build stamp                     :i10, 15, 1
+    GAP-I11 Specify AngularHTTPBaseServerClass effect :i11, 15, 1
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: "dark" });
+  </script>
+</body>
+</html>
