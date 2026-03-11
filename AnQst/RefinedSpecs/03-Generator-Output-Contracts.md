@@ -13,7 +13,10 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 
 Given widget namespace `WidgetName` and service interface `ServiceName`:
 
-- Generated Qt class name MUST be `WidgetName`.
+- Generated Qt class name MUST be `WidgetNameWidget`.
+- Generated umbrella header MUST be `WidgetName.h` and include:
+  - `WidgetNameWidget.h`
+  - `WidgetNameTypes.h`
 - Generated TypeScript service class/token name MUST be `ServiceName`.
 - Generated output MUST be stable and reproducible for the same spec input.
 
@@ -47,7 +50,7 @@ Imported types referenced by namespace declarations MUST be resolved and represe
 For each service member:
 
 - `Call<T>` -> `method(args): Promise<T>`
-- `Slot<T>` -> `onSlot.method(handler: (...args) => T): void`
+- `Slot<T>` -> `onSlot.method(handler: (...args) => T | Promise<T> | Error): void`
 - `Emitter` -> `method(args): void`
 - `Output<T>` -> readonly reactive accessor `prop(): T` and `set.prop(value: T): void`
 - `Input<T>` -> readonly reactive accessor `prop(): T` and `set.prop(value: T): void`
@@ -81,26 +84,31 @@ Class MUST:
 - Expose Qt signals for emitted widget-to-parent events and bridge request dispatch.
 - Expose one-way development mode switch API (`enableDebug()`) that keeps generated widget host surface transport-agnostic.
 
-## 4.2 Generated request/reply wiring
+## 4.2 Generated request/handler wiring
 
 For each `Call<T>` method:
 
-- Generate callback alias:
-  - `using MethodNameCallback = std::function<void(const T&)>;`
-- Generate signal:
-  - `void methodName(<mapped args>, MethodNameCallback reply);`
+- Generate callback type alias and handler registration method in the widget handle registry:
+  - `using MethodNameHandler = std::function<T(<mapped args>)>;`
+  - `widget->handle.methodName(handler);`
 
 For each `Slot<T>` method:
 
-- Generate invokable/public method on widget class:
-  - `T methodName(<mapped args>);`
+- Generate invokable/public method on widget class with `slot_` prefix:
+  - `T slot_methodName(<mapped args>);`
 - For `Slot<void>`:
-  - `void methodName(<mapped args>);`
+  - `void slot_methodName(<mapped args>);`
+- Generated method MUST be a Qt slot (`public slots:` section).
 
 For each `Emitter` method:
 
-- Generate Qt signal:
+- Generate Qt signal with natural name:
   - `void methodName(<mapped args>);`
+
+Class naming and placement:
+
+- Generated widget class name MUST be `${WidgetName}Widget`.
+- Generated widget class MUST be emitted outside the `declare namespace WidgetName` namespace.
 
 Development transport note:
 
@@ -193,4 +201,29 @@ Diagnostics MUST be emitted for both service payloads and type-only generation r
 - Generator MUST encode output contract version in generated metadata.
 - Breaking output changes MUST require contract version increment.
 - Mapping metadata SHOULD include advisory-vs-effective mapping outcomes for traceability.
+
+## 8. Call/Emitter Overhaul Addendum (Authoritative)
+
+This addendum supersedes conflicting Call/Emitter API shape statements above.
+
+### 8.1 C++ Call API shape
+
+- Generator MUST emit callback-registration API through `handle`:
+  - `widget->handle.methodName(handler);`
+- Exactly one callback is active per endpoint; later registration replaces earlier.
+- Public API MUST NOT expose reply object parameter.
+- `Call` timeout config remains supported on DSL side (`timeoutSeconds`/`timeoutMilliseconds`).
+
+### 8.2 TypeScript Call surface
+
+- `Call<T>` remains `method(args): Promise<T>`.
+- Promise success payload is `T` (no envelope).
+- Promise rejection object MUST include mandatory fields:
+  - `code`, `message`, `service`, `member`, `requestId`.
+
+### 8.3 Emitter surface
+
+- Generator MUST emit Qt signal for each emitter method.
+- Emitter MUST have no config generic (`AnQst.Emitter` only).
+- If no listener is connected, emitter event MUST be dropped.
 

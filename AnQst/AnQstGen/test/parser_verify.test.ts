@@ -114,3 +114,71 @@ declare namespace Widget {
       err.message.includes("Unable to resolve import './types/User'")
   );
 });
+
+test("parser resolves call timeout config values", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-parser-timeout-config-"));
+  const specPath = path.join(tempRoot, "Widget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace Widget {
+  interface UserService extends AnQst.Service {
+    getUserById(userId: string): AnQst.Call<string, { timeoutSeconds: 240 }>;
+    badWord(word: string): AnQst.Emitter;
+  }
+}
+`,
+    "utf8"
+  );
+  const parsed = parseSpecFile(specPath);
+  const callMember = parsed.services[0].members.find((m) => m.name === "getUserById");
+  const emitterMember = parsed.services[0].members.find((m) => m.name === "badWord");
+  assert.ok(callMember);
+  assert.ok(emitterMember);
+  assert.equal(callMember!.timeoutMs, 240000);
+  assert.equal(emitterMember!.timeoutMs, 120000);
+});
+
+test("parser rejects emitter config parameters", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-parser-emitter-config-"));
+  const specPath = path.join(tempRoot, "Widget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace Widget {
+  interface UserService extends AnQst.Service {
+    badWord(word: string): AnQst.Emitter<{ timeoutMilliseconds: 7500 }>;
+  }
+}
+`,
+    "utf8"
+  );
+  assert.throws(
+    () => parseSpecFile(specPath),
+    (err: unknown) => err instanceof VerifyError && err.message.includes("does not support config parameters")
+  );
+});
+
+test("verify surfaces warning lines for unknown call config keys", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-parser-timeout-warning-"));
+  const specPath = path.join(tempRoot, "Widget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace Widget {
+  interface UserService extends AnQst.Service {
+    getUserById(userId: string): AnQst.Call<string, { timeoutSeconds: 120; foo: 1; bar: 2 }>;
+  }
+}
+`,
+    "utf8"
+  );
+  const parsed = parseSpecFile(specPath);
+  const verification = verifySpec(parsed);
+  assert.equal(verification.warnings.length, 2);
+  assert.match(verification.message, /\[warn\].+foo/);
+  assert.match(verification.message, /\[warn\].+bar/);
+});

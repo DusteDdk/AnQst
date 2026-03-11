@@ -45,7 +45,7 @@ declare namespace CdEntryEditor {
     showDraft(draftJson: string, selectedTrackIndex: number): AnQst.Slot<void>;
     replaceTracks(tracks: Track[]): AnQst.Slot<void>;
 
-    saveRequested(draftJson: string): AnQst.Emitter;
+    saveRequested(draftJson: string): AnQst.Call<SaveResult>;
     dirtyChanged(isDirty: boolean): AnQst.Emitter;
     fieldTouched(fieldName: string): AnQst.Emitter;
 

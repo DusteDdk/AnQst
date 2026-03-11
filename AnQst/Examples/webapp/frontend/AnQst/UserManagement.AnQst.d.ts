@@ -53,9 +53,9 @@ declare namespace UserManagement {
   }
 
   interface UserManagementService extends AnQst.Service {
-    createUser(request: CreateUserRequest): AnQst.Call<CreateUserResult>;
-    updateUser(request: UpdateUserRequest): AnQst.Call<UpdateUserResult>;
-    listUsers(filter: UserFilter): AnQst.Call<UserRecord[]>;
+    createUser(request: CreateUserRequest): AnQst.Call<CreateUserResult, { timeoutSeconds: 180 }>;
+    updateUser(request: UpdateUserRequest): AnQst.Call<UpdateUserResult, { timeoutSeconds: 180 }>;
+    listUsers(filter: UserFilter): AnQst.Call<UserRecord[], { timeoutMilliseconds: 45000 }>;
 
     promptForReauthentication(reason: string): AnQst.Slot<string>;
 

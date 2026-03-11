@@ -242,8 +242,22 @@ test("help option exits with status 0 and prints command list", () => {
   const code = runCommand("--help", undefined);
   console.log = originalLog;
   assert.equal(code, 0);
+  assert.match(captured, /anqst version /);
   assert.match(captured, /Commands:/);
   assert.match(captured, /instill <WidgetName>/);
+  assert.match(captured, /-v, --version/);
+});
+
+test("version option exits with status 0 and prints version", () => {
+  const originalLog = console.log;
+  let captured = "";
+  console.log = (...args: unknown[]) => {
+    captured = args.map((arg) => String(arg)).join(" ");
+  };
+  const code = runCommand("--version", undefined);
+  console.log = originalLog;
+  assert.equal(code, 0);
+  assert.match(captured, /^anqst version /);
 });
 
 test("package root exposes AnQst type declarations", () => {

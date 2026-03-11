@@ -22,10 +22,13 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 
 ## 3.1 Call handlers (parent side)
 
-- For each `method(args): Call<T>`, parent has one active handler slot.
+- For each `method(args): Call<T>`, parent has one active callback slot.
+- Registration API is generated as `widget->handle.methodName(handler)`.
 - Registering a new handler REPLACES the previous handler.
 - If no handler exists at invocation time:
-  - `Call<T>` MUST reject with `HandlerNotRegisteredError`.
+  - call MUST queue per endpoint (FIFO) until a handler appears.
+  - queue limit is 1024 entries per endpoint.
+  - overflow drops oldest and keeps newest.
 
 ## 3.2 Slot handlers (widget side)
 
@@ -65,6 +68,11 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 ### Completion
 - `Slot<T>` returns `T` to parent.
 - `Slot<void>` is valid and returns completion only (no payload).
+- Generated C++ slot methods expose no explicit error out-parameters.
+- Slot failures use exceptional control flow:
+  - timeout -> `std::runtime_error("[Timeout] <service>.<member>: The webapp inside the widget did not anwser within <timeout> ms.")`
+  - non-timeout failure -> `std::runtime_error("[RequestFailed]: <TS MESSAGE>")`
+- Default Slot timeout is `1000ms`.
 
 ### Missing handler behavior
 - Before first registration: queue (Section 3.2.1).
@@ -127,15 +135,18 @@ Standard bridge error identifiers:
 Rules:
 
 - `Call`: errors reject Promise.
-- `Slot`: parent call throws (or receives failure result in language-idiomatic form).
+- `Slot`: parent call throws `std::runtime_error` on failure per Section 4.2.
 - `Emitter`, `Input`, `Output`: errors are diagnostic events and MUST NOT hard-crash caller by default.
 
 ## 6. Timeouts and Cancellation
 
-- Default timeout for `Call<T>`: no implicit timeout.
-- Generator SHOULD expose optional runtime config for timeouts.
-- If configured timeout elapses:
-  - `Call` rejects `BridgeTimeoutError`.
+- `Call<T>` timeout config is optional:
+  - `AnQst.Call<T, { timeoutSeconds: N }>`
+  - `AnQst.Call<T, { timeoutMilliseconds: N }>`
+- exactly one timeout key is allowed, integer `>= 0`, max `2147483647`.
+- Default `Call` timeout is 120 seconds.
+- `Call` timeout `0` means wait forever.
+- `Emitter` has no timeout config.
 - Cancellation tokens are out of scope for this revision.
 
 ## 7. Deterministic Mapping Summary
@@ -146,4 +157,35 @@ Rules:
 - `Emitter` has no generic; payload is method parameter tuple only.
 - `AnQst.Type.*` directives influence payload mapping preferences only; they do not change interaction direction, lifecycle, or completion semantics.
 - If advisory mapping cannot be honored for a payload position, runtime behavior remains unchanged and a deterministic advisory-mismatch diagnostic MUST be emitted.
+
+## 8. Call/Emitter Overhaul Addendum (Authoritative)
+
+This addendum supersedes conflicting statements above for `Call<T>` and `Emitter`.
+
+### 8.1 `Call<T>` runtime contract
+
+- Parent integration uses callback registration, not Qt signal + reply object.
+- Generated C++ registration surface:
+  - `widget->handle.methodName(handler);`
+- Handler form is synchronous return only:
+  - `T handler(args...)`
+- Success resolves Promise payload-only (`Promise<T>` resolves to `T`).
+- Failure rejects with plain object containing mandatory keys:
+  - `code`, `message`, `service`, `member`, `requestId`.
+- Queueing:
+  - if no callback is registered, call is queued per `(service,member)` endpoint (FIFO).
+  - queue limit is 1024 per endpoint; overflow drops oldest and keeps newest.
+- Disconnect:
+  - pending and queued calls reject with `BridgeDisconnectedError`.
+  - rejected/disconnected calls are not replayed on reconnect.
+
+### 8.2 `Emitter` runtime contract
+
+- `Emitter` uses Qt signal emission on the generated widget.
+- Signal names are natural (`methodName`), not `signal_`-prefixed.
+- Generated `Slot<T>` C++ methods keep `slot_` prefix and are emitted under `public slots:`.
+- Generated widget class name is `${WidgetName}Widget` and is emitted outside the widget namespace.
+- If listener exists, dispatch is immediate.
+- If no listener, event is dropped immediately.
+- `Emitter` has no timeout config (`AnQst.Emitter` only).
 

@@ -3,7 +3,7 @@
 #include <QMainWindow>
 #include <QVector>
 
-#include "CdEntryEditorTypes.h"
+#include "CdEntryEditor.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -37,7 +37,7 @@ private:
     QString entryTitle(const CdEntryEditor::CdDraft &draft) const;
 
     Ui::MainWindow *ui;
-    CdEntryEditor::CdEntryEditor *editorWidget;
+    CdEntryEditorWidget *editorWidget;
     QVector<CdEntryEditor::CdDraft> entries;
     int selectedEntryIndex;
     bool isDraftDirty;

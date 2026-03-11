@@ -15,7 +15,7 @@ class AnQstHostBridgeFacade : public QObject {
     Q_OBJECT
 
 public:
-    static constexpr int kMaxQueuedSlotInvocations = 10000000;
+    static constexpr int kMaxQueuedSlotInvocations = 1024;
 
     using CallHandler = std::function<QVariant(const QString& service, const QString& member, const QVariantList& args)>;
     using EmitterHandler = std::function<void(const QString& service, const QString& member, const QVariantList& args)>;

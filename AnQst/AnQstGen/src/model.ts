@@ -21,7 +21,15 @@ export interface ServiceMemberModel {
   name: string;
   payloadTypeText: string | null;
   parameters: ParameterModel[];
+  timeoutMs: number;
   loc: SourceLoc;
+}
+
+export interface SpecWarning {
+  severity: "warn";
+  message: string;
+  loc: SourceLoc;
+  memberPath: string;
 }
 
 export interface ServiceModel {
@@ -59,6 +67,7 @@ export interface ParsedSpecModel {
   importedTypeDecls: Map<string, TypeDeclModel>;
   importedTypeSymbols: Set<string>;
   specImports: SpecImportModel[];
+  warnings: SpecWarning[];
 }
 
 export interface VerificationStats {

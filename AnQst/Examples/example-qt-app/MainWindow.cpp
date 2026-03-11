@@ -1,8 +1,6 @@
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 
-#include "CdEntryEditor.h"
-#include "CdEntryEditorTypes.h"
 
 #include <QDate>
 #include <QDateTime>
@@ -109,26 +107,29 @@ MainWindow::MainWindow(QWidget *parent)
         setWindowTitle(windowTitle() + QStringLiteral("[*]"));
     }
 
-    editorWidget = new CdEntryEditor::CdEntryEditor(ui->widgetHost);
+    editorWidget = new CdEntryEditorWidget(ui->widgetHost);
     editorWidget->setReadOnlyMode(false);
     editorWidget->setCurrentCollectionName(QStringLiteral("Qt Hosted Collection"));
-    editorWidget->setSaveInProgress(false);
+    editorWidget->saveInProgressSlot(false);
 
-    editorWidget->setSuggestCatalogNumberHandler([](const QString &artist, const QString &albumTitle) {
+    editorWidget->handle.suggestCatalogNumber([](const QString &artist, const QString &albumTitle) {
         const QString a = artist.trimmed().left(4).toUpper();
         const QString b = albumTitle.trimmed().left(4).toUpper();
         return QStringLiteral("%1-%2").arg(a, b);
     });
-    editorWidget->setSuggestGenresHandler([](const QString &, const QString &) -> QList<CdEntryEditor::Genre> {
+
+    editorWidget->handle.suggestGenres([](const QString &, const QString &) -> QList<CdEntryEditor::Genre> {
         return QList<CdEntryEditor::Genre>{QStringLiteral("Other")};
     });
-    editorWidget->setNormalizeBarcodeHandler([](const QString &rawValue) {
+
+    editorWidget->handle.normalizeBarcode([](const QString &rawValue) {
         QString normalized = rawValue;
         normalized.remove(' ');
         normalized.remove('-');
         return normalized;
     });
-    editorWidget->setValidateDraftHandler([](const CdEntryEditor::CdDraft &draft) {
+
+    editorWidget->handle.validateDraft([](const CdEntryEditor::CdDraft &draft) {
         CdEntryEditor::ValidationResult result;
         result.valid = !draft.artist.trimmed().isEmpty() && !draft.albumTitle.trimmed().isEmpty();
         result.message = result.valid
@@ -139,23 +140,34 @@ MainWindow::MainWindow(QWidget *parent)
         }
         return result;
     });
-    editorWidget->setSaveRequestedHandler([this](const QString &draftJson) {
+
+    editorWidget->handle.saveRequested([this](const QString &draftJson) {
+        CdEntryEditor::SaveResult result;
+        result.saved = false;
+        result.cdId = 0;
+        result.message = QStringLiteral("Save request rejected.");
         QJsonParseError parseError;
         const QJsonDocument document = QJsonDocument::fromJson(draftJson.toUtf8(), &parseError);
         if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
             statusBar()->showMessage(QStringLiteral("Save failed: invalid draft payload"), 2000);
-            return;
+            return result;
         }
-        commitDraft(draftFromJson(document.object()));
+        const CdEntryEditor::CdDraft draft = draftFromJson(document.object());
+        result.saved = commitDraft(draft);
+        result.cdId = draft.cdId;
+        result.message = result.saved ? QStringLiteral("Saved.") : QStringLiteral("Save failed.");
+        return result;
     });
-    editorWidget->setDirtyChangedHandler([this](const bool isDirty) {
+
+    connect(editorWidget, &CdEntryEditorWidget::dirtyChanged, [this](const bool isDirty) {
         if (applyingHostSelection) {
             return;
         }
         isDraftDirty = isDirty;
         setWindowModified(isDirty);
     });
-    editorWidget->setFieldTouchedHandler([this](const QString &fieldName) {
+
+    connect(editorWidget, &CdEntryEditorWidget::fieldTouched, [this](const QString &fieldName) {
         statusBar()->showMessage(QStringLiteral("Field changed: %1").arg(fieldName), 1200);
     });
     editorWidget->setDraftHandler([this](const CdEntryEditor::CdDraft &) {});
@@ -235,14 +247,14 @@ bool MainWindow::commitDraft(const CdEntryEditor::CdDraft &draft) {
         return false;
     }
 
-    editorWidget->setSaveInProgress(true);
+    editorWidget->saveInProgressSlot(true);
     editorWidget->setDraft(draft);
     entries[selectedEntryIndex] = draft;
     if (auto *item = ui->listEntries->item(selectedEntryIndex)) {
         item->setText(entryTitle(draft));
     }
     saveEntries();
-    editorWidget->setSaveInProgress(false);
+    editorWidget->saveInProgressSlot(false);
     isDraftDirty = false;
     setWindowModified(false);
     statusBar()->showMessage(QStringLiteral("Saved entry."), 1000);
@@ -303,14 +315,9 @@ void MainWindow::selectEntry(const int index) {
     }
 
     applyingHostSelection = true;
-    bool ok = false;
-    QString error;
     const QString draftJson = QString::fromUtf8(QJsonDocument(draftToJson(entries[index])).toJson(QJsonDocument::Compact));
-    editorWidget->showDraft(draftJson, 0.0, &ok, &error);
+    editorWidget->slot_showDraft(draftJson, 0);
     applyingHostSelection = false;
-    if (!ok && !error.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Failed to show selected entry: %1").arg(error), 2000);
-    }
     isDraftDirty = false;
     setWindowModified(false);
 

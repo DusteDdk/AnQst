@@ -7,7 +7,7 @@ AnQstHostBridgeFacade::AnQstHostBridgeFacade(QObject* parent)
     : QObject(parent)
     , m_dispatchEnabled(false)
     , m_slotRequestCounter(0)
-    , m_slotInvocationTimeoutMs(120000) {
+    , m_slotInvocationTimeoutMs(1000) {
     connect(this, &AnQstHostBridgeFacade::slotInvocationResolved, this, [this](const QString&) {
         // no-op connection so tests can wait for this signal deterministically.
     });

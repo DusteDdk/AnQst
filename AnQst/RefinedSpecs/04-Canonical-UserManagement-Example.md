@@ -37,7 +37,7 @@ export interface UserService {
   userNameAvailable(userId: string): Promise<boolean>;
   createUser(user: User): Promise<UserCreationResult>;
   onSlot: {
-    editUser(handler: (user: User) => boolean): void;
+    editUser(handler: (user: User) => boolean | Promise<boolean> | Error): void;
   };
 }
 
@@ -55,8 +55,8 @@ export interface FormState {
   };
 
   onSlot: {
-    resetForm(handler: () => void): void;
-    stocks(handler: (txt: string) => void): void;
+    resetForm(handler: () => void | Promise<void> | Error): void;
+    stocks(handler: (txt: string) => void | Promise<void> | Error): void;
   };
 }
 ```
@@ -110,24 +110,29 @@ export class UserManagementComponent {
 Representative generated header excerpt (`UserManagement.h`):
 
 ```cpp
-class UserManagement : public AngQtWidgetBridgeBase {
+class UserManagementWidget : public AngQtWidgetBridgeBase {
     Q_OBJECT
     Q_PROPERTY(double activeUsers READ activeUsers WRITE setActiveUsers NOTIFY activeUsersChanged)
     Q_PROPERTY(QString currentUsername READ currentUsername WRITE setCurrentUsername NOTIFY currentUsernameChanged)
     Q_PROPERTY(PasswordPolicy passwordPolicy READ passwordPolicy WRITE setPasswordPolicy NOTIFY passwordPolicyChanged)
 
 public:
-    using GetUserByIdCallback = std::function<void(const User&)>;
-    using UserNameAvailableCallback = std::function<void(const bool&)>;
-    using CreateUserCallback = std::function<void(const UserCreationResult&)>;
+    class handle {
+    public:
+        void getUserById(const GetUserByIdHandler& handler) const;
+        void userNameAvailable(const UserNameAvailableHandler& handler) const;
+        void createUser(const CreateUserHandler& handler) const;
+    };
 
-    explicit UserManagement(QWidget* parent = nullptr);
-    ~UserManagement() override;
+    explicit UserManagementWidget(QWidget* parent = nullptr);
+    ~UserManagementWidget() override;
+    handle handle;
 
+public slots:
     // Slot<T> endpoints (Parent -> Widget)
-    bool editUser(const User& user);
-    void resetForm();
-    void stocks(const QString& txt);
+    bool slot_editUser(User user);
+    void slot_resetForm();
+    void slot_stocks(QString txt);
 
     // Mirrored property endpoints
     double activeUsers() const;
@@ -138,11 +143,6 @@ public:
     void setPasswordPolicy(const PasswordPolicy& value);
 
 signals:
-    // Call dispatch
-    void getUserById(QString userId, GetUserByIdCallback reply);
-    void userNameAvailable(QString userId, UserNameAvailableCallback reply);
-    void createUser(User user, CreateUserCallback reply);
-
     // Emitter
     void badWord(QString word);
 
@@ -202,8 +202,8 @@ target_include_directories(UserManagementWidget
 ## 7. End-to-End Interaction Trace
 
 1. Angular calls `await userService.getUserById("abc")`.
-2. Bridge emits Qt signal `getUserById(QString, callback)`.
-3. Parent handler resolves callback with `User`.
+2. Parent registers callback once: `widget->handle.getUserById(handler)`.
+3. Bridge invokes registered callback and receives `User` return value.
 4. Bridge deserializes payload and resolves Promise in Angular.
 5. Angular updates `formState.set.currentUsername(user.userName)`.
 6. Parent reads mirrored `currentUsername` property on widget.

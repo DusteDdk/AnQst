@@ -4,6 +4,7 @@ import ts from "typescript";
 import { VerifyError } from "./errors";
 import type {
   ParsedSpecModel,
+  SpecWarning,
   SpecImportModel,
   ParameterModel,
   ServiceMemberKind,
@@ -68,15 +69,142 @@ function parseMemberKindFromAnQstType(typeNode: ts.TypeNode): { kind: ServiceMem
   return { kind, payload: arg ? arg.getText() : null };
 }
 
-function parseServiceMember(source: ts.SourceFile, member: ts.TypeElement): ServiceMemberModel {
+interface ParsedMemberKind {
+  kind: ServiceMemberKind;
+  payload: string | null;
+  configTypeNode: ts.TypeNode | null;
+}
+
+const DEFAULT_MEMBER_TIMEOUT_MS = 120000;
+const MAX_MEMBER_TIMEOUT_MS = 2147483647;
+
+function parseMemberKindWithConfig(typeNode: ts.TypeNode): ParsedMemberKind | null {
+  if (!ts.isTypeReferenceNode(typeNode)) return null;
+  const typeName = qNameToText(typeNode.typeName);
+  if (!typeName.startsWith("AnQst.")) return null;
+  const kind = typeName.slice("AnQst.".length) as ServiceMemberKind;
+  if (!["Call", "Slot", "Emitter", "Output", "Input"].includes(kind)) return null;
+  const typeArgs = typeNode.typeArguments ?? [];
+  if (kind === "Emitter") {
+    return {
+      kind,
+      payload: null,
+      configTypeNode: typeArgs[0] ?? null
+    };
+  }
+  return {
+    kind,
+    payload: typeArgs[0] ? typeArgs[0].getText() : null,
+    configTypeNode: kind === "Call" ? (typeArgs[1] ?? null) : null
+  };
+}
+
+function parseNumericLiteralType(node: ts.TypeNode): number | null {
+  if (!ts.isLiteralTypeNode(node)) return null;
+  if (ts.isNumericLiteral(node.literal)) {
+    return Number(node.literal.text);
+  }
+  if (
+    ts.isPrefixUnaryExpression(node.literal)
+    && node.literal.operator === ts.SyntaxKind.MinusToken
+    && ts.isNumericLiteral(node.literal.operand)
+  ) {
+    return -Number(node.literal.operand.text);
+  }
+  return null;
+}
+
+function resolveMemberTimeoutMs(
+  source: ts.SourceFile,
+  serviceName: string,
+  memberName: string,
+  kind: ServiceMemberKind,
+  configTypeNode: ts.TypeNode | null,
+  warnings: SpecWarning[],
+  memberLoc: SourceLoc
+): number {
+  if (kind !== "Call") return DEFAULT_MEMBER_TIMEOUT_MS;
+  if (!configTypeNode) return DEFAULT_MEMBER_TIMEOUT_MS;
+  if (!ts.isTypeLiteralNode(configTypeNode)) {
+    throw new VerifyError(
+      `${kind} config for '${memberName}' must be an inline object literal type.`,
+      locFromNode(source, configTypeNode)
+    );
+  }
+  let timeoutSeconds: number | null = null;
+  let timeoutMilliseconds: number | null = null;
+  const memberPath = `${serviceName}.${memberName}`;
+  for (const prop of configTypeNode.members) {
+    if (!ts.isPropertySignature(prop) || !prop.name) {
+      throw new VerifyError(`${kind} config for '${memberName}' only supports named properties.`, locFromNode(source, prop));
+    }
+    if (!ts.isIdentifier(prop.name)) {
+      throw new VerifyError(`${kind} config for '${memberName}' only supports identifier keys.`, locFromNode(source, prop.name));
+    }
+    const key = prop.name.text;
+    if (!prop.type) {
+      throw new VerifyError(`${kind} config key '${key}' in '${memberName}' must declare a numeric literal value.`, locFromNode(source, prop));
+    }
+    if (key !== "timeoutSeconds" && key !== "timeoutMilliseconds") {
+      warnings.push({
+        severity: "warn",
+        message: `Unknown ${kind} config key '${key}' ignored for '${memberPath}'.`,
+        loc: locFromNode(source, prop.name),
+        memberPath
+      });
+      continue;
+    }
+    const numericValue = parseNumericLiteralType(prop.type);
+    if (numericValue === null || !Number.isInteger(numericValue)) {
+      throw new VerifyError(
+        `${kind} config key '${key}' in '${memberName}' must be an integer literal >= 0.`,
+        locFromNode(source, prop.type)
+      );
+    }
+    if (numericValue < 0) {
+      throw new VerifyError(
+        `${kind} config key '${key}' in '${memberName}' must be >= 0.`,
+        locFromNode(source, prop.type)
+      );
+    }
+    if (key === "timeoutSeconds") timeoutSeconds = numericValue;
+    if (key === "timeoutMilliseconds") timeoutMilliseconds = numericValue;
+  }
+  if (timeoutSeconds !== null && timeoutMilliseconds !== null) {
+    throw new VerifyError(
+      `${kind} config for '${memberName}' must specify only one of 'timeoutSeconds' or 'timeoutMilliseconds'.`,
+      memberLoc
+    );
+  }
+  const effectiveMs = timeoutMilliseconds !== null
+    ? timeoutMilliseconds
+    : timeoutSeconds !== null
+      ? timeoutSeconds * 1000
+      : DEFAULT_MEMBER_TIMEOUT_MS;
+  if (effectiveMs > MAX_MEMBER_TIMEOUT_MS) {
+    throw new VerifyError(
+      `${kind} timeout for '${memberName}' exceeds max supported value (${MAX_MEMBER_TIMEOUT_MS} ms).`,
+      memberLoc
+    );
+  }
+  return effectiveMs;
+}
+
+function parseServiceMember(source: ts.SourceFile, serviceName: string, member: ts.TypeElement, warnings: SpecWarning[]): ServiceMemberModel {
   if (ts.isMethodSignature(member)) {
     if (member.questionToken) throw new VerifyError("Optional service methods are not allowed.", locFromNode(source, member));
     const returnType = member.type;
     if (!returnType) throw new VerifyError("Service method must declare return type.", locFromNode(source, member));
-    const parsed = parseMemberKindFromAnQstType(returnType);
+    const parsed = parseMemberKindWithConfig(returnType);
     if (!parsed) throw new VerifyError(`Unsupported service method return type '${returnType.getText()}'.`, locFromNode(source, member));
     if (parsed.kind === "Input" || parsed.kind === "Output") {
       throw new VerifyError(`${parsed.kind} must be declared as property, not method.`, locFromNode(source, member));
+    }
+    if (parsed.kind === "Emitter" && parsed.configTypeNode !== null) {
+      throw new VerifyError(
+        `Emitter '${member.name.getText(source)}' does not support config parameters; use plain AnQst.Emitter.`,
+        locFromNode(source, parsed.configTypeNode)
+      );
     }
     if (!member.name || !ts.isIdentifier(member.name)) {
       throw new VerifyError("Only identifier service method names are supported.", locFromNode(source, member));
@@ -87,11 +215,21 @@ function parseServiceMember(source: ts.SourceFile, member: ts.TypeElement): Serv
       if (!param.type) throw new VerifyError("Service parameters must declare type.", locFromNode(source, param));
       return { name: param.name.text, typeText: param.type.getText() };
     });
+    const timeoutMs = resolveMemberTimeoutMs(
+      source,
+      serviceName,
+      member.name.text,
+      parsed.kind,
+      parsed.configTypeNode,
+      warnings,
+      locFromNode(source, member)
+    );
     return {
       kind: parsed.kind,
       name: member.name.text,
       payloadTypeText: parsed.payload,
       parameters,
+      timeoutMs,
       loc: locFromNode(source, member)
     };
   }
@@ -99,7 +237,7 @@ function parseServiceMember(source: ts.SourceFile, member: ts.TypeElement): Serv
   if (ts.isPropertySignature(member)) {
     if (!member.type) throw new VerifyError("Service property must declare type.", locFromNode(source, member));
     if (member.questionToken) throw new VerifyError("Optional service properties are not allowed.", locFromNode(source, member));
-    const parsed = parseMemberKindFromAnQstType(member.type);
+    const parsed = parseMemberKindWithConfig(member.type);
     if (!parsed) throw new VerifyError(`Unsupported service property type '${member.type.getText()}'.`, locFromNode(source, member));
     if (parsed.kind !== "Input" && parsed.kind !== "Output") {
       throw new VerifyError(`${parsed.kind} must be declared as method, not property.`, locFromNode(source, member));
@@ -107,11 +245,21 @@ function parseServiceMember(source: ts.SourceFile, member: ts.TypeElement): Serv
     if (!member.name || !ts.isIdentifier(member.name)) {
       throw new VerifyError("Only identifier service property names are supported.", locFromNode(source, member));
     }
+    const timeoutMs = resolveMemberTimeoutMs(
+      source,
+      serviceName,
+      member.name.text,
+      parsed.kind,
+      parsed.configTypeNode,
+      warnings,
+      locFromNode(source, member)
+    );
     return {
       kind: parsed.kind,
       name: member.name.text,
       payloadTypeText: parsed.payload,
       parameters: [],
+      timeoutMs,
       loc: locFromNode(source, member)
     };
   }
@@ -234,13 +382,14 @@ function parseSpecFileAst(specFilePath: string): ParsedSpecModel {
 
   const services: ServiceModel[] = [];
   const namespaceTypeDecls: TypeDeclModel[] = [];
+  const warnings: SpecWarning[] = [];
   let supportsDevelopmentModeTransport = false;
 
   for (const stmt of ns.body.statements) {
     if (ts.isInterfaceDeclaration(stmt)) {
       const baseType = serviceBaseType(stmt);
       if (baseType !== null) {
-        const members = stmt.members.map((member) => parseServiceMember(source, member));
+        const members = stmt.members.map((member) => parseServiceMember(source, stmt.name.text, member, warnings));
         if (baseType === "AngularHTTPBaseServerClass") {
           supportsDevelopmentModeTransport = true;
         }
@@ -265,7 +414,8 @@ function parseSpecFileAst(specFilePath: string): ParsedSpecModel {
     namespaceTypeDecls,
     importedTypeDecls: importInfo.importedTypeDecls,
     importedTypeSymbols: importInfo.importedTypeSymbols,
-    specImports: importInfo.specImports
+    specImports: importInfo.specImports,
+    warnings
   };
 }
 

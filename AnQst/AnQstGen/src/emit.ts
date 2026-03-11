@@ -653,13 +653,25 @@ ${metatypes}
 `;
 }
 
+function renderWidgetUmbrellaHeader(spec: ParsedSpecModel): string {
+  return `#pragma once
+// Built by <AnQst_version>
+#include "${spec.widgetName}Widget.h"
+#include "${spec.widgetName}Types.h"
+`;
+}
+
 function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
+  const widgetClassName = `${spec.widgetName}Widget`;
   const callbackAliases: string[] = [];
   const publicMethods: string[] = [];
+  const slotMethods: string[] = [];
+  const handleMethods: string[] = [];
+  const callSetterMethods: string[] = [];
   const signals: string[] = [];
   const properties: string[] = [];
   const fields: string[] = [];
-  const outputSetters: string[] = [];
+  const publicSlots: string[] = [];
 
   type MemberBinding = { service: string; member: string; kind: ServiceMemberModel["kind"] };
   const bindings: MemberBinding[] = [];
@@ -670,19 +682,18 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
       const memberPascal = pascalCase(member.name);
       if (member.kind === "Call" && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
+        const args = member.parameters.map((p) => `const ${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])}& ${p.name}`).join(", ");
         callbackAliases.push(`using ${memberPascal}Handler = std::function<${cppType}(${args})>;`);
-        publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
+        handleMethods.push(`    void ${member.name}(const ${memberPascal}Handler& handler) const;`);
+        callSetterMethods.push(`void set${memberPascal}CallHandler(const ${memberPascal}Handler& handler);`);
         fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
       } else if (member.kind === "Emitter") {
-        const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
-        callbackAliases.push(`using ${memberPascal}Handler = std::function<void(${args})>;`);
-        publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
-        fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
+        const args = member.parameters.map((p) => `const ${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])}& ${p.name}`).join(", ");
+        signals.push(`void ${member.name}(${args});`);
       } else if (member.kind === "Slot") {
         const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
         const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
-        publicMethods.push(`${ret} ${member.name}(${args}${args ? ", " : ""}bool* ok = nullptr, QString* error = nullptr);`);
+        slotMethods.push(`${ret} slot_${member.name}(${args});`);
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
@@ -696,14 +707,17 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
           publicMethods.push(`void set${memberPascal}Handler(const ${memberPascal}Handler& handler);`);
           fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
         } else {
-          outputSetters.push(`void publish${memberPascal}(const ${cppType}& value);`);
+          publicSlots.push(`void ${member.name}Slot(const ${cppType}& value);`);
         }
       }
     }
   }
 
   return `#pragma once
+#include <QDateTime>
 #include <QHash>
+#include <QMetaMethod>
+#include <QQueue>
 #include <QVariant>
 #include <QVariantList>
 #include <functional>
@@ -711,28 +725,54 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
 #include "${spec.widgetName}Types.h"
 
 namespace ${spec.widgetName} {
+} // namespace ${spec.widgetName}
 
-class ${spec.widgetName} : public AnQstWebHostBase {
+using namespace ${spec.widgetName};
+
+class ${widgetClassName} : public AnQstWebHostBase {
     Q_OBJECT
 ${properties.map((p) => `    ${p}`).join("\n")}
 
 public:
-    explicit ${spec.widgetName}(QWidget* parent = nullptr);
-    ~${spec.widgetName}() override;
+${callbackAliases.map((s) => `    ${s}`).join("\n")}
+
+    class handle {
+    public:
+        explicit handle(${widgetClassName}* owner) : m_owner(owner) {}
+${handleMethods.join("\n")}
+    private:
+        ${widgetClassName}* m_owner;
+    };
+
+    explicit ${widgetClassName}(QWidget* parent = nullptr);
+    ~${widgetClassName}() override;
     bool enableDebug();
     static constexpr const char* kBootstrapEntryPoint = "index.html";
     static constexpr const char* kBootstrapContentRoot = "qrc:/${spec.widgetName.toLowerCase()}";
     static constexpr const char* kBootstrapBridgeObject = "${spec.widgetName}Bridge";
+    static constexpr int kMaxQueuedCallsPerEndpoint = 1024;
 
-${callbackAliases.map((s) => `    ${s}`).join("\n")}
+    handle handle;
 ${publicMethods.map((s) => `    ${s}`).join("\n")}
-${outputSetters.map((s) => `    ${s}`).join("\n")}
+
+public slots:
+${slotMethods.map((s) => `    ${s}`).join("\n")}
+${publicSlots.map((s) => `    ${s}`).join("\n")}
 
 signals:
 ${signals.map((s) => `    ${s}`).join("\n")}
     void diagnosticsForwarded(const QVariantMap& payload);
 
+protected:
+    void connectNotify(const QMetaMethod& signal) override;
+    void disconnectNotify(const QMetaMethod& signal) override;
+
 private:
+    struct PendingCallInvocation {
+        QString requestId;
+        QVariantList args;
+        QDateTime enqueuedAt;
+    };
     struct BridgeBindingRow {
         const char* service;
         const char* member;
@@ -742,22 +782,38 @@ private:
     static constexpr int kBridgeBindingsCount = ${bindings.length};
     static QString makeBindingKey(const QString& service, const QString& member);
     void installBridgeBindings();
+    bool hasEmitterListeners(const QString& service, const QString& member) const;
     QVariant handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args);
     void handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args);
     void handleGeneratedInput(const QString& service, const QString& member, const QVariant& value);
+    QVariant waitForCallHandlerAndInvoke(
+        const QString& service,
+        const QString& member,
+        const QString& requestId,
+        int timeoutMs,
+        const std::function<QVariant()>& invokeNow);
+    void removeQueuedCallById(const QString& queueKey, const QString& requestId);
+${callSetterMethods.map((s) => `    ${s}`).join("\n")}
 
+    qulonglong m_callRequestCounter{0};
+    QHash<QString, QQueue<PendingCallInvocation>> m_queuedCalls;
 ${fields.map((f) => `    ${f}`).join("\n")}
 };
-
-} // namespace ${spec.widgetName}
 `;
 }
 
 function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
+  const widgetClassName = `${spec.widgetName}Widget`;
   const lines: string[] = [];
-  lines.push(`#include "include/${spec.widgetName}.h"`);
+  lines.push(`#include "include/${spec.widgetName}Widget.h"`);
   lines.push(`#include <QDebug>`);
+  lines.push(`#include <QElapsedTimer>`);
+  lines.push(`#include <QEventLoop>`);
   lines.push(`#include <QMetaType>`);
+  lines.push(`#include <QTimer>`);
+  lines.push(`#include <stdexcept>`);
+  lines.push("");
+  lines.push(`using namespace ${spec.widgetName};`);
   lines.push("");
   lines.push(`extern int qInitResources_${spec.widgetName}();`);
   lines.push("");
@@ -774,9 +830,22 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push("}");
   lines.push("}");
   lines.push("");
-  lines.push(`namespace ${spec.widgetName} {`);
-  lines.push("");
-  lines.push(`const ${spec.widgetName}::BridgeBindingRow ${spec.widgetName}::kBridgeBindings[] = {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "Call" || !member.payloadTypeText) continue;
+      const pascal = pascalCase(member.name);
+      lines.push(`void ${widgetClassName}::handle::${member.name}(const ${pascal}Handler& handler) const {`);
+      lines.push(`    if (m_owner == nullptr) return;`);
+      lines.push(`    m_owner->set${pascal}CallHandler(handler);`);
+      lines.push(`}`);
+      lines.push("");
+      lines.push(`void ${widgetClassName}::set${pascal}CallHandler(const ${pascal}Handler& handler) {`);
+      lines.push(`    m_${member.name}Handler = handler;`);
+      lines.push(`}`);
+      lines.push("");
+    }
+  }
+  lines.push(`const ${widgetClassName}::BridgeBindingRow ${widgetClassName}::kBridgeBindings[] = {`);
   for (const service of spec.services) {
     for (const member of service.members) {
       lines.push(`    {"${service.name}", "${member.name}", "${member.kind}"},`);
@@ -784,7 +853,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   }
   lines.push(`};`);
   lines.push("");
-  lines.push(`${spec.widgetName}::${spec.widgetName}(QWidget* parent) : AnQstWebHostBase(parent) {`);
+  lines.push(`${widgetClassName}::${widgetClassName}(QWidget* parent) : AnQstWebHostBase(parent), handle(this) {`);
   lines.push(`    static const bool kResourcesInitialized = []() {`);
   lines.push(`        ::qInitResources_${spec.widgetName}();`);
   lines.push(`        return true;`);
@@ -792,7 +861,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`    Q_UNUSED(kResourcesInitialized);`);
   lines.push(`    registerGeneratedMetaTypes();`);
   lines.push(`    installBridgeBindings();`);
-  lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${spec.widgetName}::diagnosticsForwarded);`);
+  lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${widgetClassName}::diagnosticsForwarded);`);
   lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
   lines.push(`    const bool bridgeOk = setBridgeObject(this, QString::fromUtf8(kBootstrapBridgeObject));`);
   lines.push(`    const bool loadOk = rootOk && bridgeOk && loadEntryPoint(QString::fromUtf8(kBootstrapEntryPoint));`);
@@ -801,17 +870,73 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`    }`);
   lines.push("}");
   lines.push("");
-  lines.push(`${spec.widgetName}::~${spec.widgetName}() = default;`);
+  lines.push(`${widgetClassName}::~${widgetClassName}() = default;`);
   lines.push("");
-  lines.push(`bool ${spec.widgetName}::enableDebug() {`);
+  lines.push(`bool ${widgetClassName}::enableDebug() {`);
   lines.push(`    return AnQstWebHostBase::enableDebug();`);
   lines.push("}");
   lines.push("");
-  lines.push(`QString ${spec.widgetName}::makeBindingKey(const QString& service, const QString& member) {`);
+  lines.push(`QString ${widgetClassName}::makeBindingKey(const QString& service, const QString& member) {`);
   lines.push(`    return service + QStringLiteral("::") + member;`);
   lines.push(`}`);
   lines.push("");
-  lines.push(`void ${spec.widgetName}::installBridgeBindings() {`);
+  lines.push(`void ${widgetClassName}::removeQueuedCallById(const QString& queueKey, const QString& requestId) {`);
+  lines.push(`    if (!m_queuedCalls.contains(queueKey)) return;`);
+  lines.push(`    auto& queue = m_queuedCalls[queueKey];`);
+  lines.push(`    for (int i = 0; i < queue.size(); ++i) {`);
+  lines.push(`        if (queue[i].requestId == requestId) {`);
+  lines.push(`            queue.removeAt(i);`);
+  lines.push(`            break;`);
+  lines.push(`        }`);
+  lines.push(`    }`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`QVariant ${widgetClassName}::waitForCallHandlerAndInvoke(`);
+  lines.push(`    const QString& service,`);
+  lines.push(`    const QString& member,`);
+  lines.push(`    const QString& requestId,`);
+  lines.push(`    int timeoutMs,`);
+  lines.push(`    const std::function<QVariant()>& invokeNow) {`);
+  lines.push(`    const QString queueKey = makeBindingKey(service, member);`);
+  lines.push(`    QElapsedTimer timer;`);
+  lines.push(`    timer.start();`);
+  lines.push(`    QEventLoop loop;`);
+  lines.push(`    QTimer tick;`);
+  lines.push(`    tick.setSingleShot(true);`);
+  lines.push(`    QObject::connect(&tick, &QTimer::timeout, &loop, &QEventLoop::quit);`);
+  lines.push(`    while (true) {`);
+  lines.push(`        if (m_queuedCalls.contains(queueKey) && !m_queuedCalls[queueKey].isEmpty() && m_queuedCalls[queueKey].head().requestId == requestId) {`);
+  lines.push(`            m_queuedCalls[queueKey].dequeue();`);
+  lines.push(`            return invokeNow();`);
+  lines.push(`        }`);
+  lines.push(`        if (timeoutMs > 0 && timer.elapsed() >= timeoutMs) {`);
+  lines.push(`            removeQueuedCallById(queueKey, requestId);`);
+  lines.push(`            return QVariantMap{`);
+  lines.push(`                {QStringLiteral("code"), QStringLiteral("BridgeTimeoutError")},`);
+  lines.push(`                {QStringLiteral("message"), QStringLiteral("Call timed out while waiting for callback registration.")},`);
+  lines.push(`                {QStringLiteral("service"), service},`);
+  lines.push(`                {QStringLiteral("member"), member},`);
+  lines.push(`                {QStringLiteral("requestId"), requestId}`);
+  lines.push(`            };`);
+  lines.push(`        }`);
+  lines.push(`        tick.start(10);`);
+  lines.push(`        loop.exec();`);
+  lines.push(`    }`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`bool ${widgetClassName}::hasEmitterListeners(const QString& service, const QString& member) const {`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind !== "Emitter") continue;
+      lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+      lines.push(`        return isSignalConnected(QMetaMethod::fromSignal(&${widgetClassName}::${member.name}));`);
+      lines.push(`    }`);
+    }
+  }
+  lines.push(`    return false;`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`void ${widgetClassName}::installBridgeBindings() {`);
   lines.push(`    setCallHandler([this](const QString& service, const QString& member, const QVariantList& args) -> QVariant {`);
   lines.push(`        return handleGeneratedCall(service, member, args);`);
   lines.push(`    });`);
@@ -823,53 +948,95 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`    });`);
   lines.push(`}`);
   lines.push("");
-  lines.push(`QVariant ${spec.widgetName}::handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args) {`);
+  lines.push(`QVariant ${widgetClassName}::handleGeneratedCall(const QString& service, const QString& member, const QVariantList& args) {`);
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
+      const timeoutMs = member.timeoutMs;
       const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-      const pascal = pascalCase(member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-      lines.push(`        if (!m_${member.name}Handler) {`);
-      lines.push(`            if (property("anqstDesignerContext").toBool()) {`);
-      lines.push(`                return ${cppToVariantExpression(cppType, designerPlaceholderCppExpression(cppType, member.name))};`);
-      lines.push(`            }`);
-      lines.push(`            return QVariant();`);
-      lines.push(`        }`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
         lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
       }
-      const argNames = member.parameters.map((p) => p.name).join(", ");
-      lines.push(`        const ${cppType} result = m_${member.name}Handler(${argNames});`);
-      lines.push(`        return ${cppToVariantExpression(cppType, "result")};`);
+      lines.push(`        const QString requestId = QStringLiteral("call-%1").arg(++m_callRequestCounter);`);
+      lines.push(`        const QString queueKey = makeBindingKey(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"));`);
+      lines.push(`        auto invokeNow = [this, requestId${member.parameters.length > 0 ? `, ${member.parameters.map((p) => p.name).join(", ")}` : ""}]() -> QVariant {`);
+      lines.push(`            if (!m_${member.name}Handler) {`);
+      lines.push(`                return QVariantMap{`);
+      lines.push(`                    {QStringLiteral("code"), QStringLiteral("HandlerNotRegisteredError")},`);
+      lines.push(`                    {QStringLiteral("message"), QStringLiteral("No callback registered for Call endpoint.")},`);
+      lines.push(`                    {QStringLiteral("service"), QStringLiteral("${service.name}")},`);
+      lines.push(`                    {QStringLiteral("member"), QStringLiteral("${member.name}")},`);
+      lines.push(`                    {QStringLiteral("requestId"), requestId}`);
+      lines.push(`                };`);
+      lines.push(`            }`);
+      lines.push(`            try {`);
+      const callArgs = member.parameters.map((p) => p.name).join(", ");
+      lines.push(`                const ${cppType} result = m_${member.name}Handler(${callArgs});`);
+      lines.push(`                return ${cppToVariantExpression(cppType, "result")};`);
+      lines.push(`            } catch (const std::exception& ex) {`);
+      lines.push(`                return QVariantMap{`);
+      lines.push(`                    {QStringLiteral("code"), QStringLiteral("CallHandlerError")},`);
+      lines.push(`                    {QStringLiteral("message"), QString::fromUtf8(ex.what())},`);
+      lines.push(`                    {QStringLiteral("service"), QStringLiteral("${service.name}")},`);
+      lines.push(`                    {QStringLiteral("member"), QStringLiteral("${member.name}")},`);
+      lines.push(`                    {QStringLiteral("requestId"), requestId}`);
+      lines.push(`                };`);
+      lines.push(`            } catch (...) {`);
+      lines.push(`                return QVariantMap{`);
+      lines.push(`                    {QStringLiteral("code"), QStringLiteral("CallHandlerError")},`);
+      lines.push(`                    {QStringLiteral("message"), QStringLiteral("Call handler threw unknown exception.")},`);
+      lines.push(`                    {QStringLiteral("service"), QStringLiteral("${service.name}")},`);
+      lines.push(`                    {QStringLiteral("member"), QStringLiteral("${member.name}")},`);
+      lines.push(`                    {QStringLiteral("requestId"), requestId}`);
+      lines.push(`                };`);
+      lines.push(`            }`);
+      lines.push(`        };`);
+      lines.push(`        if (m_${member.name}Handler) {`);
+      lines.push(`            return invokeNow();`);
+      lines.push(`        }`);
+      lines.push(`        auto& queue = m_queuedCalls[queueKey];`);
+      lines.push(`        if (queue.size() >= kMaxQueuedCallsPerEndpoint) {`);
+      lines.push(`            queue.dequeue();`);
+      lines.push(`        }`);
+      lines.push(`        queue.enqueue(PendingCallInvocation{requestId, args, QDateTime::currentDateTimeUtc()});`);
+      lines.push(`        return waitForCallHandlerAndInvoke(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), requestId, ${timeoutMs}, invokeNow);`);
       lines.push(`    }`);
     }
   }
-  lines.push(`    return QVariant();`);
+  lines.push(`    return QVariantMap{`);
+  lines.push(`        {QStringLiteral("code"), QStringLiteral("HandlerNotRegisteredError")},`);
+  lines.push(`        {QStringLiteral("message"), QStringLiteral("No Call mapping found.")},`);
+  lines.push(`        {QStringLiteral("service"), service},`);
+  lines.push(`        {QStringLiteral("member"), member},`);
+  lines.push(`        {QStringLiteral("requestId"), QString()}`);
+  lines.push(`    };`);
   lines.push(`}`);
   lines.push("");
-  lines.push(`void ${spec.widgetName}::handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args) {`);
+  lines.push(`void ${widgetClassName}::handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args) {`);
+  lines.push(`    if (!hasEmitterListeners(service, member)) {`);
+  lines.push(`        return;`);
+  lines.push(`    }`);
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Emitter") continue;
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-      lines.push(`        if (!m_${member.name}Handler) return;`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
         lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       const argNames = member.parameters.map((p) => p.name).join(", ");
-      lines.push(`        m_${member.name}Handler(${argNames});`);
+      lines.push(`        emit ${member.name}(${argNames});`);
       lines.push(`        return;`);
       lines.push(`    }`);
     }
   }
   lines.push(`}`);
   lines.push("");
-  lines.push(`void ${spec.widgetName}::handleGeneratedInput(const QString& service, const QString& member, const QVariant& value) {`);
+  lines.push(`void ${widgetClassName}::handleGeneratedInput(const QString& service, const QString& member, const QVariant& value) {`);
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Input" || !member.payloadTypeText) continue;
@@ -888,18 +1055,8 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   for (const service of spec.services) {
     for (const member of service.members) {
       const memberPascal = pascalCase(member.name);
-      if ((member.kind === "Call" || member.kind === "Input") && member.payloadTypeText) {
-        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
-        lines.push(`    m_${member.name}Handler = handler;`);
-        lines.push("}");
-        lines.push("");
-      } else if (member.kind === "Emitter") {
-        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
-        lines.push(`    m_${member.name}Handler = handler;`);
-        lines.push("}");
-        lines.push("");
-      } else if (member.kind === "Input" && member.payloadTypeText) {
-        lines.push(`void ${spec.widgetName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
+      if (member.kind === "Input" && member.payloadTypeText) {
+        lines.push(`void ${widgetClassName}::set${memberPascal}Handler(const ${memberPascal}Handler& handler) {`);
         lines.push(`    m_${member.name}Handler = handler;`);
         lines.push("}");
         lines.push("");
@@ -908,8 +1065,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       if (member.kind === "Slot") {
         const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
         const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
-        const argsWithMeta = `${args}${args ? ", " : ""}bool* ok, QString* error`;
-        lines.push(`${ret} ${spec.widgetName}::${member.name}(${argsWithMeta}) {`);
+        lines.push(`${ret} ${widgetClassName}::slot_${member.name}(${args}) {`);
         lines.push(`    QVariantList invokeArgs;`);
         for (const p of member.parameters) {
           const pType = mapTsTypeToCpp(p.typeText);
@@ -918,13 +1074,17 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push(`    QVariant result;`);
         lines.push(`    QString invokeError;`);
         lines.push(`    const bool success = invokeSlot(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), invokeArgs, &result, &invokeError);`);
-        lines.push(`    if (ok != nullptr) *ok = success;`);
-        lines.push(`    if (error != nullptr) *error = invokeError;`);
+        lines.push(`    if (!success) {`);
+        lines.push(`        if (invokeError == QStringLiteral("slot invocation timeout")) {`);
+        lines.push(`            const QString timeoutMsg = QStringLiteral("[Timeout] ${service.name}.${member.name}: The webapp inside the widget did not anwser within %1 ms.").arg(slotInvocationTimeoutMs());`);
+        lines.push(`            throw std::runtime_error(timeoutMsg.toStdString());`);
+        lines.push(`        }`);
+        lines.push(`        const QString requestFailed = QStringLiteral("[RequestFailed]: %1").arg(invokeError);`);
+        lines.push(`        throw std::runtime_error(requestFailed.toStdString());`);
+        lines.push(`    }`);
         if (ret === "void") {
-          lines.push(`    if (!success) return;`);
           lines.push(`    return;`);
         } else {
-          lines.push(`    if (!success) return ${ret}{};`);
           lines.push(`    return ${variantToCppExpression(ret, "result")};`);
         }
         lines.push("}");
@@ -932,11 +1092,11 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
-        lines.push(`${cppType} ${spec.widgetName}::${member.name}() const {`);
+        lines.push(`${cppType} ${widgetClassName}::${member.name}() const {`);
         lines.push(`    return m_${member.name};`);
         lines.push("}");
         lines.push("");
-        lines.push(`void ${spec.widgetName}::set${cap}(const ${cppType}& value) {`);
+        lines.push(`void ${widgetClassName}::set${cap}(const ${cppType}& value) {`);
         lines.push(`    if (m_${member.name} == value) return;`);
         lines.push(`    m_${member.name} = value;`);
         if (member.kind === "Output") {
@@ -946,7 +1106,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push("}");
         lines.push("");
         if (member.kind === "Output") {
-          lines.push(`void ${spec.widgetName}::publish${pascalCase(member.name)}(const ${cppType}& value) {`);
+          lines.push(`void ${widgetClassName}::${member.name}Slot(const ${cppType}& value) {`);
           lines.push(`    set${cap}(value);`);
           lines.push(`}`);
           lines.push("");
@@ -955,7 +1115,16 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
     }
   }
 
-  lines.push(`} // namespace ${spec.widgetName}`);
+  lines.push(`void ${widgetClassName}::connectNotify(const QMetaMethod& signal) {`);
+  lines.push(`    AnQstWebHostBase::connectNotify(signal);`);
+  lines.push(`    Q_UNUSED(signal);`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`void ${widgetClassName}::disconnectNotify(const QMetaMethod& signal) {`);
+  lines.push(`    AnQstWebHostBase::disconnectNotify(signal);`);
+  lines.push(`    Q_UNUSED(signal);`);
+  lines.push(`}`);
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -976,6 +1145,7 @@ add_library(${spec.widgetName}Widget
     ${spec.widgetName}.cpp
     ${spec.widgetName}.qrc
     include/${spec.widgetName}.h
+    include/${spec.widgetName}Widget.h
     include/${spec.widgetName}Types.h
 )
 target_include_directories(${spec.widgetName}Widget
@@ -1123,6 +1293,13 @@ function renderLocalTypeImports(spec: ParsedSpecModel): string {
   return `import type { ${localTypeNames.join(", ")} } from "./types";`;
 }
 
+function slotHandlerReturnType(tsRet: string): string {
+  if (tsRet === "void") {
+    return "void | Promise<void> | Error";
+  }
+  return `${tsRet} | Promise<${tsRet}> | Error`;
+}
+
 function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
   const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
 
@@ -1148,7 +1325,7 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
     }
     if (m.kind === "Slot") {
       const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
-      onSlotMembers.push(`    ${m.name}: (handler: (${args}) => ${ret}): void => {`);
+      onSlotMembers.push(`    ${m.name}: (handler: (${args}) => ${slotHandlerReturnType(ret)}): void => {`);
       onSlotMembers.push(`      this._bridge.registerSlot("${serviceName}", "${m.name}", handler as (...args: unknown[]) => unknown);`);
       onSlotMembers.push("    },");
       continue;
@@ -1212,7 +1389,7 @@ function renderTsServiceDts(spec: ParsedSpecModel, serviceName: string): string 
     }
     if (m.kind === "Slot") {
       const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
-      onSlotMembers.push(`  ${m.name}(handler: (${args}) => ${ret}): void;`);
+      onSlotMembers.push(`  ${m.name}(handler: (${args}) => ${slotHandlerReturnType(ret)}): void;`);
       continue;
     }
     if ((m.kind === "Input" || m.kind === "Output") && m.payloadTypeText) {
@@ -1287,6 +1464,24 @@ interface BridgeAdapter {
   onSlotInvocation(handler: SlotInvocationListener): void;
 }
 
+function isBridgeCallError(value: unknown): value is {
+  code: unknown;
+  message: unknown;
+  service: unknown;
+  member: unknown;
+  requestId: unknown;
+} {
+  if (value === null || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (
+    Object.prototype.hasOwnProperty.call(row, "code")
+    && Object.prototype.hasOwnProperty.call(row, "message")
+    && Object.prototype.hasOwnProperty.call(row, "service")
+    && Object.prototype.hasOwnProperty.call(row, "member")
+    && Object.prototype.hasOwnProperty.call(row, "requestId")
+  );
+}
+
 class QtWebChannelAdapter implements BridgeAdapter {
   private constructor(private readonly host: HostBridgeApi) {}
 
@@ -1320,8 +1515,14 @@ class QtWebChannelAdapter implements BridgeAdapter {
   }
 
   async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
-    return new Promise<T>((resolve) => {
-      this.host.anQstBridge_call(service, member, args, (result) => resolve(result as T));
+    return new Promise<T>((resolve, reject) => {
+      this.host.anQstBridge_call(service, member, args, (result) => {
+        if (isBridgeCallError(result)) {
+          reject(result);
+          return;
+        }
+        resolve(result as T);
+      });
     });
   }
 
@@ -1351,7 +1552,13 @@ class QtWebChannelAdapter implements BridgeAdapter {
 }
 
 class WebSocketBridgeAdapter implements BridgeAdapter {
-  private readonly pending = new Map<string, (result: unknown) => void>();
+  private readonly pending = new Map<string, {
+    service: string;
+    member: string;
+    requestId: string;
+    resolve: (result: unknown) => void;
+    reject: (error: unknown) => void;
+  }>();
   private readonly outputListeners: OutputListener[] = [];
   private readonly slotListeners: SlotInvocationListener[] = [];
   private requestCounter = 0;
@@ -1363,10 +1570,15 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
       const type = String(message["type"] ?? "");
       if (type === "callResult") {
         const requestId = String(message["requestId"] ?? "");
-        const resolver = this.pending.get(requestId);
-        if (resolver) {
+        const pending = this.pending.get(requestId);
+        if (pending) {
           this.pending.delete(requestId);
-          resolver(message["result"]);
+          const result = message["result"];
+          if (isBridgeCallError(result)) {
+            pending.reject(result);
+            return;
+          }
+          pending.resolve(result);
         }
         return;
       }
@@ -1396,6 +1608,18 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
         document.body.textContent = "Widget Reattached";
         this.socket.close();
       }
+    });
+    this.socket.addEventListener("close", () => {
+      for (const pending of this.pending.values()) {
+        pending.reject({
+          code: "BridgeDisconnectedError",
+          message: "Bridge disconnected before call completion.",
+          service: pending.service,
+          member: pending.member,
+          requestId: pending.requestId
+        });
+      }
+      this.pending.clear();
     });
   }
 
@@ -1428,8 +1652,14 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
   async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
     const requestId = \`req-\${++this.requestCounter}\`;
     const payload = { type: "call", requestId, service, member, args };
-    return await new Promise<T>((resolve) => {
-      this.pending.set(requestId, (value) => resolve(value as T));
+    return await new Promise<T>((resolve, reject) => {
+      this.pending.set(requestId, {
+        service,
+        member,
+        requestId,
+        resolve: (value) => resolve(value as T),
+        reject
+      });
       this.socket.send(JSON.stringify(payload));
     });
   }
@@ -1540,7 +1770,7 @@ class AnQstBridgeRuntime {
         outputHandler(value);
       }
     });
-    this.adapter.onSlotInvocation((requestId, service, member, args) => {
+    this.adapter.onSlotInvocation(async (requestId, service, member, args) => {
       const key = this.key(service, member);
       const handler = this.slotHandlers.get(key);
       if (handler === undefined) {
@@ -1548,10 +1778,15 @@ class AnQstBridgeRuntime {
         return;
       }
       try {
-        const result = handler(...args);
+        const result = await Promise.resolve(handler(...args));
+        if (result instanceof Error) {
+          this.adapter!.resolveSlot(requestId, false, undefined, result.message);
+          return;
+        }
         this.adapter!.resolveSlot(requestId, true, result, "");
       } catch (error) {
-        this.adapter!.resolveSlot(requestId, false, undefined, String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        this.adapter!.resolveSlot(requestId, false, undefined, message);
       }
     });
     for (const key of this.slotHandlers.keys()) {
@@ -1834,7 +2069,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         sendJson(session.socket, {
           type: "callResult",
           requestId,
-          result: { __anqstError: { code: "HandlerNotRegisteredError", message: err.message, service, member } }
+          result: { code: "HandlerNotRegisteredError", message: err.message, service, member, requestId }
         });
         throw err;
       }
@@ -1856,7 +2091,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
           sendJson(session.socket, {
             type: "callResult",
             requestId,
-            result: { __anqstError: { code: "CallHandlerError", message, service, member } }
+            result: { code: "CallHandlerError", message, service, member, requestId }
           });
         });
       return;
@@ -2216,7 +2451,7 @@ export interface ${spec.widgetName}NodeBridge {
 export function create${spec.widgetName}NodeExpressWsBridge(options: ${spec.widgetName}NodeBridgeOptions): ${spec.widgetName}NodeBridge {
   const wsPath = options.wsPath ?? "/anqst-bridge";
   const devConfigPath = options.devConfigPath ?? "/anqst-dev-config.json";
-  const defaultSlotTimeoutMs = options.defaultSlotTimeoutMs ?? 120000;
+  const defaultSlotTimeoutMs = options.defaultSlotTimeoutMs ?? 1000;
   const maxQueuedPerSlot = options.maxQueuedSlotInvocationsPerSlot ?? 1024;
   const sessions = new Map<WebSocket, ${spec.widgetName}NodeSession>();
   const diagnosticListeners = new Set<(diagnostic: AnQstDiagnostic) => void>();
@@ -2308,7 +2543,7 @@ ${callDispatch}
       sendJson(session.socket, {
         type: "callResult",
         requestId,
-        result: { __anqstError: { code: "HandlerNotRegisteredError", message: err.message, service, member } }
+        result: { code: "HandlerNotRegisteredError", message: err.message, service, member, requestId }
       });
       throw err;
     }
@@ -2458,7 +2693,8 @@ export function generateOutputs(
     const cppTypes = buildCppTypeContext(spec);
     outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec);
     outputs[`${cppDir}/${spec.widgetName}.qrc`] = renderEmbeddedQrc(spec.widgetName, []);
-    outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetHeader(spec, cppTypes);
+    outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetUmbrellaHeader(spec);
+    outputs[`${cppDir}/include/${spec.widgetName}Widget.h`] = renderWidgetHeader(spec, cppTypes);
     outputs[`${cppDir}/include/${spec.widgetName}Types.h`] = renderTypesHeader(spec, cppTypes);
     outputs[`${cppDir}/${spec.widgetName}.cpp`] = renderCppStub(spec, cppTypes);
   }
@@ -2692,6 +2928,7 @@ add_custom_command(
         "\${${generatedRootVar}}/${widgetName}.qrc"
         "\${${generatedRootVar}}/${widgetName}.cpp"
         "\${${generatedIncludeVar}}/${widgetName}.h"
+        "\${${generatedIncludeVar}}/${widgetName}Widget.h"
         "\${${generatedIncludeVar}}/${widgetName}Types.h"
         "\${${generatedRootVar}}/webapp/index.html"
     COMMAND "\${ANQST_NPM_EXECUTABLE}" install
@@ -2707,6 +2944,7 @@ add_custom_target(${autogenTarget}
         "\${${generatedRootVar}}/${widgetName}.qrc"
         "\${${generatedRootVar}}/${widgetName}.cpp"
         "\${${generatedIncludeVar}}/${widgetName}.h"
+        "\${${generatedIncludeVar}}/${widgetName}Widget.h"
         "\${${generatedIncludeVar}}/${widgetName}Types.h"
         "\${${generatedRootVar}}/webapp/index.html"
 )
@@ -2715,6 +2953,7 @@ set_source_files_properties(
     "\${${generatedRootVar}}/${widgetName}.qrc"
     "\${${generatedRootVar}}/${widgetName}.cpp"
     "\${${generatedIncludeVar}}/${widgetName}.h"
+    "\${${generatedIncludeVar}}/${widgetName}Widget.h"
     "\${${generatedIncludeVar}}/${widgetName}Types.h"
     PROPERTIES GENERATED TRUE
 )
@@ -2723,6 +2962,7 @@ add_library(${widgetTarget}
     "\${${generatedRootVar}}/${widgetName}.qrc"
     "\${${generatedRootVar}}/${widgetName}.cpp"
     "\${${generatedIncludeVar}}/${widgetName}.h"
+    "\${${generatedIncludeVar}}/${widgetName}Widget.h"
     "\${${generatedIncludeVar}}/${widgetName}Types.h"
 )
 add_dependencies(${widgetTarget} ${autogenTarget})
@@ -2939,7 +3179,7 @@ function installDesignerPluginIconAssets(cwd: string, pluginDir: string): Design
 
 function renderQtDesignerPluginCpp(widgetName: string, widgetCategory: string, hasIcon: boolean): string {
   const pluginClass = `${widgetName}DesignerPlugin`;
-  const widgetClass = `${widgetName}::${widgetName}`;
+  const widgetClass = `${widgetName}Widget`;
   const groupName = escapeCppStringLiteral(widgetCategory);
   const iconExpression = hasIcon
     ? 'QIcon(QStringLiteral(":/anqstdesignerplugin/plugin-icon.png"))'

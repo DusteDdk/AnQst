@@ -63,7 +63,10 @@ interface BuildCommandArgs {
 const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
 
 function renderHelp(): string {
+  const version = readActiveBuildStamp();
   return [
+    `anqst version ${version}`,
+    "",
     "Usage:",
     "  anqst <command> [arguments] [options]",
     "",
@@ -77,7 +80,8 @@ function renderHelp(): string {
     "",
     "Options:",
     "  --designerplugin            Build Qt Designer plugin (build command only, QWidget target required)",
-    "  -h, --help                  Show this help output"
+    "  -h, --help                  Show this help output",
+    "  -v, --version               Print CLI version"
   ].join("\n");
 }
 
@@ -563,6 +567,10 @@ export function runCommand(command: string | undefined, specArg: string | undefi
     }
     if (command === "-h" || command === "--help" || command === "help") {
       console.log(renderHelp());
+      return 0;
+    }
+    if (command === "-v" || command === "--version" || command === "version") {
+      console.log(`anqst version ${readActiveBuildStamp()}`);
       return 0;
     }
     const normalizedCommand = command === "install" ? "instill" : command;

@@ -51,6 +51,7 @@ test("generateOutputs returns required tree", () => {
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"]);
+  assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetTypes.h"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"]);
 
@@ -60,7 +61,15 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /class CdWidget : public AnQstWebHostBase/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Promise\.resolve\(handler\(\.\.\.args\)\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public AnQstWebHostBase/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class handle/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /handle handle;/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /void validate\(const ValidateHandler& handler\) const;/);
+  assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /bool\* ok = nullptr/);
+  assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /QString\* error = nullptr/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
 });
@@ -100,6 +109,7 @@ declare namespace DemoWidget {
   const tsTypes = outputs["frontend/DemoWidget_Angular/types.ts"];
   const dtsServices = outputs["frontend/DemoWidget_Angular/types/services.d.ts"];
   const dtsTypes = outputs["frontend/DemoWidget_Angular/types/types.d.ts"];
+  const cppHeader = outputs["backend/cpp/qt/DemoWidget_widget/include/DemoWidgetWidget.h"];
 
   assert.match(tsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(tsServices, /\bTeam\b/);
@@ -112,6 +122,9 @@ declare namespace DemoWidget {
 
   assert.match(dtsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(dtsTypes, /\bTeam\b/);
+  assert.match(dtsServices, /save\(handler: \(payload: Payload\) => void \| Promise<void> \| Error\): void;/);
+  assert.match(cppHeader, /public slots:/);
+  assert.match(cppHeader, /void slot_save\(Payload payload\);/);
 });
 
 test("generateOutputs can filter QWidget, AngularService, and node_express_ws outputs independently", () => {
@@ -132,6 +145,7 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/package.json"]);
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"]);
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/types/index.d.ts"]);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /defaultSlotTimeoutMs = options\.defaultSlotTimeoutMs \?\? 1000/);
   assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);
   assert.equal(nodeOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
 
@@ -195,6 +209,8 @@ declare namespace CdEntryEditor {
   assert.match(typesHeader, /QList<double> friends;/);
   assert.match(typesHeader, /Q_DECLARE_METATYPE\(CdEntryEditor::CdDraft\)/);
   assert.match(cppFile, /qRegisterMetaType<CdEntryEditor::CdDraft>\("CdEntryEditor::CdDraft"\);/);
+  assert.match(cppFile, /\[Timeout\] CdEntryService\.replaceTracks: The webapp inside the widget did not anwser within %1 ms\./);
+  assert.match(cppFile, /\[RequestFailed\]: %1/);
 });
 
 test("installQtDesignerPluginCMake emits category override and favicon icon assets", () => {

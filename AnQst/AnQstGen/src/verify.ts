@@ -1,11 +1,12 @@
 import ts from "typescript";
 import { VerifyError } from "./errors";
-import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel, VerificationStats } from "./model";
+import type { ParsedSpecModel, ServiceMemberModel, SpecWarning, TypeDeclModel, VerificationStats } from "./model";
 import { getProgramDiagnostics } from "./program";
 
 export interface VerificationResult {
   stats: VerificationStats;
   message: string;
+  warnings: SpecWarning[];
 }
 
 function parseTypeNodeFromText(typeText: string): ts.TypeNode {
@@ -195,9 +196,14 @@ function verifySpecSemantics(spec: ParsedSpecModel): VerificationResult {
     reachableGeneratedTypes: reachable.size,
     serviceCount: spec.services.length
   };
+  const warnings = [...spec.warnings];
+  const warningSummary = warnings.length === 0
+    ? ""
+    : `\nWarnings:\n${warnings.map((w) => `    [warn] ${w.loc.file}:${w.loc.line}:${w.loc.column} ${w.memberPath} - ${w.message}`).join("\n")}`;
   return {
     stats,
-    message: `AnQst spec valid:\n    ${stats.namespaceDeclaredTypes} types.\n    ${stats.serviceCount} services.`
+    message: `AnQst spec valid:\n    ${stats.namespaceDeclaredTypes} types.\n    ${stats.serviceCount} services.${warningSummary}`,
+    warnings
   };
 }
 

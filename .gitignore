@@ -24,10 +24,10 @@ Makefile
 **/package-lock.json
 
 # AnQstGen/generated artifacts
-AnQst/AnQstGen/dist/
 AnQst/**/generated_output/
 AnQst/**/anqst-generated/
 AnQst/AnQstGen/.anqstgen-version*
 
 # Angular
 **/.angular
+**/dist/
