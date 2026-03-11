@@ -3,6 +3,7 @@ import path from "node:path";
 import ts from "typescript";
 import { PNG } from "pngjs";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
+import { ANQST_BUILD_STAMP } from "./build-stamp";
 import {
   anqstGeneratedRootDir,
   generatedFrontendDirName,
@@ -1174,23 +1175,7 @@ function normalizeSlashes(value: string): string {
 }
 
 function resolveActiveBuildStamp(): string {
-  const fromEnv = process.env.ANQST_BUILD_STAMP?.trim();
-  if (fromEnv && fromEnv.length > 0) {
-    return fromEnv;
-  }
-  const activePath = path.resolve(__dirname, "..", "..", ".anqstgen-version-active.json");
-  if (!fs.existsSync(activePath)) {
-    return "";
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
-    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
-      return parsed.active.trim();
-    }
-  } catch {
-    return "";
-  }
-  return "";
+  return ANQST_BUILD_STAMP.trim();
 }
 
 function withBuildStamp(relativePath: string, content: string): string {

@@ -6,11 +6,10 @@ import path from "node:path";
 import { PNG } from "pngjs";
 import { runClean, runCommand, runGenerate, runVerify } from "../src/app";
 import { ANQST_LAYOUT_VERSION } from "../src/layout";
+import { ANQST_BUILD_STAMP } from "../src/build-stamp";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 const defaultGenerateTargets = ["QWidget", "AngularService", "node_express_ws"];
-const anqstGenRoot = path.resolve(__dirname, "../..");
-const activeStampPath = path.join(anqstGenRoot, ".anqstgen-version-active.json");
 
 interface SettingsShape {
   layoutVersion: number;
@@ -18,25 +17,6 @@ interface SettingsShape {
   spec: string;
   generate: string[];
   widgetCategory?: string;
-}
-
-function withActiveStamp(stamp: string | null, fn: () => void): void {
-  const existed = fs.existsSync(activeStampPath);
-  const previous = existed ? fs.readFileSync(activeStampPath, "utf8") : "";
-  try {
-    if (stamp === null) {
-      fs.rmSync(activeStampPath, { force: true });
-    } else {
-      fs.writeFileSync(activeStampPath, `${JSON.stringify({ active: stamp }, null, 2)}\n`, "utf8");
-    }
-    fn();
-  } finally {
-    if (existed) {
-      fs.writeFileSync(activeStampPath, previous, "utf8");
-    } else {
-      fs.rmSync(activeStampPath, { force: true });
-    }
-  }
 }
 
 function withTempProject(fn: (projectDir: string) => void): void {
@@ -57,6 +37,10 @@ function readFixture(name: string): string {
 
 function readJsonFile<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function settingsRelativePath(widgetName: string): string {
@@ -354,22 +338,20 @@ test("build command emits outputs only under AnQst/generated", () => {
   });
 });
 
-test("build command reads active stamp from generator workspace", () => {
-  withActiveStamp("6af0b49_dirty_build_3", () => {
-    withTempProject((projectDir) => {
-      configureInstilledProject(projectDir);
-      const originalLog = console.log;
-      let captured = "";
-      console.log = (...args: unknown[]) => {
-        captured = args.map((arg) => String(arg)).join(" ");
-      };
-      const code = runCommand("build", undefined);
-      console.log = originalLog;
+test("build command reports embedded build stamp", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir);
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    const code = runCommand("build", undefined);
+    console.log = originalLog;
 
-      assert.equal(code, 0);
-      assert.match(captured, /anqst version 6af0b49_dirty_build_3/);
-      assert.equal(fs.existsSync(path.join(projectDir, ".anqst-build-counts.json")), false);
-    });
+    assert.equal(code, 0);
+    assert.match(captured, new RegExp(`anqst version ${escapeRegExp(ANQST_BUILD_STAMP)}`));
+    assert.equal(fs.existsSync(path.join(projectDir, ".anqst-build-counts.json")), false);
   });
 });
 

@@ -26,6 +26,7 @@ import {
 } from "./layout";
 import { parseSpecFile } from "./parser";
 import { verifySpec } from "./verify";
+import { ANQST_BUILD_STAMP } from "./build-stamp";
 
 export interface VerifyResult {
   success: true;
@@ -59,8 +60,6 @@ interface CleanCommandArgs {
 interface BuildCommandArgs {
   designerPlugin: boolean;
 }
-
-const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
 
 function renderHelp(): string {
   const version = readActiveBuildStamp();
@@ -182,27 +181,8 @@ export function runTest(cwd: string): VerifyResult {
   };
 }
 
-function resolveAnQstGenRoot(): string {
-  return path.resolve(__dirname, "..", "..");
-}
-
 function readActiveBuildStamp(): string {
-  if (process.env.ANQST_BUILD_STAMP && process.env.ANQST_BUILD_STAMP.trim().length > 0) {
-    return process.env.ANQST_BUILD_STAMP.trim();
-  }
-  const activePath = path.join(resolveAnQstGenRoot(), ANQSTGEN_ACTIVE_STAMP_FILE);
-  if (!fs.existsSync(activePath)) {
-    return "unknown_build_0";
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
-    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
-      return parsed.active.trim();
-    }
-  } catch {
-    // Fallback to deterministic unknown stamp.
-  }
-  return "unknown_build_0";
+  return ANQST_BUILD_STAMP;
 }
 
 function runDesignerPluginBuild(cwd: string, widgetName: string): void {
@@ -252,112 +232,107 @@ function runDesignerPluginBuild(cwd: string, widgetName: string): void {
 
 export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
   const buildVersion = readActiveBuildStamp();
-  process.env.ANQST_BUILD_STAMP = buildVersion;
-  try {
-    const specPath = resolveAnQstSpecPath(cwd);
-    const configuredWidgetName = resolveAnQstWidgetName(cwd);
-    const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
-    const parsed = parseSpecFile(specPath);
-    verifySpec(parsed);
+  const specPath = resolveAnQstSpecPath(cwd);
+  const configuredWidgetName = resolveAnQstWidgetName(cwd);
+  const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
+  const parsed = parseSpecFile(specPath);
+  verifySpec(parsed);
 
-    if (parsed.widgetName !== configuredWidgetName) {
-      throw new VerifyError(
-        `Settings widgetName '${configuredWidgetName}' does not match spec namespace '${parsed.widgetName}'.`
-      );
-    }
+  if (parsed.widgetName !== configuredWidgetName) {
+    throw new VerifyError(
+      `Settings widgetName '${configuredWidgetName}' does not match spec namespace '${parsed.widgetName}'.`
+    );
+  }
 
-    resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
+  resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
 
-    const outputs = generateOutputs(parsed, generationTargets);
-    writeGeneratedOutputs(cwd, outputs);
-    if (generationTargets.emitQWidget) {
-      installQtIntegrationCMake(cwd, parsed.widgetName);
-    }
+  const outputs = generateOutputs(parsed, generationTargets);
+  writeGeneratedOutputs(cwd, outputs);
+  if (generationTargets.emitQWidget) {
+    installQtIntegrationCMake(cwd, parsed.widgetName);
+  }
 
-    const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
-    if (hasAngularProject) {
-      const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
-        cwd,
-        stdio: "inherit",
-        shell: process.platform === "win32"
-      });
-      if (angularBuild.status !== 0) {
-        throw new VerifyError("Angular build failed while preparing embedded widget assets.");
-      }
+  const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
+  if (hasAngularProject) {
+    const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
+      cwd,
+      stdio: "inherit",
+      shell: process.platform === "win32"
+    });
+    if (angularBuild.status !== 0) {
+      throw new VerifyError("Angular build failed while preparing embedded widget assets.");
     }
+  }
 
-    if (generationTargets.emitQWidget) {
-      const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
-      if (hasAngularProject && !embedded) {
-        throw new VerifyError("Unable to embed Angular output. Ensure ng build produced a dist bundle with index.html.");
-      }
+  if (generationTargets.emitQWidget) {
+    const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
+    if (hasAngularProject && !embedded) {
+      throw new VerifyError("Unable to embed Angular output. Ensure ng build produced a dist bundle with index.html.");
     }
+  }
 
-    let designerPluginBuilt = false;
-    if (designerPlugin) {
-      if (!generationTargets.emitQWidget) {
-        console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
-      } else {
-        const widgetCategory = resolveAnQstWidgetCategory(cwd);
-        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory });
-        runDesignerPluginBuild(cwd, parsed.widgetName);
-        designerPluginBuilt = true;
-      }
+  let designerPluginBuilt = false;
+  if (designerPlugin) {
+    if (!generationTargets.emitQWidget) {
+      console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
+    } else {
+      const widgetCategory = resolveAnQstWidgetCategory(cwd);
+      installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory });
+      runDesignerPluginBuild(cwd, parsed.widgetName);
+      designerPluginBuilt = true;
     }
+  }
 
-    if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
-      return {
-        success: true,
-        message: [
-          "Build completed.",
-          `    anqst version ${buildVersion}`,
-          "    No outputs selected by AnQst.generate."
-        ].join("\n")
-      };
-    }
-
-    const layout = resolveGeneratedLayoutPaths(cwd, parsed.widgetName);
-    const detailLines: string[] = [];
-    if (generationTargets.emitAngularService) {
-      detailLines.push("    Target AngularService:");
-      detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "services"))}`);
-      detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "types"))}`);
-    }
-    if (generationTargets.emitQWidget) {
-      detailLines.push("    Target QWidget:");
-      detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
-      detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
-      detailLines.push("      - Embedded web assets refreshed from Angular build");
-    }
-    if (generationTargets.emitNodeExpressWs) {
-      detailLines.push("    Target node_express_ws:");
-      detailLines.push(`      - Module output root: ${toProjectRelative(cwd, layout.nodeExpressRoot)}`);
-    }
-    if (designerPluginBuilt) {
-      const pluginBinaryPath = normalizeSlashes(
-        path.join(toProjectRelative(cwd, layout.designerPluginBuildRoot), designerPluginBinaryName(parsed.widgetName))
-      );
-      detailLines.push("    Target QtDesignerPlugin:");
-      detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
-      detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
-      detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
-      detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS");
-      detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
-      detailLines.push(
-        `      - User-local install: mkdir -p \"$HOME/.local/lib/qt5/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt5/plugins/designer/\"`
-      );
-    }
+  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
     return {
       success: true,
       message: [
         "Build completed.",
         `    anqst version ${buildVersion}`,
-        ...detailLines
+        "    No outputs selected by AnQst.generate."
       ].join("\n")
     };
-  } finally {
-    delete process.env.ANQST_BUILD_STAMP;
   }
+
+  const layout = resolveGeneratedLayoutPaths(cwd, parsed.widgetName);
+  const detailLines: string[] = [];
+  if (generationTargets.emitAngularService) {
+    detailLines.push("    Target AngularService:");
+    detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "services"))}`);
+    detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "types"))}`);
+  }
+  if (generationTargets.emitQWidget) {
+    detailLines.push("    Target QWidget:");
+    detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
+    detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
+    detailLines.push("      - Embedded web assets refreshed from Angular build");
+  }
+  if (generationTargets.emitNodeExpressWs) {
+    detailLines.push("    Target node_express_ws:");
+    detailLines.push(`      - Module output root: ${toProjectRelative(cwd, layout.nodeExpressRoot)}`);
+  }
+  if (designerPluginBuilt) {
+    const pluginBinaryPath = normalizeSlashes(
+      path.join(toProjectRelative(cwd, layout.designerPluginBuildRoot), designerPluginBinaryName(parsed.widgetName))
+    );
+    detailLines.push("    Target QtDesignerPlugin:");
+    detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
+    detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
+    detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
+    detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS");
+    detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
+    detailLines.push(
+      `      - User-local install: mkdir -p \"$HOME/.local/lib/qt5/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt5/plugins/designer/\"`
+    );
+  }
+  return {
+    success: true,
+    message: [
+      "Build completed.",
+      `    anqst version ${buildVersion}`,
+      ...detailLines
+    ].join("\n")
+  };
 }
 
 function parseSpecCommandArg(commandName: string, specArg: string | undefined, extraArgs: string[]): string {
