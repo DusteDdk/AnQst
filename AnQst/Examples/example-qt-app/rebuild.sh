@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export ANQST_WEBBASE_DIR=`realpath ../../AnQstWidget/AnQstWebBase`
-echo "Building Angular..."
+echo "Building CDEntry Angular..."
 pushd lib/widgets/CdEntryEditor/
 rm package-lock.json
 if [ ! -d  node_modules ]

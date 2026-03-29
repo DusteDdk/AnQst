@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { CdEntryService } from 'anqst-generated/services';
 import type { CdDraft, Genre, Track } from 'anqst-generated/types';
 import type { User } from '../../types/User';
@@ -14,8 +14,16 @@ import type { User } from '../../types/User';
 export class App {
   readonly service = inject(CdEntryService);
   readonly genres: Genre[] = ['Rock', 'Pop', 'Jazz', 'Classical', 'Electronic', 'Other'];
+  readonly dropMessage = signal<string | null>(null);
 
   constructor() {
+    effect(() => {
+      const drop = this.service.cdDropped();
+      if (drop !== null) {
+        this.dropMessage.set(`Can't add ${drop.payload.cdId} as a relation in this version.`);
+        setTimeout(() => this.dropMessage.set(null), 5000);
+      }
+    });
     if (!this.safeDraft()) {
       this.service.set.draft(this.createDraft());
     }

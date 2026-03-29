@@ -25,6 +25,9 @@ public:
 signals:
     void anQstBridge_outputUpdated(const QString& service, const QString& member, const QVariant& value);
     void anQstBridge_slotInvocationRequested(const QString& requestId, const QString& service, const QString& member, const QVariantList& args);
+    void anQstBridge_dropReceived(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void anQstBridge_hoverUpdated(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void anQstBridge_hoverLeft(const QString& service, const QString& member);
 
 private:
     AnQstHostBridgeFacade* m_facade;

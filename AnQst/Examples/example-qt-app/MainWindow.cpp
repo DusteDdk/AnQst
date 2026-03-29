@@ -9,11 +9,13 @@
 #include <QJsonObject>
 #include <QListWidgetItem>
 #include <QMessageBox>
+#include <QHash>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QVBoxLayout>
+#include <memory>
 
 namespace {
 
@@ -180,6 +182,7 @@ MainWindow::MainWindow(QWidget *parent)
     layout->addWidget(editorWidget);
 
     wireUi();
+
     loadEntries();
     if (entries.isEmpty()) {
         entries.push_back(makeDefaultDraft());
@@ -197,6 +200,12 @@ void MainWindow::wireUi() {
     ui->mainSplitter->setStretchFactor(0, 4);
     ui->mainSplitter->setStretchFactor(1, 1);
     ui->mainSplitter->setSizes({1024, 256});
+    ui->listEntries->setDraftProvider([this](int row) -> CdEntryEditor::CdDraft {
+        if (row >= 0 && row < entries.size()) {
+            return entries[row];
+        }
+        return {};
+    });
 
     connect(ui->listEntries, &QListWidget::currentRowChanged, this, [this](const int row) {
         selectEntry(row);
@@ -207,6 +216,10 @@ void MainWindow::wireUi() {
     connect(ui->btnDeleteEntry, &QToolButton::clicked, this, [this]() {
         deleteEntry();
     });
+
+
+
+
 }
 
 void MainWindow::loadEntries() {

@@ -8,15 +8,23 @@
 #include <QDesktopServices>
 #include <QContextMenuEvent>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeySequence>
 #include <QLabel>
 #include <QDebug>
+#include <QMimeData>
 #include <QPushButton>
 #include <QProcessEnvironment>
 #include <QShortcut>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWebChannel>
 #include <QWebEnginePage>
@@ -121,6 +129,8 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_textSelectionEnabled(true)
     , m_debugState()
     , m_remoteNavigationBlocked(true)
+    , m_hoverThrottleTimer(new QTimer(this))
+    , m_dragDropFilterInstalled(false)
 {
     disableWebEngineSandboxForTrustedHost();
     setProperty("anqstBlockRemoteNavigation", true);
@@ -161,6 +171,16 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_slotInvocationRequested);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHostError, this, &AnQstWebHostBase::onHostError);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::slotInvocationResolved, this, &AnQstWebHostBase::slotInvocationResolved);
+
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeDropReceived, this, &AnQstWebHostBase::anQstBridge_dropReceived);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeDropReceived, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_dropReceived);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHoverUpdated, this, &AnQstWebHostBase::anQstBridge_hoverUpdated);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHoverUpdated, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_hoverUpdated);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHoverLeft, this, &AnQstWebHostBase::anQstBridge_hoverLeft);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHoverLeft, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_hoverLeft);
+
+    m_hoverThrottleTimer->setSingleShot(true);
+    connect(m_hoverThrottleTimer, &QTimer::timeout, this, &AnQstWebHostBase::dispatchHoverThrottle);
 
     auto* debugShortcut = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F12), this);
     debugShortcut->setContext(Qt::WidgetWithChildrenShortcut);
@@ -460,6 +480,7 @@ void AnQstWebHostBase::handleLoadFinished(bool ok) {
     }
 
     m_entryPointLoaded = true;
+    installDragDropEventFilter();
 
     if (shouldEmitReady()) {
         emit onHostReady();
@@ -1069,4 +1090,153 @@ void AnQstWebHostBase::setDevelopmentModeAllowLan(bool allowLan) {
 
 bool AnQstWebHostBase::developmentModeAllowLan() const {
     return m_developmentModeAllowLan;
+}
+
+void AnQstWebHostBase::registerDropTarget(const QString& service, const QString& member, const QString& mimeType) {
+    m_dropTargets.insert(mimeType, DragTargetBinding{service, member});
+    installDragDropEventFilter();
+}
+
+void AnQstWebHostBase::registerHoverTarget(const QString& service, const QString& member, const QString& mimeType, int throttleIntervalMs) {
+    m_hoverTargets.insert(mimeType, DragTargetBinding{service, member, throttleIntervalMs});
+    installDragDropEventFilter();
+}
+
+void AnQstWebHostBase::installDragDropEventFilter() {
+    if (m_dragDropFilterInstalled) {
+        return;
+    }
+    if (m_dropTargets.isEmpty() && m_hoverTargets.isEmpty()) {
+        return;
+    }
+    if (auto* fp = m_view->focusProxy()) {
+        fp->setAcceptDrops(true);
+        fp->installEventFilter(this);
+        m_dragDropFilterInstalled = true;
+    }
+}
+
+bool AnQstWebHostBase::matchDropMimeType(const QMimeData* mime, QString* matchedMimeType) const {
+    for (auto it = m_dropTargets.constBegin(); it != m_dropTargets.constEnd(); ++it) {
+        if (mime->hasFormat(it.key())) {
+            *matchedMimeType = it.key();
+            return true;
+        }
+    }
+    for (auto it = m_hoverTargets.constBegin(); it != m_hoverTargets.constEnd(); ++it) {
+        if (mime->hasFormat(it.key())) {
+            *matchedMimeType = it.key();
+            return true;
+        }
+    }
+    return false;
+}
+
+QVariant AnQstWebHostBase::deserializeMimePayload(const QMimeData* mime, const QString& mimeType) const {
+    const QByteArray rawData = mime->data(mimeType);
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return QVariant();
+    }
+    return doc.object().toVariantMap();
+}
+
+void AnQstWebHostBase::dispatchHoverThrottle() {
+    if (m_cachedHoverService.isEmpty()) {
+        return;
+    }
+    m_bridgeFacade->emitHover(
+        m_cachedHoverService,
+        m_cachedHoverMember,
+        m_cachedHoverPayload,
+        static_cast<double>(m_pendingHoverPos.x()),
+        static_cast<double>(m_pendingHoverPos.y()));
+}
+
+bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
+    if (m_dropTargets.isEmpty() && m_hoverTargets.isEmpty()) {
+        return QWidget::eventFilter(obj, event);
+    }
+
+    if (event->type() == QEvent::DragEnter) {
+        auto* de = static_cast<QDragEnterEvent*>(event);
+        QString matchedMime;
+        if (matchDropMimeType(de->mimeData(), &matchedMime)) {
+            de->acceptProposedAction();
+
+            if (m_hoverTargets.contains(matchedMime)) {
+                const DragTargetBinding& binding = m_hoverTargets.value(matchedMime);
+                m_cachedHoverPayload = deserializeMimePayload(de->mimeData(), matchedMime);
+                m_cachedHoverService = binding.service;
+                m_cachedHoverMember = binding.member;
+                m_pendingHoverPos = de->pos();
+                if (binding.throttleIntervalMs > 0) {
+                    m_hoverThrottleTimer->setInterval(binding.throttleIntervalMs);
+                }
+                m_bridgeFacade->emitHover(
+                    binding.service, binding.member,
+                    m_cachedHoverPayload,
+                    static_cast<double>(de->pos().x()),
+                    static_cast<double>(de->pos().y()));
+            }
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::DragMove) {
+        auto* de = static_cast<QDragMoveEvent*>(event);
+        QString matchedMime;
+        if (matchDropMimeType(de->mimeData(), &matchedMime)) {
+            de->acceptProposedAction();
+            if (m_hoverTargets.contains(matchedMime)) {
+                m_pendingHoverPos = de->pos();
+                const DragTargetBinding& binding = m_hoverTargets.value(matchedMime);
+                if (binding.throttleIntervalMs <= 0) {
+                    dispatchHoverThrottle();
+                } else if (!m_hoverThrottleTimer->isActive()) {
+                    m_hoverThrottleTimer->start();
+                }
+            }
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::DragLeave) {
+        m_hoverThrottleTimer->stop();
+        if (!m_cachedHoverService.isEmpty()) {
+            m_bridgeFacade->emitHoverLeft(m_cachedHoverService, m_cachedHoverMember);
+            m_cachedHoverService.clear();
+            m_cachedHoverMember.clear();
+            m_cachedHoverPayload = QVariant();
+        }
+        return true;
+    }
+
+    if (event->type() == QEvent::Drop) {
+        auto* de = static_cast<QDropEvent*>(event);
+        m_hoverThrottleTimer->stop();
+
+        if (!m_cachedHoverService.isEmpty()) {
+            m_bridgeFacade->emitHoverLeft(m_cachedHoverService, m_cachedHoverMember);
+            m_cachedHoverService.clear();
+            m_cachedHoverMember.clear();
+            m_cachedHoverPayload = QVariant();
+        }
+
+        QString matchedMime;
+        if (matchDropMimeType(de->mimeData(), &matchedMime) && m_dropTargets.contains(matchedMime)) {
+            const DragTargetBinding& binding = m_dropTargets.value(matchedMime);
+            const QVariant payload = deserializeMimePayload(de->mimeData(), matchedMime);
+            m_bridgeFacade->emitDrop(
+                binding.service, binding.member,
+                payload,
+                static_cast<double>(de->pos().x()),
+                static_cast<double>(de->pos().y()));
+            de->acceptProposedAction();
+            return true;
+        }
+    }
+
+    return QWidget::eventFilter(obj, event);
 }

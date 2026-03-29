@@ -1,6 +1,14 @@
 <main class="editor">
+  @if (service.cdHovering(); as hover) {
+    <div class="hover-indicator">
+      Dragging CD #{{ hover.payload.cdId }} at ({{ hover.x }}, {{ hover.y }})
+    </div>
+  }
+  @if (dropMessage(); as msg) {
+    <div class="drop-banner">{{ msg }}</div>
+  }
   <header class="header">
-    <h1>Editing: {{service.draft().albumTitle}}!</h1>
+    <h1>Editing: {{service.draft().albumTitle}}!!!!</h1>
     <div class="status">
       <span>Collection: {{ service.currentCollectionName() || 'N/A' }}</span>
       <span>Read-only: {{ service.readOnlyMode() ? 'Yes' : 'No' }}</span>

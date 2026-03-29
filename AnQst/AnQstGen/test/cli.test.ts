@@ -245,12 +245,12 @@ test("version option exits with status 0 and prints version", () => {
 });
 
 test("package root exposes AnQst type declarations", () => {
-  const packageJson = readJsonFile<{ types?: string; exports?: Record<string, unknown> }>(path.join(anqstGenRoot, "package.json"));
+  const packageJson = readJsonFile<{ types?: string; exports?: Record<string, unknown> }>("package.json");
   assert.equal(packageJson.types, "index.d.ts");
   const rootExport = packageJson.exports?.["."] as { types?: string } | undefined;
   assert.equal(rootExport?.types, "./index.d.ts");
 
-  const indexDtsPath = path.join(anqstGenRoot, "index.d.ts");
+  const indexDtsPath = path.join("index.d.ts");
   assert.ok(fs.existsSync(indexDtsPath));
   const indexDts = fs.readFileSync(indexDtsPath, "utf8");
   assert.match(indexDts, /export\s+\{\s*AnQst\s*\}\s+from\s+"\.\/spec\/AnQst-Spec-DSL";/);

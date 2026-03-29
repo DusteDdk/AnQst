@@ -193,6 +193,24 @@ void AnQstHostBridgeFacade::resolveSlot(const QString& requestId, bool ok, const
     emit slotInvocationResolved(requestId);
 }
 
+void AnQstHostBridgeFacade::emitDrop(const QString& service, const QString& member, const QVariant& payload, double x, double y) {
+    if (m_dispatchEnabled) {
+        emit bridgeDropReceived(service, member, payload, x, y);
+    }
+}
+
+void AnQstHostBridgeFacade::emitHover(const QString& service, const QString& member, const QVariant& payload, double x, double y) {
+    if (m_dispatchEnabled) {
+        emit bridgeHoverUpdated(service, member, payload, x, y);
+    }
+}
+
+void AnQstHostBridgeFacade::emitHoverLeft(const QString& service, const QString& member) {
+    if (m_dispatchEnabled) {
+        emit bridgeHoverLeft(service, member);
+    }
+}
+
 void AnQstHostBridgeFacade::emitHostError(
     const QString& code,
     const QString& category,

@@ -72,3 +72,23 @@ textarea {
 .select-btn {
   width: 6rem;
 }
+
+.hover-indicator {
+  background: #e3f2fd;
+  border: 2px dashed #1565c0;
+  color: #1565c0;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.drop-banner {
+  background: #fff3e0;
+  border: 1px solid #e65100;
+  color: #e65100;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}

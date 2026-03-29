@@ -34,6 +34,10 @@ public:
     void setDispatchEnabled(bool enabled);
     bool dispatchEnabled() const;
 
+    void emitDrop(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void emitHover(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void emitHoverLeft(const QString& service, const QString& member);
+
     void registerSlot(const QString& service, const QString& member);
     QVariant call(const QString& service, const QString& member, const QVariantList& args);
     void emitMessage(const QString& service, const QString& member, const QVariantList& args);
@@ -45,6 +49,9 @@ signals:
     void bridgeSlotInvocationRequested(const QString& requestId, const QString& service, const QString& member, const QVariantList& args);
     void bridgeHostError(const QVariantMap& errorPayload);
     void slotInvocationResolved(const QString& requestId);
+    void bridgeDropReceived(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void bridgeHoverUpdated(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void bridgeHoverLeft(const QString& service, const QString& member);
 
 private:
     struct PendingSlotInvocation {

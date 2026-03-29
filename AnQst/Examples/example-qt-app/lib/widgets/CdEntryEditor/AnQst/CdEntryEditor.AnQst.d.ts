@@ -55,5 +55,8 @@ declare namespace CdEntryEditor {
 
     draft: AnQst.Input<CdDraft>;
     selectedTrackIndex: AnQst.Input<number>;
+
+    cdDropped: AnQst.DropTarget<CdDraft>;
+    cdHovering: AnQst.HoverTarget<CdDraft, {maxRateHz: 30}>;
   }
 }

@@ -3,7 +3,9 @@ export type ServiceMemberKind =
   | "Slot"
   | "Emitter"
   | "Output"
-  | "Input";
+  | "Input"
+  | "DropTarget"
+  | "HoverTarget";
 
 export interface SourceLoc {
   file: string;
@@ -22,6 +24,7 @@ export interface ServiceMemberModel {
   payloadTypeText: string | null;
   parameters: ParameterModel[];
   timeoutMs: number;
+  hoverThrottleMs: number;
   loc: SourceLoc;
 }
 

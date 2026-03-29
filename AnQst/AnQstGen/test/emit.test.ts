@@ -228,6 +228,11 @@ test("installQtDesignerPluginCMake emits category override and favicon icon asse
 
   assert.match(cpp, /QString group\(\) const override \{ return QStringLiteral\("Demo Group"\); \}/);
   assert.match(cpp, /QIcon\(QStringLiteral\(":\/anqstdesignerplugin\/plugin-icon\.png"\)\)/);
+  assert.match(cpp, /#include "DemoWidget\.h"/);
+  assert.match(cpp, /QString includeFile\(\) const override \{ return QStringLiteral\("DemoWidget\.h"\); \}/);
+  assert.doesNotMatch(cpp, /include\/DemoWidget\.h/);
+  assert.match(cpp, /widget->setMinimumHeight\(128\);/);
+  assert.match(cpp, /"        <height>128<\/height>\\n"/);
   assert.match(cmake, /designerplugin\.qrc/);
   assert.match(qrc, /plugin-icon\.png/);
   assert.deepEqual(icon, png);

@@ -62,7 +62,7 @@ function parseMemberKindFromAnQstType(typeNode: ts.TypeNode): { kind: ServiceMem
   if (!typeName.startsWith("AnQst.")) return null;
 
   const kind = typeName.slice("AnQst.".length) as ServiceMemberKind;
-  if (!["Call", "Slot", "Emitter", "Output", "Input"].includes(kind)) return null;
+  if (!["Call", "Slot", "Emitter", "Output", "Input", "DropTarget", "HoverTarget"].includes(kind)) return null;
 
   if (kind === "Emitter") return { kind, payload: null };
   const arg = typeNode.typeArguments?.[0];
@@ -83,7 +83,7 @@ function parseMemberKindWithConfig(typeNode: ts.TypeNode): ParsedMemberKind | nu
   const typeName = qNameToText(typeNode.typeName);
   if (!typeName.startsWith("AnQst.")) return null;
   const kind = typeName.slice("AnQst.".length) as ServiceMemberKind;
-  if (!["Call", "Slot", "Emitter", "Output", "Input"].includes(kind)) return null;
+  if (!["Call", "Slot", "Emitter", "Output", "Input", "DropTarget", "HoverTarget"].includes(kind)) return null;
   const typeArgs = typeNode.typeArguments ?? [];
   if (kind === "Emitter") {
     return {
@@ -95,7 +95,7 @@ function parseMemberKindWithConfig(typeNode: ts.TypeNode): ParsedMemberKind | nu
   return {
     kind,
     payload: typeArgs[0] ? typeArgs[0].getText() : null,
-    configTypeNode: kind === "Call" ? (typeArgs[1] ?? null) : null
+    configTypeNode: (kind === "Call" || kind === "HoverTarget") ? (typeArgs[1] ?? null) : null
   };
 }
 
@@ -190,6 +190,67 @@ function resolveMemberTimeoutMs(
   return effectiveMs;
 }
 
+const DEFAULT_HOVER_RATE_HZ = 60;
+const DEFAULT_HOVER_THROTTLE_MS = Math.round(1000 / DEFAULT_HOVER_RATE_HZ);
+
+function resolveHoverThrottleMs(
+  source: ts.SourceFile,
+  serviceName: string,
+  memberName: string,
+  kind: ServiceMemberKind,
+  configTypeNode: ts.TypeNode | null,
+  warnings: SpecWarning[],
+  memberLoc: SourceLoc
+): number {
+  if (kind !== "HoverTarget") return 0;
+  if (!configTypeNode) return DEFAULT_HOVER_THROTTLE_MS;
+  if (!ts.isTypeLiteralNode(configTypeNode)) {
+    throw new VerifyError(
+      `HoverTarget config for '${memberName}' must be an inline object literal type.`,
+      locFromNode(source, configTypeNode)
+    );
+  }
+  let maxRateHz: number | null = null;
+  const memberPath = `${serviceName}.${memberName}`;
+  for (const prop of configTypeNode.members) {
+    if (!ts.isPropertySignature(prop) || !prop.name) {
+      throw new VerifyError(`HoverTarget config for '${memberName}' only supports named properties.`, locFromNode(source, prop));
+    }
+    if (!ts.isIdentifier(prop.name)) {
+      throw new VerifyError(`HoverTarget config for '${memberName}' only supports identifier keys.`, locFromNode(source, prop.name));
+    }
+    const key = prop.name.text;
+    if (!prop.type) {
+      throw new VerifyError(`HoverTarget config key '${key}' in '${memberName}' must declare a numeric literal value.`, locFromNode(source, prop));
+    }
+    if (key !== "maxRateHz") {
+      warnings.push({
+        severity: "warn",
+        message: `Unknown HoverTarget config key '${key}' ignored for '${memberPath}'.`,
+        loc: locFromNode(source, prop.name),
+        memberPath
+      });
+      continue;
+    }
+    const numericValue = parseNumericLiteralType(prop.type);
+    if (numericValue === null || !Number.isFinite(numericValue)) {
+      throw new VerifyError(
+        `HoverTarget config key '${key}' in '${memberName}' must be a numeric literal >= 0.`,
+        locFromNode(source, prop.type)
+      );
+    }
+    if (numericValue < 0) {
+      throw new VerifyError(
+        `HoverTarget config key '${key}' in '${memberName}' must be >= 0.`,
+        locFromNode(source, prop.type)
+      );
+    }
+    maxRateHz = numericValue;
+  }
+  if (maxRateHz === null) return DEFAULT_HOVER_THROTTLE_MS;
+  return maxRateHz === 0 ? 0 : Math.round(1000 / maxRateHz);
+}
+
 function parseServiceMember(source: ts.SourceFile, serviceName: string, member: ts.TypeElement, warnings: SpecWarning[]): ServiceMemberModel {
   if (ts.isMethodSignature(member)) {
     if (member.questionToken) throw new VerifyError("Optional service methods are not allowed.", locFromNode(source, member));
@@ -197,7 +258,7 @@ function parseServiceMember(source: ts.SourceFile, serviceName: string, member: 
     if (!returnType) throw new VerifyError("Service method must declare return type.", locFromNode(source, member));
     const parsed = parseMemberKindWithConfig(returnType);
     if (!parsed) throw new VerifyError(`Unsupported service method return type '${returnType.getText()}'.`, locFromNode(source, member));
-    if (parsed.kind === "Input" || parsed.kind === "Output") {
+    if (parsed.kind === "Input" || parsed.kind === "Output" || parsed.kind === "DropTarget" || parsed.kind === "HoverTarget") {
       throw new VerifyError(`${parsed.kind} must be declared as property, not method.`, locFromNode(source, member));
     }
     if (parsed.kind === "Emitter" && parsed.configTypeNode !== null) {
@@ -230,6 +291,7 @@ function parseServiceMember(source: ts.SourceFile, serviceName: string, member: 
       payloadTypeText: parsed.payload,
       parameters,
       timeoutMs,
+      hoverThrottleMs: 0,
       loc: locFromNode(source, member)
     };
   }
@@ -239,7 +301,7 @@ function parseServiceMember(source: ts.SourceFile, serviceName: string, member: 
     if (member.questionToken) throw new VerifyError("Optional service properties are not allowed.", locFromNode(source, member));
     const parsed = parseMemberKindWithConfig(member.type);
     if (!parsed) throw new VerifyError(`Unsupported service property type '${member.type.getText()}'.`, locFromNode(source, member));
-    if (parsed.kind !== "Input" && parsed.kind !== "Output") {
+    if (parsed.kind !== "Input" && parsed.kind !== "Output" && parsed.kind !== "DropTarget" && parsed.kind !== "HoverTarget") {
       throw new VerifyError(`${parsed.kind} must be declared as method, not property.`, locFromNode(source, member));
     }
     if (!member.name || !ts.isIdentifier(member.name)) {
@@ -254,12 +316,22 @@ function parseServiceMember(source: ts.SourceFile, serviceName: string, member: 
       warnings,
       locFromNode(source, member)
     );
+    const hoverThrottleMs = resolveHoverThrottleMs(
+      source,
+      serviceName,
+      member.name.text,
+      parsed.kind,
+      parsed.configTypeNode,
+      warnings,
+      locFromNode(source, member)
+    );
     return {
       kind: parsed.kind,
       name: member.name.text,
       payloadTypeText: parsed.payload,
       parameters: [],
       timeoutMs,
+      hoverThrottleMs,
       loc: locFromNode(source, member)
     };
   }

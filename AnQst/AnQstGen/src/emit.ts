@@ -3,7 +3,6 @@ import path from "node:path";
 import ts from "typescript";
 import { PNG } from "pngjs";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
-import { ANQST_BUILD_STAMP } from "./build-stamp";
 import {
   anqstGeneratedRootDir,
   generatedFrontendDirName,
@@ -627,6 +626,27 @@ function buildCppTypeContext(spec: ParsedSpecModel): CppTypeContext {
   return normalizer.buildContext();
 }
 
+function collectDragDropMimeConstants(spec: ParsedSpecModel): { typeName: string; serviceName: string; mimeType: string }[] {
+  const seen = new Set<string>();
+  const constants: { typeName: string; serviceName: string; mimeType: string }[] = [];
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if ((member.kind === "DropTarget" || member.kind === "HoverTarget") && member.payloadTypeText) {
+        const typeName = member.payloadTypeText.replace(/\s/g, "");
+        const key = `${service.name}-${typeName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        constants.push({
+          typeName,
+          serviceName: service.name,
+          mimeType: `application/anqst-dragdropevent_${service.name}-${typeName}`
+        });
+      }
+    }
+  }
+  return constants;
+}
+
 function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const decls = cppTypes.orderedDecls.map(renderCppDecl).join("\n\n");
   const metatypes = cppTypes.structNames
@@ -635,6 +655,11 @@ function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): str
       `Q_DECLARE_METATYPE(QList<${spec.widgetName}::${name}>)`
     ])
     .join("\n");
+  const mimeConstants = collectDragDropMimeConstants(spec);
+  const mimeConstantLines = mimeConstants
+    .map((c) => `static constexpr const char* kDragDropMime_${c.typeName} = "${c.mimeType}";`)
+    .join("\n");
+  const mimeBlock = mimeConstantLines.length > 0 ? `\n${mimeConstantLines}\n` : "";
   return `#pragma once
 #include <QString>
 #include <QStringList>
@@ -647,7 +672,7 @@ function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): str
 namespace ${spec.widgetName} {
 
 ${decls}
-
+${mimeBlock}
 } // namespace ${spec.widgetName}
 
 ${metatypes}
@@ -710,6 +735,13 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
         } else {
           publicSlots.push(`void ${member.name}Slot(const ${cppType}& value);`);
         }
+      } else if (member.kind === "DropTarget" && member.payloadTypeText) {
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        signals.push(`void ${member.name}(const ${cppType}& payload, double x, double y);`);
+      } else if (member.kind === "HoverTarget" && member.payloadTypeText) {
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        signals.push(`void ${member.name}(const ${cppType}& payload, double x, double y);`);
+        signals.push(`void ${member.name}Left();`);
       }
     }
   }
@@ -862,6 +894,43 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`    Q_UNUSED(kResourcesInitialized);`);
   lines.push(`    registerGeneratedMetaTypes();`);
   lines.push(`    installBridgeBindings();`);
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind === "DropTarget" && member.payloadTypeText) {
+        const typeName = member.payloadTypeText.replace(/\s/g, "");
+        const mimeConst = `${spec.widgetName}::kDragDropMime_${typeName}`;
+        lines.push(`    registerDropTarget(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), QString::fromUtf8(${mimeConst}));`);
+      } else if (member.kind === "HoverTarget" && member.payloadTypeText) {
+        const typeName = member.payloadTypeText.replace(/\s/g, "");
+        const mimeConst = `${spec.widgetName}::kDragDropMime_${typeName}`;
+        lines.push(`    registerHoverTarget(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), QString::fromUtf8(${mimeConst}), ${member.hoverThrottleMs});`);
+      }
+    }
+  }
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if (member.kind === "DropTarget" && member.payloadTypeText) {
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
+        lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+        lines.push(`            emit ${member.name}(payload.value<${cppType}>(), x, y);`);
+        lines.push(`        }`);
+        lines.push(`    });`);
+      } else if (member.kind === "HoverTarget" && member.payloadTypeText) {
+        const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
+        lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+        lines.push(`            emit ${member.name}(payload.value<${cppType}>(), x, y);`);
+        lines.push(`        }`);
+        lines.push(`    });`);
+        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverLeft, this, [this](const QString& service, const QString& member) {`);
+        lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
+        lines.push(`            emit ${member.name}Left();`);
+        lines.push(`        }`);
+        lines.push(`    });`);
+      }
+    }
+  }
   lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${widgetClassName}::diagnosticsForwarded);`);
   lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
   lines.push(`    const bool bridgeOk = setBridgeObject(this, QString::fromUtf8(kBootstrapBridgeObject));`);
@@ -1007,13 +1076,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       lines.push(`    }`);
     }
   }
-  lines.push(`    return QVariantMap{`);
-  lines.push(`        {QStringLiteral("code"), QStringLiteral("HandlerNotRegisteredError")},`);
-  lines.push(`        {QStringLiteral("message"), QStringLiteral("No Call mapping found.")},`);
-  lines.push(`        {QStringLiteral("service"), service},`);
-  lines.push(`        {QStringLiteral("member"), member},`);
-  lines.push(`        {QStringLiteral("requestId"), QString()}`);
-  lines.push(`    };`);
+  lines.push(`    return QVariant();`);
   lines.push(`}`);
   lines.push("");
   lines.push(`void ${widgetClassName}::handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args) {`);
@@ -1175,7 +1238,23 @@ function normalizeSlashes(value: string): string {
 }
 
 function resolveActiveBuildStamp(): string {
-  return ANQST_BUILD_STAMP.trim();
+  const fromEnv = process.env.ANQST_BUILD_STAMP?.trim();
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv;
+  }
+  const activePath = path.resolve(__dirname, "..", "..", ".anqstgen-version-active.json");
+  if (!fs.existsSync(activePath)) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
+    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
+      return parsed.active.trim();
+    }
+  } catch {
+    return "";
+  }
+  return "";
 }
 
 function withBuildStamp(relativePath: string, content: string): string {
@@ -1329,6 +1408,19 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
         constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => this._${m.name}.set(value as ${tsType}));`);
       }
     }
+    if (m.kind === "DropTarget" && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
+      methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
+      constructorBodyLines.push(`    this._bridge.onDrop("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: payload as ${tsType}, x, y }));`);
+    }
+    if (m.kind === "HoverTarget" && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
+      methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
+      constructorBodyLines.push(`    this._bridge.onHover("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: payload as ${tsType}, x, y }));`);
+      constructorBodyLines.push(`    this._bridge.onHoverLeft("${serviceName}", "${m.name}", () => this._${m.name}.set(null));`);
+    }
   }
 
   const constructorLines = [
@@ -1384,6 +1476,14 @@ function renderTsServiceDts(spec: ParsedSpecModel, serviceName: string): string 
         setMembers.push(`  ${m.name}(value: ${tsType}): void;`);
       }
     }
+    if (m.kind === "DropTarget" && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      classMembers.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null;`);
+    }
+    if (m.kind === "HoverTarget" && m.payloadTypeText) {
+      const tsType = mapTypeTextToTs(m.payloadTypeText);
+      classMembers.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null;`);
+    }
   }
 
   const setInterfaceDecl = setMembers.length > 0
@@ -1419,6 +1519,9 @@ type SlotHandler = (...args: unknown[]) => unknown;
 type OutputHandler = (value: unknown) => void;
 type SlotInvocationListener = (requestId: string, service: string, member: string, args: unknown[]) => void;
 type OutputListener = (service: string, member: string, value: unknown) => void;
+type DropListener = (service: string, member: string, payload: unknown, x: number, y: number) => void;
+type HoverListener = (service: string, member: string, payload: unknown, x: number, y: number) => void;
+type HoverLeftListener = (service: string, member: string) => void;
 
 interface HostBridgeApi {
   anQstBridge_call(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
@@ -1430,6 +1533,9 @@ interface HostBridgeApi {
   anQstBridge_slotInvocationRequested: {
     connect: (cb: (requestId: string, service: string, member: string, args: unknown[]) => void) => void;
   };
+  anQstBridge_dropReceived: { connect: (cb: (service: string, member: string, payload: unknown, x: number, y: number) => void) => void };
+  anQstBridge_hoverUpdated: { connect: (cb: (service: string, member: string, payload: unknown, x: number, y: number) => void) => void };
+  anQstBridge_hoverLeft: { connect: (cb: (service: string, member: string) => void) => void };
 }
 
 interface QWebChannelCtor {
@@ -1447,6 +1553,9 @@ interface BridgeAdapter {
   resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void;
   onOutput(handler: OutputListener): void;
   onSlotInvocation(handler: SlotInvocationListener): void;
+  onDrop(handler: DropListener): void;
+  onHover(handler: HoverListener): void;
+  onHoverLeft(handler: HoverLeftListener): void;
 }
 
 function isBridgeCallError(value: unknown): value is {
@@ -1534,6 +1643,18 @@ class QtWebChannelAdapter implements BridgeAdapter {
   onSlotInvocation(handler: SlotInvocationListener): void {
     this.host.anQstBridge_slotInvocationRequested.connect(handler);
   }
+
+  onDrop(handler: DropListener): void {
+    this.host.anQstBridge_dropReceived.connect(handler);
+  }
+
+  onHover(handler: HoverListener): void {
+    this.host.anQstBridge_hoverUpdated.connect(handler);
+  }
+
+  onHoverLeft(handler: HoverLeftListener): void {
+    this.host.anQstBridge_hoverLeft.connect(handler);
+  }
 }
 
 class WebSocketBridgeAdapter implements BridgeAdapter {
@@ -1546,6 +1667,9 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
   }>();
   private readonly outputListeners: OutputListener[] = [];
   private readonly slotListeners: SlotInvocationListener[] = [];
+  private readonly dropListeners: DropListener[] = [];
+  private readonly hoverListeners: HoverListener[] = [];
+  private readonly hoverLeftListeners: HoverLeftListener[] = [];
   private requestCounter = 0;
 
   private constructor(private readonly socket: WebSocket) {
@@ -1582,6 +1706,34 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
         const args = Array.isArray(message["args"]) ? (message["args"] as unknown[]) : [];
         for (const listener of this.slotListeners) {
           listener(requestId, service, member, args);
+        }
+        return;
+      }
+      if (type === "dropReceived") {
+        const service = String(message["service"] ?? "");
+        const member = String(message["member"] ?? "");
+        const x = Number(message["x"] ?? 0);
+        const y = Number(message["y"] ?? 0);
+        for (const listener of this.dropListeners) {
+          listener(service, member, message["payload"], x, y);
+        }
+        return;
+      }
+      if (type === "hoverUpdated") {
+        const service = String(message["service"] ?? "");
+        const member = String(message["member"] ?? "");
+        const x = Number(message["x"] ?? 0);
+        const y = Number(message["y"] ?? 0);
+        for (const listener of this.hoverListeners) {
+          listener(service, member, message["payload"], x, y);
+        }
+        return;
+      }
+      if (type === "hoverLeft") {
+        const service = String(message["service"] ?? "");
+        const member = String(message["member"] ?? "");
+        for (const listener of this.hoverLeftListeners) {
+          listener(service, member);
         }
         return;
       }
@@ -1672,6 +1824,18 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
   onSlotInvocation(handler: SlotInvocationListener): void {
     this.slotListeners.push(handler);
   }
+
+  onDrop(handler: DropListener): void {
+    this.dropListeners.push(handler);
+  }
+
+  onHover(handler: HoverListener): void {
+    this.hoverListeners.push(handler);
+  }
+
+  onHoverLeft(handler: HoverLeftListener): void {
+    this.hoverLeftListeners.push(handler);
+  }
 }
 
 @Injectable({ providedIn: "root" })
@@ -1679,6 +1843,9 @@ class AnQstBridgeRuntime {
   private adapter: BridgeAdapter | null = null;
   private readonly slotHandlers = new Map<string, SlotHandler>();
   private readonly outputHandlers = new Map<string, OutputHandler[]>();
+  private readonly dropHandlers = new Map<string, ((payload: unknown, x: number, y: number) => void)[]>();
+  private readonly hoverHandlers = new Map<string, ((payload: unknown, x: number, y: number) => void)[]>();
+  private readonly hoverLeftHandlers = new Map<string, (() => void)[]>();
   private readonly startup = this.init();
 
   async ready(): Promise<void> {
@@ -1729,6 +1896,27 @@ class AnQstBridgeRuntime {
     this.outputHandlers.set(key, existing);
   }
 
+  onDrop(service: string, member: string, handler: (payload: unknown, x: number, y: number) => void): void {
+    const key = this.key(service, member);
+    const existing = this.dropHandlers.get(key) ?? [];
+    existing.push(handler);
+    this.dropHandlers.set(key, existing);
+  }
+
+  onHover(service: string, member: string, handler: (payload: unknown, x: number, y: number) => void): void {
+    const key = this.key(service, member);
+    const existing = this.hoverHandlers.get(key) ?? [];
+    existing.push(handler);
+    this.hoverHandlers.set(key, existing);
+  }
+
+  onHoverLeft(service: string, member: string, handler: () => void): void {
+    const key = this.key(service, member);
+    const existing = this.hoverLeftHandlers.get(key) ?? [];
+    existing.push(handler);
+    this.hoverLeftHandlers.set(key, existing);
+  }
+
   private requireAdapterSync(): BridgeAdapter {
     if (this.adapter === null) {
       throw new Error("AnQst bridge is not ready.");
@@ -1772,6 +1960,24 @@ class AnQstBridgeRuntime {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.adapter!.resolveSlot(requestId, false, undefined, message);
+      }
+    });
+    this.adapter.onDrop((service, member, payload, x, y) => {
+      const key = this.key(service, member);
+      for (const handler of this.dropHandlers.get(key) ?? []) {
+        handler(payload, x, y);
+      }
+    });
+    this.adapter.onHover((service, member, payload, x, y) => {
+      const key = this.key(service, member);
+      for (const handler of this.hoverHandlers.get(key) ?? []) {
+        handler(payload, x, y);
+      }
+    });
+    this.adapter.onHoverLeft((service, member) => {
+      const key = this.key(service, member);
+      for (const handler of this.hoverLeftHandlers.get(key) ?? []) {
+        handler();
       }
     });
     for (const key of this.slotHandlers.keys()) {
@@ -2906,6 +3112,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 find_program(ANQST_NPM_EXECUTABLE npm REQUIRED)
+find_program(ANQST_NPX_EXECUTABLE npx REQUIRED)
 
 add_custom_command(
     OUTPUT
@@ -2917,7 +3124,7 @@ add_custom_command(
         "\${${generatedIncludeVar}}/${widgetName}Types.h"
         "\${${generatedRootVar}}/webapp/index.html"
     COMMAND "\${ANQST_NPM_EXECUTABLE}" install
-    COMMAND "\${ANQST_NPM_EXECUTABLE}" run anqst:build
+    COMMAND "\${ANQST_NPX_EXECUTABLE}" anqst build
     WORKING_DIRECTORY "\${${projectRootVar}}"
     COMMENT "Generating AnQst widget library (${widgetTarget}) from Angular project"
     VERBATIM
@@ -3174,7 +3381,7 @@ function renderQtDesignerPluginCpp(widgetName: string, widgetCategory: string, h
 #include <QObject>
 #include <QString>
 #include <QWidget>
-#include "include/${widgetName}.h"
+#include "${widgetName}.h"
 
 class ${pluginClass} final : public QObject, public QDesignerCustomWidgetInterface {
     Q_OBJECT
@@ -3190,9 +3397,10 @@ public:
     QString toolTip() const override { return QStringLiteral("${widgetName} generated by AnQst."); }
     QString whatsThis() const override { return QStringLiteral("${widgetName} generated by AnQst."); }
     bool isContainer() const override { return false; }
-    QString includeFile() const override { return QStringLiteral("include/${widgetName}.h"); }
+    QString includeFile() const override { return QStringLiteral("${widgetName}.h"); }
     QWidget* createWidget(QWidget* parent) override {
         auto* widget = new ${widgetClass}(parent);
+        widget->setMinimumHeight(128);
         widget->setProperty("anqstDesignerContext", true);
         return widget;
     }
@@ -3203,6 +3411,12 @@ public:
         return QStringLiteral(
             "<ui language=\\"c++\\">\\n"
             "  <widget class=\\"${widgetClass}\\" name=\\"${widgetName.toLowerCase()}\\">\\n"
+            "    <property name=\\"minimumSize\\">\\n"
+            "      <size>\\n"
+            "        <width>256</width>\\n"
+            "        <height>128</height>\\n"
+            "      </size>\\n"
+            "    </property>\\n"
             "  </widget>\\n"
             "</ui>\\n");
     }

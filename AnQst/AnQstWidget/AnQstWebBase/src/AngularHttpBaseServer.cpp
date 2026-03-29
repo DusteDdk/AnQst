@@ -127,6 +127,33 @@ void AngularHttpBaseServer::setFacade(AnQstHostBridgeFacade* facade) {
             {QStringLiteral("payload"), payload},
         });
     });
+    connect(m_facade, &AnQstHostBridgeFacade::bridgeDropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {
+        sendJsonToClient({
+            {QStringLiteral("type"), QStringLiteral("dropReceived")},
+            {QStringLiteral("service"), service},
+            {QStringLiteral("member"), member},
+            {QStringLiteral("payload"), payload},
+            {QStringLiteral("x"), x},
+            {QStringLiteral("y"), y},
+        });
+    });
+    connect(m_facade, &AnQstHostBridgeFacade::bridgeHoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {
+        sendJsonToClient({
+            {QStringLiteral("type"), QStringLiteral("hoverUpdated")},
+            {QStringLiteral("service"), service},
+            {QStringLiteral("member"), member},
+            {QStringLiteral("payload"), payload},
+            {QStringLiteral("x"), x},
+            {QStringLiteral("y"), y},
+        });
+    });
+    connect(m_facade, &AnQstHostBridgeFacade::bridgeHoverLeft, this, [this](const QString& service, const QString& member) {
+        sendJsonToClient({
+            {QStringLiteral("type"), QStringLiteral("hoverLeft")},
+            {QStringLiteral("service"), service},
+            {QStringLiteral("member"), member},
+        });
+    });
 }
 
 bool AngularHttpBaseServer::configureContent(ContentRootMode mode, const QString& contentRoot, const QString& entryPoint) {

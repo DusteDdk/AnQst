@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QObject>
+#include <QPoint>
 #include <QString>
 #include <QUrl>
 #include <QVariantMap>
@@ -14,7 +16,9 @@ class AnQstHostBridgeFacade;
 class AngularHttpBaseServer;
 class LocalWebView;
 class QLabel;
+class QMimeData;
 class QPushButton;
+class QTimer;
 class QWebChannel;
 
 class AnQstWebHostBase : public QWidget {
@@ -73,6 +77,11 @@ public:
     void setSlotInvocationTimeoutMs(int timeoutMs);
     int slotInvocationTimeoutMs() const;
 
+    void registerDropTarget(const QString& service, const QString& member, const QString& mimeType);
+    void registerHoverTarget(const QString& service, const QString& member, const QString& mimeType, int throttleIntervalMs);
+
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
     QString contentRoot() const;
     ContentRootMode contentRootMode() const;
     bool isBridgeSet() const;
@@ -91,6 +100,9 @@ signals:
     void anQstBridge_slotInvocationRequested(const QString& requestId, const QString& service, const QString& member, const QVariantList& args);
     void slotInvocationResolved(const QString& requestId);
     void developmentModeEnabled(const QString& url);
+    void anQstBridge_dropReceived(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void anQstBridge_hoverUpdated(const QString& service, const QString& member, const QVariant& payload, double x, double y);
+    void anQstBridge_hoverLeft(const QString& service, const QString& member);
 
 private slots:
     void handleLoadFinished(bool ok);
@@ -143,6 +155,17 @@ private:
     void emitOutputSnapshotIfReady();
     QString loadDefaultBridgeBootstrapScript() const;
 
+    struct DragTargetBinding {
+        QString service;
+        QString member;
+        int throttleIntervalMs = 0;
+    };
+
+    void installDragDropEventFilter();
+    bool matchDropMimeType(const QMimeData* mime, QString* matchedMimeType) const;
+    QVariant deserializeMimePayload(const QMimeData* mime, const QString& mimeType) const;
+    void dispatchHoverThrottle();
+
     LocalWebView* m_view;
     QLabel* m_devPlaceholder;
     QPushButton* m_reattachButton;
@@ -165,4 +188,13 @@ private:
     QString m_developmentModeUrl;
     DebugState m_debugState;
     bool m_remoteNavigationBlocked;
+
+    QHash<QString, DragTargetBinding> m_dropTargets;
+    QHash<QString, DragTargetBinding> m_hoverTargets;
+    QTimer* m_hoverThrottleTimer;
+    QPoint m_pendingHoverPos;
+    QVariant m_cachedHoverPayload;
+    QString m_cachedHoverService;
+    QString m_cachedHoverMember;
+    bool m_dragDropFilterInstalled;
 };

@@ -18,12 +18,12 @@ export namespace AnQst {
 
     /**
      * Declare service `InterfaceName`
-     *
+     * 
      * @remarks
      * Multiple allowed.
      * Affords developers of advanced widgets the ability to create domain-informed categories.
      * - Duplicate method declarations with identical parameter lists are invalid in normative AnQst-Spec input.
-     *
+     * 
      * @example
      * export interface UserService extends Widget.Service { }
      * // Generates UserService.
@@ -83,7 +83,6 @@ export namespace AnQst {
      *      - throw -> failure
      *      - rejected promise -> failure
      *   - Parent: `MethodName` call returns with result.
-     * - Generated C++ Slot methods do not expose `ok/error` out parameters.
      * - Default Slot timeout is 1000ms.
      * Note: One active handler, calling will replace existing and is valid and allowed.
      * @example
@@ -154,6 +153,85 @@ export namespace AnQst {
      * QString userName = userMgmt.currentUsername;
      */
     interface Input<InputType> {}
+
+
+    /**
+     * Declare drop-target `PropertyName`:`PayloadType`
+     * @remarks
+     * - **Parent** -> Widget (framework-mediated)
+     * - True Angular signal semantics.
+     * - Flow:
+     *   - External: A Qt widget initiates a QDrag carrying QMimeData.
+     *   - Parent: AnQstWebHostBase intercepts the drop via event filter on the
+     *     embedded QWebEngineView's rendering surface.
+     *   - Parent: QMimeData for the accepted format is deserialized (JSON) into
+     *     the generated C++ struct and forwarded through the bridge.
+     *   - Widget: Service updates signal `PropertyName` with the deserialized
+     *     payload and drop coordinates. Angular components react via effect() / template binding.
+     * - MIME type is convention-derived: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
+     * - The source QWidget must serialize the drag payload as JSON under the same MIME type.
+     * - Multiple DropTarget members per service are allowed (each accepting a different type).
+     * @example
+     * // AnQst spec:
+     * trackDropped: AnQst.DropTarget<Track>;
+     * // Angular app:
+     * effect(() => {
+     *   const drop = this.service.trackDropped();
+     *   if (drop !== null) { console.log(drop.payload, drop.x, drop.y); }
+     * });
+     */
+    interface DropTarget<T> { dummy: T }
+
+
+    /**
+     * Declare hover-target `PropertyName`:`PayloadType`
+     * @remarks
+     * - **Parent** -> Widget (framework-mediated)
+     * - True Angular signal semantics.
+     * - Flow:
+     *   - External: A Qt widget initiates a QDrag carrying QMimeData.
+     *   - Parent: AnQstWebHostBase intercepts drag-move events via event filter on the
+     *     embedded QWebEngineView's rendering surface. Events are throttled (trailing edge).
+     *   - Parent: Payload is deserialized once on DragEnter; subsequent DragMove events
+     *     forward only the updated position.
+     *   - Widget: Service updates signal `PropertyName` with the payload and current
+     *     coordinates. Signal becomes null on DragLeave.
+     * - Shares the same MIME type convention as DropTarget: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
+     * - A HoverTarget without a corresponding DropTarget means "show previews but reject the drop".
+     * - Optional config supports throttle tuning:
+     *   - `AnQst.HoverTarget<T, { maxRateHz: N }>` — maximum rate of hover position updates
+     *     forwarded across the bridge, in hertz. The generator converts this to a millisecond
+     *     interval at build time (e.g. 60 Hz -> 17 ms, 10 Hz -> 100 ms).
+     *   - Default is 60 Hz (~17 ms throttle interval).
+     *   - `0` means no throttling: every QDragMoveEvent is forwarded immediately.
+     *   - There is no upper bound on the value.
+     * @example
+     * // AnQst spec (default 60 Hz throttle):
+     * trackHovering: AnQst.HoverTarget<Track>;
+     * // AnQst spec (custom 10 Hz throttle):
+     * trackHovering: AnQst.HoverTarget<Track, { maxRateHz: 10 }>;
+     * // AnQst spec (no throttling):
+     * trackHovering: AnQst.HoverTarget<Track, { maxRateHz: 0 }>;
+     * // Angular app:
+     * effect(() => {
+     *   const hover = this.service.trackHovering();
+     *   if (hover !== null) { highlight(document.elementFromPoint(hover.x, hover.y)); }
+     * });
+     */
+
+    /**
+     * Configuration for HoverTarget throttle behavior.
+     * @remarks
+     * - `maxRateHz` — Maximum rate in hertz at which hover position updates are forwarded.
+     *   - Default (omitted or `{}`): 60 Hz.
+     *   - `0`: No throttling; every QDragMoveEvent is forwarded.
+     *   - No upper bound.
+     *   - Value must be a numeric literal >= 0.
+     */
+    type HoverTargetConfig = { maxRateHz: number } | {};
+    interface HoverTarget<T, Config extends HoverTargetConfig = {}> { dummy: T; config?: Config }
+
+
 
     /**
      * AnQst-Spec type mapping overview and control.
