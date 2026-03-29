@@ -1,12 +1,13 @@
 {
   "name": "@dusted/anqst",
-  "version": "0.1.3",
+  "version": "1.0.0",
   "description": "Opinionated backend generator for webapps.",
   "keywords": [
     "nodejs",
     "qt",
     "angular",
-    "webapp"
+    "webapp",
+    "apigenerator"
   ],
   "homepage": "https://github.com/DusteDdk/AnQst#readme",
   "bugs": {
