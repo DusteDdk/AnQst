@@ -23,7 +23,6 @@ sudo apt-get install -y \
   git \
   python3 \
   qtbase5-dev \
-  qttools5-dev \
   qttools5-dev-tools \
   qtdeclarative5-dev \
   libqt5webchannel5-dev \

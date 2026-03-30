@@ -18,12 +18,12 @@ export namespace AnQst {
 
     /**
      * Declare service `InterfaceName`
-     * 
+     *
      * @remarks
      * Multiple allowed.
      * Affords developers of advanced widgets the ability to create domain-informed categories.
      * - Duplicate method declarations with identical parameter lists are invalid in normative AnQst-Spec input.
-     * 
+     *
      * @example
      * export interface UserService extends Widget.Service { }
      * // Generates UserService.
@@ -83,6 +83,7 @@ export namespace AnQst {
      *      - throw -> failure
      *      - rejected promise -> failure
      *   - Parent: `MethodName` call returns with result.
+     * - Generated C++ Slot methods do not expose `ok/error` out parameters.
      * - Default Slot timeout is 1000ms.
      * Note: One active handler, calling will replace existing and is valid and allowed.
      * @example

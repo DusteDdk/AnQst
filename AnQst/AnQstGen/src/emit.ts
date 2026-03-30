@@ -1076,7 +1076,13 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       lines.push(`    }`);
     }
   }
-  lines.push(`    return QVariant();`);
+  lines.push(`    return QVariantMap{`);
+  lines.push(`        {QStringLiteral("code"), QStringLiteral("HandlerNotRegisteredError")},`);
+  lines.push(`        {QStringLiteral("message"), QStringLiteral("No Call mapping found.")},`);
+  lines.push(`        {QStringLiteral("service"), service},`);
+  lines.push(`        {QStringLiteral("member"), member},`);
+  lines.push(`        {QStringLiteral("requestId"), QString()}`);
+  lines.push(`    };`);
   lines.push(`}`);
   lines.push("");
   lines.push(`void ${widgetClassName}::handleGeneratedEmitter(const QString& service, const QString& member, const QVariantList& args) {`);
@@ -3413,7 +3419,7 @@ public:
             "  <widget class=\\"${widgetClass}\\" name=\\"${widgetName.toLowerCase()}\\">\\n"
             "    <property name=\\"minimumSize\\">\\n"
             "      <size>\\n"
-            "        <width>256</width>\\n"
+            "        <width>0</width>\\n"
             "        <height>128</height>\\n"
             "      </size>\\n"
             "    </property>\\n"
