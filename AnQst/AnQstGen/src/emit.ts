@@ -10,6 +10,14 @@ import {
   generatedQtWidgetDirName,
   resolveGeneratedLayoutPaths
 } from "./layout";
+import {
+  buildStructuredCodecCatalog,
+  getStructuredParameterSite,
+  getStructuredPayloadSite,
+  type StructuredCodecCatalog,
+  renderCppStructuredCodecHelpers,
+  renderTsStructuredCodecHelpers
+} from "./structured-top-level-codecs";
 
 function stripAnQstType(typeText: string): string {
   return typeText
@@ -20,6 +28,27 @@ function stripAnQstType(typeText: string): string {
     .replace(/\bAnQst\.Type\.quint64\b/g, "bigint")
     .replace(/\bAnQst\.Type\.qint32\b/g, "number")
     .replace(/\bAnQst\.Type\.quint32\b/g, "number")
+    .replace(/\bAnQst\.Type\.qint16\b/g, "number")
+    .replace(/\bAnQst\.Type\.quint16\b/g, "number")
+    .replace(/\bAnQst\.Type\.qint8\b/g, "number")
+    .replace(/\bAnQst\.Type\.quint8\b/g, "number")
+    .replace(/\bAnQst\.Type\.int32\b/g, "number")
+    .replace(/\bAnQst\.Type\.uint32\b/g, "number")
+    .replace(/\bAnQst\.Type\.int16\b/g, "number")
+    .replace(/\bAnQst\.Type\.uint16\b/g, "number")
+    .replace(/\bAnQst\.Type\.int8\b/g, "number")
+    .replace(/\bAnQst\.Type\.uint8\b/g, "number")
+    .replace(/\bAnQst\.Type\.buffer\b/g, "ArrayBuffer")
+    .replace(/\bAnQst\.Type\.blob\b/g, "ArrayBuffer")
+    .replace(/\bAnQst\.Type\.typedArray\b/g, "Uint8Array")
+    .replace(/\bAnQst\.Type\.uint8Array\b/g, "Uint8Array")
+    .replace(/\bAnQst\.Type\.int8Array\b/g, "Int8Array")
+    .replace(/\bAnQst\.Type\.uint16Array\b/g, "Uint16Array")
+    .replace(/\bAnQst\.Type\.int16Array\b/g, "Int16Array")
+    .replace(/\bAnQst\.Type\.uint32Array\b/g, "Uint32Array")
+    .replace(/\bAnQst\.Type\.int32Array\b/g, "Int32Array")
+    .replace(/\bAnQst\.Type\.float32Array\b/g, "Float32Array")
+    .replace(/\bAnQst\.Type\.float64Array\b/g, "Float64Array")
     .replace(/\bAnQst\.Type\.object\b/g, "object")
     .replace(/\bAnQst\.Type\.json\b/g, "object");
 }
@@ -28,6 +57,34 @@ function splitGeneric(typeText: string): { name: string; arg: string } | null {
   const m = typeText.match(/^([A-Za-z0-9_.]+)<(.+)>$/);
   if (!m) return null;
   return { name: m[1], arg: m[2].trim() };
+}
+
+function filterNullishUnionTypeNodes(types: readonly ts.TypeNode[]): ts.TypeNode[] {
+  return types.filter((part) => part.kind !== ts.SyntaxKind.NullKeyword && part.kind !== ts.SyntaxKind.UndefinedKeyword);
+}
+
+function isStringLikeUnionTypeNode(node: ts.UnionTypeNode): boolean {
+  return node.types.every((part) => {
+    if (ts.isLiteralTypeNode(part) && ts.isStringLiteral(part.literal)) return true;
+    if (part.kind === ts.SyntaxKind.StringKeyword) return true;
+    return false;
+  });
+}
+
+function isBooleanLikeUnionTypeNode(node: ts.UnionTypeNode): boolean {
+  return node.types.every((part) => {
+    if (ts.isLiteralTypeNode(part) && (part.literal.kind === ts.SyntaxKind.TrueKeyword || part.literal.kind === ts.SyntaxKind.FalseKeyword)) return true;
+    if (part.kind === ts.SyntaxKind.BooleanKeyword) return true;
+    return false;
+  });
+}
+
+function isNumberLikeUnionTypeNode(node: ts.UnionTypeNode): boolean {
+  return node.types.every((part) => {
+    if (ts.isLiteralTypeNode(part) && ts.isNumericLiteral(part.literal)) return true;
+    if (part.kind === ts.SyntaxKind.NumberKeyword || part.kind === ts.SyntaxKind.BigIntKeyword) return true;
+    return false;
+  });
 }
 
 function mapTsTypeToCpp(typeText: string): string {
@@ -43,6 +100,11 @@ function mapTsTypeToCpp(typeText: string): string {
   if (/\bAnQst\.Type\.stringArray\b/.test(raw)) return "QStringList";
   if (/\bAnQst\.Type\.string\b/.test(raw)) return "QString";
   if (/\bAnQst\.Type\.json\b/.test(raw) || /\bAnQst\.Type\.object\b/.test(raw)) return "QVariantMap";
+  if (
+    /\bAnQst\.Type\.(?:buffer|blob|typedArray|uint8Array|int8Array|uint16Array|int16Array|uint32Array|int32Array|float32Array|float64Array)\b/.test(raw)
+  ) {
+    return "QByteArray";
+  }
   if (/\bAnQst\.Type\.(u?int(8|16|32))\b/.test(raw)) {
     const narrowed = raw.match(/\bAnQst\.Type\.(u?int(?:8|16|32))\b/)?.[1];
     if (narrowed === "int8") return "int8_t";
@@ -60,6 +122,21 @@ function mapTsTypeToCpp(typeText: string): string {
   if (t === "bigint") return "qint64";
   if (t === "void") return "void";
   if (t === "object") return "QVariantMap";
+  if (t === "ArrayBuffer") return "QByteArray";
+  if (
+    [
+      "Uint8Array",
+      "Int8Array",
+      "Uint16Array",
+      "Int16Array",
+      "Uint32Array",
+      "Int32Array",
+      "Float32Array",
+      "Float64Array"
+    ].includes(t)
+  ) {
+    return "QByteArray";
+  }
   if (t.endsWith("[]")) {
     return `QList<${mapTsTypeToCpp(t.slice(0, -2))}>`;
   }
@@ -89,6 +166,7 @@ function variantToCppExpression(cppType: string, expr: string): string {
   if (cppType === "QString") return `${expr}.toString()`;
   if (cppType === "QStringList") return `${expr}.toStringList()`;
   if (cppType === "QVariantMap") return `${expr}.toMap()`;
+  if (cppType === "QByteArray") return `${expr}.toByteArray()`;
   if (cppType === "double") return `${expr}.toDouble()`;
   if (cppType === "bool") return `${expr}.toBool()`;
   if (cppType === "qint64") return `${expr}.toLongLong()`;
@@ -107,6 +185,7 @@ function cppToVariantExpression(cppType: string, expr: string): string {
     cppType === "QString" ||
     cppType === "QStringList" ||
     cppType === "QVariantMap" ||
+    cppType === "QByteArray" ||
     cppType === "double" ||
     cppType === "bool" ||
     cppType === "qint64" ||
@@ -393,6 +472,7 @@ class CppTypeNormalizer {
   private readonly seedOrder: string[] = [];
   private readonly allKnownNames = new Set<string>();
   private readonly usedNames = new Set<string>();
+  private readonly syntheticNameByKey = new Map<string, string>();
 
   constructor(spec: ParsedSpecModel) {
     for (const decl of collectStructDecls(spec)) {
@@ -459,6 +539,13 @@ class CppTypeNormalizer {
       return this.mapTypeNode(typeNode.type, nameHintParts, deps);
     }
     if (ts.isUnionTypeNode(typeNode)) {
+      const filtered = filterNullishUnionTypeNodes(typeNode.types);
+      if (filtered.length === 1) {
+        return this.mapTypeNode(filtered[0], nameHintParts, deps);
+      }
+      if (isStringLikeUnionTypeNode(typeNode)) return "QString";
+      if (isBooleanLikeUnionTypeNode(typeNode)) return "bool";
+      if (isNumberLikeUnionTypeNode(typeNode)) return "double";
       return "QString";
     }
     if (ts.isTypeLiteralNode(typeNode)) {
@@ -504,7 +591,14 @@ class CppTypeNormalizer {
 
   private ensureSyntheticStruct(typeNode: ts.TypeLiteralNode, nameHintParts: string[], deps: Set<string>): string {
     const baseName = this.makeSyntheticBaseName(nameHintParts);
+    const syntheticKey = `${baseName}::${typeNode.getText()}`;
+    const existingName = this.syntheticNameByKey.get(syntheticKey);
+    if (existingName) {
+      deps.add(existingName);
+      return existingName;
+    }
     const synthesizedName = this.allocateUniqueName(baseName);
+    this.syntheticNameByKey.set(syntheticKey, synthesizedName);
     if (this.declMap.has(synthesizedName)) {
       deps.add(synthesizedName);
       return synthesizedName;
@@ -663,6 +757,7 @@ function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): str
   return `#pragma once
 #include <QString>
 #include <QStringList>
+#include <QByteArray>
 #include <QList>
 #include <QVariantMap>
 #include <QMetaType>
@@ -837,6 +932,11 @@ ${fields.map((f) => `    ${f}`).join("\n")}
 
 function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const widgetClassName = `${spec.widgetName}Widget`;
+  const cppCodecCatalog = buildStructuredCodecCatalog(spec);
+  const cppCodecHelpers = renderCppStructuredCodecHelpers(
+    cppCodecCatalog,
+    (typeText, pathHintParts) => cppTypes.mapTypeText(typeText, pathHintParts)
+  ).trim();
   const lines: string[] = [];
   lines.push(`#include "include/${spec.widgetName}Widget.h"`);
   lines.push(`#include <QDebug>`);
@@ -844,6 +944,10 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`#include <QEventLoop>`);
   lines.push(`#include <QMetaType>`);
   lines.push(`#include <QTimer>`);
+  lines.push(`#include <cstring>`);
+  lines.push(`#include <cstdint>`);
+  lines.push(`#include <string>`);
+  lines.push(`#include <vector>`);
   lines.push(`#include <stdexcept>`);
   lines.push("");
   lines.push(`using namespace ${spec.widgetName};`);
@@ -861,6 +965,10 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push("    }();");
   lines.push("    Q_UNUSED(registered);");
   lines.push("}");
+  if (cppCodecHelpers.length > 0) {
+    lines.push("");
+    lines.push(cppCodecHelpers);
+  }
   lines.push("}");
   lines.push("");
   for (const service of spec.services) {
@@ -911,16 +1019,18 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
     for (const member of service.members) {
       if (member.kind === "DropTarget" && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
         lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-        lines.push(`            emit ${member.name}(payload.value<${cppType}>(), x, y);`);
+        lines.push(`            emit ${member.name}(${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload.value<${cppType}>()`}, x, y);`);
         lines.push(`        }`);
         lines.push(`    });`);
       } else if (member.kind === "HoverTarget" && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
         lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-        lines.push(`            emit ${member.name}(payload.value<${cppType}>(), x, y);`);
+        lines.push(`            emit ${member.name}(${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload.value<${cppType}>()`}, x, y);`);
         lines.push(`        }`);
         lines.push(`    });`);
         lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverLeft, this, [this](const QString& service, const QString& member) {`);
@@ -1024,11 +1134,13 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
       const timeoutMs = member.timeoutMs;
       const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
-        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
+        const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+        lines.push(`        const ${pType} ${p.name} = ${paramSite ? `decode${paramSite.codecId}(args.value(${i}))` : variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       lines.push(`        const QString requestId = QStringLiteral("call-%1").arg(++m_callRequestCounter);`);
       lines.push(`        const QString queueKey = makeBindingKey(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"));`);
@@ -1045,7 +1157,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       lines.push(`            try {`);
       const callArgs = member.parameters.map((p) => p.name).join(", ");
       lines.push(`                const ${cppType} result = m_${member.name}Handler(${callArgs});`);
-      lines.push(`                return ${cppToVariantExpression(cppType, "result")};`);
+      lines.push(`                return ${payloadSite ? `encode${payloadSite.codecId}(result)` : cppToVariantExpression(cppType, "result")};`);
       lines.push(`            } catch (const std::exception& ex) {`);
       lines.push(`                return QVariantMap{`);
       lines.push(`                    {QStringLiteral("code"), QStringLiteral("CallHandlerError")},`);
@@ -1096,7 +1208,8 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
-        lines.push(`        const ${pType} ${p.name} = ${variantToCppExpression(pType, `args.value(${i})`)};`);
+        const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+        lines.push(`        const ${pType} ${p.name} = ${paramSite ? `decode${paramSite.codecId}(args.value(${i}))` : variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       const argNames = member.parameters.map((p) => p.name).join(", ");
       lines.push(`        emit ${member.name}(${argNames});`);
@@ -1111,8 +1224,9 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
     for (const member of service.members) {
       if (member.kind !== "Input" || !member.payloadTypeText) continue;
       const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
-      lines.push(`        const ${cppType} typedValue = ${variantToCppExpression(cppType, "value")};`);
+      lines.push(`        const ${cppType} typedValue = ${payloadSite ? `decode${payloadSite.codecId}(value)` : variantToCppExpression(cppType, "value")};`);
       lines.push(`        set${pascalCase(member.name)}(typedValue);`);
       lines.push(`        if (m_${member.name}Handler) m_${member.name}Handler(typedValue);`);
       lines.push(`        return;`);
@@ -1134,12 +1248,14 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
 
       if (member.kind === "Slot") {
         const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
+        const payloadSite = member.payloadTypeText ? getStructuredPayloadSite(cppCodecCatalog, service.name, member.name) : undefined;
         const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         lines.push(`${ret} ${widgetClassName}::slot_${member.name}(${args}) {`);
         lines.push(`    QVariantList invokeArgs;`);
         for (const p of member.parameters) {
           const pType = mapTsTypeToCpp(p.typeText);
-          lines.push(`    invokeArgs.push_back(${cppToVariantExpression(pType, p.name)});`);
+          const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+          lines.push(`    invokeArgs.push_back(${paramSite ? `encode${paramSite.codecId}(${p.name})` : cppToVariantExpression(pType, p.name)});`);
         }
         lines.push(`    QVariant result;`);
         lines.push(`    QString invokeError;`);
@@ -1155,12 +1271,13 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         if (ret === "void") {
           lines.push(`    return;`);
         } else {
-          lines.push(`    return ${variantToCppExpression(ret, "result")};`);
+          lines.push(`    return ${payloadSite ? `decode${payloadSite.codecId}(result)` : variantToCppExpression(ret, "result")};`);
         }
         lines.push("}");
         lines.push("");
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
+        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
         lines.push(`${cppType} ${widgetClassName}::${member.name}() const {`);
         lines.push(`    return m_${member.name};`);
@@ -1170,7 +1287,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push(`    if (m_${member.name} == value) return;`);
         lines.push(`    m_${member.name} = value;`);
         if (member.kind === "Output") {
-          lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), ${cppToVariantExpression(cppType, "value")});`);
+          lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), ${payloadSite ? `encode${payloadSite.codecId}(value)` : cppToVariantExpression(cppType, "value")});`);
         }
         lines.push(`    emit ${member.name}Changed(value);`);
         lines.push("}");
@@ -1370,7 +1487,7 @@ function slotHandlerReturnType(tsRet: string): string {
   return `${tsRet} | Promise<${tsRet}> | Error`;
 }
 
-function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
+function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalog: StructuredCodecCatalog): string {
   const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
 
   const fieldLines: string[] = [];
@@ -1382,21 +1499,37 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
 
   for (const m of members) {
     const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
-    const valueArgs = m.parameters.map((p) => p.name).join(", ");
-    const valueArray = valueArgs.length > 0 ? `[${valueArgs}]` : "[]";
+    const paramSites = m.parameters.map((p) => getStructuredParameterSite(codecCatalog, serviceName, m.name, p.name));
+    const encodedValueArray = paramSites.length > 0
+      ? `[${m.parameters.map((p, index) => `${paramSites[index] ? `encode${paramSites[index]!.codecId}(${p.name})` : p.name}`).join(", ")}]`
+      : "[]";
+    const payloadSite = getStructuredPayloadSite(codecCatalog, serviceName, m.name);
     if (m.kind === "Call") {
       const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
-      methodLines.push(`  async ${m.name}(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${valueArray}); }`);
+      if (payloadSite) {
+        methodLines.push(`  async ${m.name}(${args}): Promise<${ret}> { const result = await this._bridge.call<unknown>("${serviceName}", "${m.name}", ${encodedValueArray}); return decode${payloadSite.codecId}(result); }`);
+      } else {
+        methodLines.push(`  async ${m.name}(${args}): Promise<${ret}> { return this._bridge.call<${ret}>("${serviceName}", "${m.name}", ${encodedValueArray}); }`);
+      }
       continue;
     }
     if (m.kind === "Emitter") {
-      methodLines.push(`  ${m.name}(${args}): void { this._bridge.emit("${serviceName}", "${m.name}", ${valueArray}); }`);
+      methodLines.push(`  ${m.name}(${args}): void { this._bridge.emit("${serviceName}", "${m.name}", ${encodedValueArray}); }`);
       continue;
     }
     if (m.kind === "Slot") {
       const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
+      const decodedArgs = m.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(wireArgs[${index}])` : `wireArgs[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ");
       onSlotMembers.push(`    ${m.name}: (handler: (${args}) => ${slotHandlerReturnType(ret)}): void => {`);
-      onSlotMembers.push(`      this._bridge.registerSlot("${serviceName}", "${m.name}", handler as (...args: unknown[]) => unknown);`);
+      onSlotMembers.push(`      this._bridge.registerSlot("${serviceName}", "${m.name}", (...wireArgs: unknown[]) => {`);
+      onSlotMembers.push(`        const result = handler(${decodedArgs});`);
+      if (payloadSite) {
+        onSlotMembers.push(`        if (result instanceof Promise) return result.then((value) => value instanceof Error ? value : encode${payloadSite.codecId}(value));`);
+        onSlotMembers.push(`        return result instanceof Error ? result : encode${payloadSite.codecId}(result);`);
+      } else {
+        onSlotMembers.push("        return result;");
+      }
+      onSlotMembers.push("      });");
       onSlotMembers.push("    },");
       continue;
     }
@@ -1407,24 +1540,24 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string): string {
       if (m.kind === "Input") {
         setMembers.push(`    ${m.name}: (value: ${tsType}): void => {`);
         setMembers.push(`      this._${m.name}.set(value);`);
-        setMembers.push(`      this._bridge.setInput("${serviceName}", "${m.name}", value);`);
+        setMembers.push(`      this._bridge.setInput("${serviceName}", "${m.name}", ${payloadSite ? `encode${payloadSite.codecId}(value)` : "value"});`);
         setMembers.push("    },");
       }
       if (m.kind === "Output") {
-        constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => this._${m.name}.set(value as ${tsType}));`);
+        constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => this._${m.name}.set(${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${tsType}`}));`);
       }
     }
     if (m.kind === "DropTarget" && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
       fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
       methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
-      constructorBodyLines.push(`    this._bridge.onDrop("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: payload as ${tsType}, x, y }));`);
+      constructorBodyLines.push(`    this._bridge.onDrop("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y }));`);
     }
     if (m.kind === "HoverTarget" && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
       fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
       methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
-      constructorBodyLines.push(`    this._bridge.onHover("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: payload as ${tsType}, x, y }));`);
+      constructorBodyLines.push(`    this._bridge.onHover("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y }));`);
       constructorBodyLines.push(`    this._bridge.onHoverLeft("${serviceName}", "${m.name}", () => this._${m.name}.set(null));`);
     }
   }
@@ -1510,7 +1643,8 @@ export declare class ${serviceName} {
 }
 
 function renderTsServices(spec: ParsedSpecModel): string {
-  const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name)).join("\n");
+  const codecCatalog = buildStructuredCodecCatalog(spec);
+  const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name, codecCatalog)).join("\n");
   const externalTypeImports = renderRequiredTypeImports(
     spec,
     `frontend/${generatedFrontendDirName(spec.widgetName)}/services.ts`
@@ -1520,6 +1654,9 @@ function renderTsServices(spec: ParsedSpecModel): string {
   const typeImportsBlock = typeImports.length > 0 ? `${typeImports}\n\n` : "";
   return `import { Injectable, inject, signal } from "@angular/core";
 ${typeImportsBlock}
+
+// Structured/top-level codec helpers
+${renderTsStructuredCodecHelpers(codecCatalog)}
 
 type SlotHandler = (...args: unknown[]) => unknown;
 type OutputHandler = (value: unknown) => void;
@@ -2120,6 +2257,7 @@ function renderNodeExpressWsTypes(spec: ParsedSpecModel): string {
 }
 
 function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
+  const codecCatalog = buildStructuredCodecCatalog(spec);
   const typeImports = renderRequiredTypeImports(
     spec,
     `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}/index.ts`
@@ -2156,8 +2294,13 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .map((member) => {
           const ret = mapTypeTextToTs(member.payloadTypeText ?? "void");
           const args = nodeParamArgs(member);
+          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
+          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const encodedArgs = member.parameters.length > 0
+            ? `[${member.parameters.map((p, index) => `${paramSites[index] ? `encode${paramSites[index]!.codecId}(${p.name})` : p.name}`).join(", ")}]`
+            : "[]";
           return `  ${service.name}_${member.name}(${args}${args ? ", " : ""}timeoutMs = this.defaultSlotTimeoutMs): Promise<${ret}> {
-    return this.invokeSlot("${service.name}", "${member.name}", ${nodeParamValues(member)}, timeoutMs) as Promise<${ret}>;
+    return this.invokeSlot("${service.name}", "${member.name}", ${encodedArgs}, timeoutMs).then((value) => ${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${ret}`});
   }`;
         })
     )
@@ -2169,8 +2312,9 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .filter((member) => member.kind === "Output" && member.payloadTypeText)
         .map((member) => {
           const typeText = mapTypeTextToTs(member.payloadTypeText!);
+          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
           return `  set${service.name}_${nodeCap(member.name)}(value: ${typeText}): void {
-    this.setOutputValue("${service.name}", "${member.name}", value);
+    this.setOutputValue("${service.name}", "${member.name}", ${payloadSite ? `encode${payloadSite.codecId}(value)` : "value"});
   }`;
         })
     )
@@ -2232,8 +2376,9 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .filter((member) => (member.kind === "Input" || member.kind === "Output") && member.payloadTypeText)
         .map((member) => {
           const typeText = mapTypeTextToTs(member.payloadTypeText!);
+          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
           if (member.kind === "Input") {
-            return `            ${member.name}: {\n              get: () => session.readInput("${service.name}", "${member.name}") as Promise<${typeText}>,\n              on: (handler: (value: ${typeText}) => void) => session.onInput("${service.name}", "${member.name}", handler as (value: unknown) => void)\n            },`;
+            return `            ${member.name}: {\n              get: () => session.readInput("${service.name}", "${member.name}").then((value) => ${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${typeText}`}),\n              on: (handler: (value: ${typeText}) => void) => session.onInput("${service.name}", "${member.name}", (value) => handler(${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${typeText}`}))\n            },`;
           }
           return `            ${member.name}: {\n              set: (value: ${typeText}) => session.set${service.name}_${nodeCap(member.name)}(value)\n            },`;
         })
@@ -2248,6 +2393,11 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Call" && member.payloadTypeText)
         .map((member) => {
+          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
+          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const decodedArgs = member.parameters.length > 0
+            ? member.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(args[${index}])` : `args[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ")
+            : "";
           return `    if (service === "${service.name}" && member === "${member.name}") {
       const handler = implementation.${service.name}.${member.name};
       if (typeof handler !== "function") {
@@ -2270,8 +2420,8 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         });
         throw err;
       }
-      Promise.resolve(handler(buildHandlerBridge(session), ...(args as ${nodeParamTuple(member)})))
-        .then((result) => sendJson(session.socket, { type: "callResult", requestId, result }))
+      Promise.resolve(handler(buildHandlerBridge(session)${decodedArgs ? `, ${decodedArgs}` : ""}))
+        .then((result) => sendJson(session.socket, { type: "callResult", requestId, result: ${payloadSite ? `encode${payloadSite.codecId}(result)` : "result"} }))
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
           emitDiagnostic({
@@ -2302,6 +2452,13 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Emitter")
         .map((member) => {
+          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
+          const decodedArgs = member.parameters.length > 0
+            ? member.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(args[${index}])` : `args[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ")
+            : "";
+          const decodedSignalArgs = member.parameters.length > 0
+            ? `[${member.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(args[${index}])` : `args[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ")}]`
+            : "[]";
           return `    if (service === "${service.name}" && member === "${member.name}") {
       const handler = implementation.${service.name}.${member.name};
       if (typeof handler !== "function") {
@@ -2318,7 +2475,8 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         });
         throw err;
       }
-      void Promise.resolve(handler(buildHandlerBridge(session), ...(args as ${nodeParamTuple(member)}))).catch((error) => {
+      session.emitSignal(service, member, ${decodedSignalArgs});
+      void Promise.resolve(handler(buildHandlerBridge(session)${decodedArgs ? `, ${decodedArgs}` : ""})).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         emitDiagnostic({
           code: "EmitterHandlerError",
@@ -2342,6 +2500,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Input" && member.payloadTypeText)
         .map((member) => {
+          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
           return `    if (service === "${service.name}" && member === "${member.name}") {
       const handler = implementation.${service.name}.${member.name};
       if (typeof handler !== "function") {
@@ -2358,7 +2517,9 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         });
         throw err;
       }
-      void Promise.resolve(handler(buildHandlerBridge(session), value as ${mapTypeTextToTs(member.payloadTypeText!)})).catch((error) => {
+      const decodedValue = ${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${mapTypeTextToTs(member.payloadTypeText!)}`};
+      session.setInputState(service, member, decodedValue);
+      void Promise.resolve(handler(buildHandlerBridge(session), decodedValue)).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         emitDiagnostic({
           code: "InputHandlerError",
@@ -2381,6 +2542,9 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
 import type { WebSocket, WebSocketServer } from "ws";
 ${typeImports}
 ${typeDecls}
+
+// Structured/top-level codec helpers
+${renderTsStructuredCodecHelpers(codecCatalog)}
 
 ${handlerInterfaces}
 
@@ -2748,7 +2912,6 @@ ${callDispatch}
       const service = String(message.service ?? "");
       const member = String(message.member ?? "");
       const args = Array.isArray(message.args) ? (message.args as unknown[]) : [];
-      session.emitSignal(service, member, args);
 ${emitterDispatch}
       const err = new Error(\`No Emitter mapping found for \${service}.\${member}\`);
       emitDiagnostic({
@@ -2767,7 +2930,6 @@ ${emitterDispatch}
       const service = String(message.service ?? "");
       const member = String(message.member ?? "");
       const value = message.value;
-      session.setInputState(service, member, value);
 ${inputDispatch}
       const err = new Error(\`No Input mapping found for \${service}.\${member}\`);
       emitDiagnostic({
@@ -3096,13 +3258,15 @@ function renderQtIntegrationCMake(widgetName: string): string {
   const generatedRootVar = "ANQST_GENERATED_WIDGET_DIR";
   const generatedIncludeVar = "ANQST_GENERATED_INCLUDE_DIR";
   const projectRootVar = "ANQST_PROJECT_ROOT";
+  const requiredFilesVar = "ANQST_REQUIRED_GENERATED_FILES";
+  const widgetBinaryDirVar = "ANQST_GENERATED_WIDGET_BINARY_DIR";
   const widgetTarget = `${widgetName}Widget`;
-  const autogenTarget = `${widgetTarget}_anqst_codegen`;
   return `cmake_minimum_required(VERSION 3.21)
 
 set(${projectRootVar} "\${CMAKE_CURRENT_LIST_DIR}/../../../../..")
 set(${generatedRootVar} "\${CMAKE_CURRENT_LIST_DIR}/../qt/${generatedCppLibraryDirName(widgetName)}")
 set(${generatedIncludeVar} "\${${generatedRootVar}}/include")
+set(${widgetBinaryDirVar} "\${CMAKE_CURRENT_BINARY_DIR}/${generatedCppLibraryDirName(widgetName)}")
 
 if(TARGET ${widgetTarget})
     return()
@@ -3112,66 +3276,27 @@ if(NOT TARGET anqstwebhostbase)
     message(FATAL_ERROR "Target 'anqstwebhostbase' must exist before including generated AnQst CMake for ${widgetName}.")
 endif()
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTORCC ON)
-
-find_program(ANQST_NPM_EXECUTABLE npm REQUIRED)
-find_program(ANQST_NPX_EXECUTABLE npx REQUIRED)
-
-add_custom_command(
-    OUTPUT
-        "\${${generatedRootVar}}/CMakeLists.txt"
-        "\${${generatedRootVar}}/${widgetName}.qrc"
-        "\${${generatedRootVar}}/${widgetName}.cpp"
-        "\${${generatedIncludeVar}}/${widgetName}.h"
-        "\${${generatedIncludeVar}}/${widgetName}Widget.h"
-        "\${${generatedIncludeVar}}/${widgetName}Types.h"
-        "\${${generatedRootVar}}/webapp/index.html"
-    COMMAND "\${ANQST_NPM_EXECUTABLE}" install
-    COMMAND "\${ANQST_NPX_EXECUTABLE}" anqst build
-    WORKING_DIRECTORY "\${${projectRootVar}}"
-    COMMENT "Generating AnQst widget library (${widgetTarget}) from Angular project"
-    VERBATIM
-)
-
-add_custom_target(${autogenTarget}
-    DEPENDS
-        "\${${generatedRootVar}}/CMakeLists.txt"
-        "\${${generatedRootVar}}/${widgetName}.qrc"
-        "\${${generatedRootVar}}/${widgetName}.cpp"
-        "\${${generatedIncludeVar}}/${widgetName}.h"
-        "\${${generatedIncludeVar}}/${widgetName}Widget.h"
-        "\${${generatedIncludeVar}}/${widgetName}Types.h"
-        "\${${generatedRootVar}}/webapp/index.html"
-)
-
-set_source_files_properties(
+set(${requiredFilesVar}
+    "\${${generatedRootVar}}/CMakeLists.txt"
     "\${${generatedRootVar}}/${widgetName}.qrc"
     "\${${generatedRootVar}}/${widgetName}.cpp"
     "\${${generatedIncludeVar}}/${widgetName}.h"
     "\${${generatedIncludeVar}}/${widgetName}Widget.h"
     "\${${generatedIncludeVar}}/${widgetName}Types.h"
-    PROPERTIES GENERATED TRUE
+    "\${${generatedRootVar}}/webapp/index.html"
 )
 
-add_library(${widgetTarget}
-    "\${${generatedRootVar}}/${widgetName}.qrc"
-    "\${${generatedRootVar}}/${widgetName}.cpp"
-    "\${${generatedIncludeVar}}/${widgetName}.h"
-    "\${${generatedIncludeVar}}/${widgetName}Widget.h"
-    "\${${generatedIncludeVar}}/${widgetName}Types.h"
-)
-add_dependencies(${widgetTarget} ${autogenTarget})
-target_include_directories(${widgetTarget}
-    PUBLIC
-        "\${${generatedIncludeVar}}"
-)
-target_link_libraries(${widgetTarget}
-    PUBLIC
-        anqstwebhostbase
-)
+foreach(required_file IN LISTS ${requiredFilesVar})
+    if(NOT EXISTS "\${required_file}")
+        message(FATAL_ERROR
+            "Generated AnQst widget tree is incomplete for ${widgetName}. "
+            "Missing file: \${required_file}. "
+            "Run 'npx anqst build' in '\${${projectRootVar}}' first."
+        )
+    endif()
+endforeach()
+
+add_subdirectory("\${${generatedRootVar}}" "\${${widgetBinaryDirVar}}")
 `;
 }
 

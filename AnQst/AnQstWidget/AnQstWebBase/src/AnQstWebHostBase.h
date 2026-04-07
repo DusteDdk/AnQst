@@ -96,6 +96,7 @@ public:
 signals:
     void onHostReady();
     void onHostError(const QVariantMap& errorPayload);
+    void onWebEngineError(const QString& channel, const QString& detail);
     void anQstBridge_outputUpdated(const QString& service, const QString& member, const QVariant& value);
     void anQstBridge_slotInvocationRequested(const QString& requestId, const QString& service, const QString& member, const QVariantList& args);
     void slotInvocationResolved(const QString& requestId);
@@ -108,6 +109,7 @@ private slots:
     void handleLoadFinished(bool ok);
     void handleNavigationPolicyError(const QUrl& blockedUrl);
     void handleNetworkPolicyError(const QUrl& blockedUrl);
+    void handleWebEngineDiagnostic(const QString& channel, const QString& detail);
     void handleDebugShortcut();
     void handleReattachRequested();
 
@@ -148,6 +150,7 @@ private:
         bool recoverable,
         const QString& message,
         const QVariantMap& context = QVariantMap());
+    void emitWebEngineError(const QString& channel, const QString& detail);
     bool isBlockedScheme(const QUrl& url) const;
     bool isContentRootSet() const;
     bool isEntryPointLoaded() const;

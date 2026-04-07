@@ -68,6 +68,62 @@ QVariantMap firstPayload(QSignalSpy& spy) {
     return args.at(0).toMap();
 }
 
+bool spyHasWebEngineError(
+    const QSignalSpy& spy,
+    const QString& channel,
+    const QStringList& detailFragments = QStringList(),
+    QString* matchedDetail = nullptr) {
+    for (int index = 0; index < spy.count(); ++index) {
+        const auto args = spy.at(index);
+        if (args.count() != 2) {
+            continue;
+        }
+        if (args.at(0).toString() != channel) {
+            continue;
+        }
+        const QString detail = args.at(1).toString();
+        bool matches = true;
+        for (const QString& fragment : detailFragments) {
+            if (!detail.contains(fragment)) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        if (matchedDetail != nullptr) {
+            *matchedDetail = detail;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool waitForWebEngineError(
+    QSignalSpy& spy,
+    const QString& channel,
+    const QStringList& detailFragments = QStringList(),
+    int timeoutMs = 4000,
+    QString* matchedDetail = nullptr) {
+    if (spyHasWebEngineError(spy, channel, detailFragments, matchedDetail)) {
+        return true;
+    }
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        const int remainingMs = timeoutMs - static_cast<int>(timer.elapsed());
+        if (remainingMs <= 0) {
+            break;
+        }
+        spy.wait(qMin(remainingMs, 100));
+        if (spyHasWebEngineError(spy, channel, detailFragments, matchedDetail)) {
+            return true;
+        }
+    }
+    return spyHasWebEngineError(spy, channel, detailFragments, matchedDetail);
+}
+
 void writeHtmlFile(const QString& filePath, const QString& html) {
     QFile file(filePath);
     REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -305,6 +361,76 @@ TEST_CASE("loadEntryPoint emits missing entry error for absent file", "[host][lo
     CHECK(payload.value("category").toString() == "load");
     CHECK(payload.value("severity").toString() == "error");
     CHECK(payload.value("recoverable").toBool() == false);
+}
+
+TEST_CASE("load failure emits raw WebEngine error without bridge", "[host][webengine][raw]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    QSignalSpy webEngineSpy(&host, &AnQstWebHostBase::onWebEngineError);
+
+    QMetaObject::invokeMethod(&host, "handleLoadFinished", Q_ARG(bool, false));
+
+    REQUIRE(waitForWebEngineError(
+        webEngineSpy,
+        QStringLiteral("webengine.load_failed"),
+        {QStringLiteral("Host failed to load entry point.")}));
+}
+
+TEST_CASE("blocked navigation emits raw WebEngine error", "[host][webengine][policy]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    QSignalSpy webEngineSpy(&host, &AnQstWebHostBase::onWebEngineError);
+
+    QMetaObject::invokeMethod(
+        &host,
+        "handleNavigationPolicyError",
+        Q_ARG(QUrl, QUrl(QStringLiteral("https://example.org/blocked.js"))));
+
+    REQUIRE(waitForWebEngineError(
+        webEngineSpy,
+        QStringLiteral("webengine.navigation_blocked"),
+        {
+            QStringLiteral("Navigation blocked by local-content policy."),
+            QStringLiteral("https://example.org/blocked.js"),
+        }));
+}
+
+TEST_CASE("javascript runtime errors emit detailed WebEngine diagnostics without bridge", "[host][webengine][javascript]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    host.resize(320, 240);
+    host.show();
+
+    QSignalSpy webEngineSpy(&host, &AnQstWebHostBase::onWebEngineError);
+
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    writeHtmlFile(
+        dir.filePath("index.html"),
+        "<!doctype html>\n"
+        "<html><body><script>\n"
+        "window.addEventListener('load', function () {\n"
+        "  setTimeout(function () {\n"
+        "    throw new Error('planned js failure for onWebEngineError test');\n"
+        "  }, 0);\n"
+        "});\n"
+        "</script></body></html>\n");
+
+    REQUIRE(host.setContentRoot(dir.path()));
+    REQUIRE(host.loadEntryPoint(QStringLiteral("index.html")));
+
+    QString matchedDetail;
+    REQUIRE(waitForWebEngineError(
+        webEngineSpy,
+        QStringLiteral("js.window.error"),
+        {
+            QStringLiteral("Unhandled window error."),
+            QStringLiteral("planned js failure for onWebEngineError test"),
+            QStringLiteral("Stack:"),
+        },
+        10000,
+        &matchedDetail));
+    CHECK(matchedDetail.contains(QStringLiteral("Message:")));
 }
 
 TEST_CASE("host emits ready when entry loads and bridge is attached", "[host][ready]") {

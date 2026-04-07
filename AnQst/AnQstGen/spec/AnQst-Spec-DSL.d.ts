@@ -303,6 +303,9 @@ export namespace AnQst {
         Promise = "Passing Promises across the boundary is not allowed",
         Callable = "Passing Callable objects across the boundary is not allowed",
         any = "Passing 'any' type across the boundary is not allowed",
+        symbol = "Passing 'symbol' type across the boundary is not allowed",
+        unknown = "Passing 'unknown' type across the boundary is not allowed",
+        never = "Passing 'never' type across the boundary is not allowed",
     }
 
     /**

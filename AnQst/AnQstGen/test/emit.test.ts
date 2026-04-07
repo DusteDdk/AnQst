@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseSpecFile } from "../src/parser";
 import { PNG } from "pngjs";
-import { generateOutputs, installQtDesignerPluginCMake } from "../src/emit";
+import { generateOutputs, installQtDesignerPluginCMake, installQtIntegrationCMake } from "../src/emit";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 
@@ -61,7 +61,11 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Promise\.resolve\(handler\(\.\.\.args\)\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Structured\/top-level codec helpers/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /encodeAnQstStructured_.*\(draft\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /return decodeAnQstStructured_.*\(result\);/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodeAnQstStructured_.*\(value\)\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public AnQstWebHostBase/);
@@ -70,8 +74,83 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /void validate\(const ValidateHandler& handler\) const;/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /bool\* ok = nullptr/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /QString\* error = nullptr/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /decodeAnQstStructured_CdDraft\(args\.value\(0\)\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodeAnQstStructured_boolean\(result\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /typedValue = decodeAnQstStructured_CdDraft\(value\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodeAnQstStructured_boolean\(value\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
+});
+
+test("generateOutputs wires structured codecs through TS, C++, and node boundaries", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-structured-codecs-"));
+  const specPath = path.join(tempRoot, "StructuredWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace StructuredWidget {
+  interface Track {
+    title: string;
+    durationSeconds: number;
+  }
+
+  interface Draft {
+    album: string;
+    year: AnQst.Type.qint32;
+    published: boolean;
+    tracks: Track[];
+    meta: {
+      owner: string;
+      notes?: string;
+    };
+  }
+
+  interface Result {
+    ok: boolean;
+    message: string;
+    field?: string;
+  }
+
+  interface StructuredService extends AnQst.Service {
+    validate(draft: Draft): AnQst.Call<Result>;
+    replaceDraft(draft: Draft): AnQst.Slot<Result>;
+    draft: AnQst.Input<Draft>;
+    result: AnQst.Output<Result>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: true });
+  const tsServices = outputs["frontend/StructuredWidget_Angular/services.ts"];
+  const cppWidget = outputs["backend/cpp/qt/StructuredWidget_widget/StructuredWidget.cpp"];
+  const nodeIndex = outputs["backend/node/express/StructuredWidget_anQst/index.ts"];
+
+  assert.match(tsServices, /Structured\/top-level codec helpers/);
+  assert.match(tsServices, /encodeAnQstStructured_.*\(draft\)/);
+  assert.match(tsServices, /const result = handler\(decodeAnQstStructured_.*\(wireArgs\[0\]\)\);/);
+  assert.match(tsServices, /return result instanceof Error \? result : encodeAnQstStructured_.*\(result\);/);
+  assert.match(tsServices, /setInput\("StructuredService", "draft", encodeAnQstStructured_.*\(value\)\)/);
+  assert.match(tsServices, /onOutput\("StructuredService", "result", \(value\) => this\._result\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
+
+  assert.match(cppWidget, /inline QVariant encodeAnQstStructured_Draft/);
+  assert.match(cppWidget, /inline Result decodeAnQstStructured_Result/);
+  assert.match(cppWidget, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\)/);
+  assert.match(cppWidget, /return encodeAnQstStructured_Result\(result\);/);
+  assert.match(cppWidget, /invokeArgs\.push_back\(encodeAnQstStructured_Draft\(draft\)\);/);
+  assert.match(cppWidget, /return decodeAnQstStructured_Result\(result\);/);
+  assert.match(cppWidget, /const Draft typedValue = decodeAnQstStructured_Draft\(value\);/);
+  assert.match(cppWidget, /setOutputValue\(QStringLiteral\("StructuredService"\), QStringLiteral\("result"\), encodeAnQstStructured_Result\(value\)\)/);
+
+  assert.match(nodeIndex, /Structured\/top-level codec helpers/);
+  assert.match(nodeIndex, /invokeSlot\("StructuredService", "replaceDraft", \[encodeAnQstStructured_.*\(draft\)\], timeoutMs\)\.then\(\(value\) => decodeAnQstStructured_.*\(value\)\)/);
+  assert.match(nodeIndex, /Promise\.resolve\(handler\(buildHandlerBridge\(session\), decodeAnQstStructured_.*\(args\[0\]\)\)\)/);
+  assert.match(nodeIndex, /result: encodeAnQstStructured_.*\(result\)/);
+  assert.match(nodeIndex, /const decodedValue = decodeAnQstStructured_.*\(value\);/);
+  assert.match(nodeIndex, /setOutputValue\("StructuredService", "result", encodeAnQstStructured_.*\(value\)\)/);
 });
 
 test("generateOutputs emits only required imported type bindings", () => {
@@ -146,6 +225,9 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"]);
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/types/index.d.ts"]);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /defaultSlotTimeoutMs = options\.defaultSlotTimeoutMs \?\? 1000/);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /Structured\/top-level codec helpers/);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /result: encodeAnQstStructured_.*\(result\)/);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /const decodedValue = decodeAnQstStructured_/);
   assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);
   assert.equal(nodeOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
 
@@ -211,6 +293,24 @@ declare namespace CdEntryEditor {
   assert.match(cppFile, /qRegisterMetaType<CdEntryEditor::CdDraft>\("CdEntryEditor::CdDraft"\);/);
   assert.match(cppFile, /\[Timeout\] CdEntryService\.replaceTracks: The webapp inside the widget did not anwser within %1 ms\./);
   assert.match(cppFile, /\[RequestFailed\]: %1/);
+});
+
+test("installQtIntegrationCMake emits a pure wrapper over the generated widget tree", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-integration-"));
+  installQtIntegrationCMake(tempRoot, "DemoWidget");
+
+  const cmakePath = path.join(tempRoot, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt");
+  const cmake = fs.readFileSync(cmakePath, "utf8");
+
+  assert.match(cmake, /set\(ANQST_REQUIRED_GENERATED_FILES[\s\S]*webapp\/index\.html"[\s\S]*\)/);
+  assert.match(cmake, /Missing file: \$\{required_file\}\.[\s\S]*Run 'npx anqst build' in '\$\{ANQST_PROJECT_ROOT\}' first\./);
+  assert.match(cmake, /add_subdirectory\("\$\{ANQST_GENERATED_WIDGET_DIR\}" "\$\{ANQST_GENERATED_WIDGET_BINARY_DIR\}"\)/);
+  assert.doesNotMatch(cmake, /ANQST_USE_PREGENERATED/);
+  assert.doesNotMatch(cmake, /find_program\(ANQST_NPM_EXECUTABLE npm REQUIRED\)/);
+  assert.doesNotMatch(cmake, /find_program\(ANQST_NPX_EXECUTABLE npx REQUIRED\)/);
+  assert.doesNotMatch(cmake, /add_custom_command\(/);
+  assert.doesNotMatch(cmake, /add_custom_target\(DemoWidgetWidget_anqst_codegen/);
+  assert.doesNotMatch(cmake, /add_library\(DemoWidgetWidget/);
 });
 
 test("installQtDesignerPluginCMake emits category override and favicon icon assets", () => {

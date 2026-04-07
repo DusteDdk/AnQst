@@ -327,6 +327,7 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       detailLines.push("    Target QWidget:");
       detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
       detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
+      detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
       detailLines.push("      - Embedded web assets refreshed from Angular build");
     }
     if (generationTargets.emitNodeExpressWs) {

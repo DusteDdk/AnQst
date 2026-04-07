@@ -354,6 +354,29 @@ test("build command emits outputs only under AnQst/generated", () => {
   });
 });
 
+test("build command advertises direct C++ handoff and emits wrapper integration CMake", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"] });
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 0);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const cmakePath = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt");
+    const cmake = fs.readFileSync(cmakePath, "utf8");
+    assert.match(captured, /C\+\+ handoff: downstream CMake consumes this generated tree directly/);
+    assert.match(cmake, /add_subdirectory\("\$\{ANQST_GENERATED_WIDGET_DIR\}" "\$\{ANQST_GENERATED_WIDGET_BINARY_DIR\}"\)/);
+    assert.doesNotMatch(cmake, /ANQST_USE_PREGENERATED/);
+  });
+});
+
 test("build command reads active stamp from generator workspace", () => {
   withActiveStamp("6af0b49_dirty_build_3", () => {
     withTempProject((projectDir) => {

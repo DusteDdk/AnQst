@@ -136,6 +136,13 @@ Generated CMake files MUST include:
 - Inclusion of generated headers/sources,
 - Qt MOC/autogen requirements,
 - Exported include directories for generated API headers.
+- A stable integration entrypoint that consumes the existing `AnQst/generated` widget tree.
+
+Generated integration CMake:
+
+- MUST NOT require `npm`, `npx`, or other Node-specific tools.
+- MUST fail fast with an actionable diagnostic if the required generated widget files are missing.
+- MUST preserve the same widget target name, include structure, and link requirements as the widget-local generated CMake it wraps.
 
 ## 5. Type Mapping Rules
 

@@ -5,6 +5,7 @@
 #include "AnQstWidgetDebugDialog.h"
 #include "AngularHttpBaseServer.h"
 
+#include <QAuthenticator>
 #include <QDesktopServices>
 #include <QContextMenuEvent>
 #include <QDir>
@@ -24,15 +25,39 @@
 #include <QPushButton>
 #include <QProcessEnvironment>
 #include <QShortcut>
+#include <QStringList>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWebChannel>
+#include <QWebEngineCertificateError>
 #include <QWebEnginePage>
 #include <QWebEngineScript>
 #include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 
 namespace {
+static QString boolToString(bool value) {
+    return value ? QStringLiteral("true") : QStringLiteral("false");
+}
+
+static void appendDetailValue(QStringList& lines, const QString& label, const QString& value) {
+    if (!value.trimmed().isEmpty()) {
+        lines.append(label + value);
+    }
+}
+
+static void appendDetailBlock(QStringList& lines, const QString& label, const QString& value) {
+    if (value.trimmed().isEmpty()) {
+        return;
+    }
+    lines.append(label);
+    lines.append(value);
+}
+
+static QString joinDetailLines(const QStringList& lines) {
+    return lines.join(QStringLiteral("\n"));
+}
+
 static QString normalizeQrcRoot(const QString& root) {
     QString normalized = root.trimmed();
     if (normalized.startsWith(QStringLiteral(":/"))) {
@@ -61,6 +86,105 @@ static void disableWebEngineSandboxForTrustedHost() {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
 }
 
+static bool shouldEmitJavaScriptConsoleLevel(QWebEnginePage::JavaScriptConsoleMessageLevel level) {
+    return level == QWebEnginePage::WarningMessageLevel ||
+           level == QWebEnginePage::ErrorMessageLevel;
+}
+
+static QString javaScriptConsoleLevelToString(QWebEnginePage::JavaScriptConsoleMessageLevel level) {
+    switch (level) {
+    case QWebEnginePage::InfoMessageLevel:
+        return QStringLiteral("info");
+    case QWebEnginePage::WarningMessageLevel:
+        return QStringLiteral("warning");
+    case QWebEnginePage::ErrorMessageLevel:
+        return QStringLiteral("error");
+    }
+    return QStringLiteral("unknown");
+}
+
+static QString renderProcessTerminationStatusToString(QWebEnginePage::RenderProcessTerminationStatus status) {
+    switch (status) {
+    case QWebEnginePage::NormalTerminationStatus:
+        return QStringLiteral("normal");
+    case QWebEnginePage::AbnormalTerminationStatus:
+        return QStringLiteral("abnormal");
+    case QWebEnginePage::CrashedTerminationStatus:
+        return QStringLiteral("crashed");
+    case QWebEnginePage::KilledTerminationStatus:
+        return QStringLiteral("killed");
+    }
+    return QStringLiteral("unknown");
+}
+
+static QString structuredJavaScriptChannel(const QString& message) {
+    if (message.startsWith(QStringLiteral("[AnQst][resource.error]"))) {
+        return QStringLiteral("webengine.resource_load_error");
+    }
+    if (message.startsWith(QStringLiteral("[AnQst][window.error]"))) {
+        return QStringLiteral("js.window.error");
+    }
+    if (message.startsWith(QStringLiteral("[AnQst][unhandledrejection]"))) {
+        return QStringLiteral("js.unhandledrejection");
+    }
+    return QString();
+}
+
+static QString normalizedJavaScriptConsoleMessage(const QString& message) {
+    const int newlineIndex = message.indexOf(QLatin1Char('\n'));
+    if (message.startsWith(QStringLiteral("[AnQst][")) && newlineIndex >= 0) {
+        return message.mid(newlineIndex + 1);
+    }
+    if (message.startsWith(QStringLiteral("[AnQst]["))) {
+        return QString();
+    }
+    return message;
+}
+
+static QString javaScriptConsoleChannel(
+    QWebEnginePage::JavaScriptConsoleMessageLevel level,
+    const QString& message) {
+    const QString structuredChannel = structuredJavaScriptChannel(message);
+    if (!structuredChannel.isEmpty()) {
+        return structuredChannel;
+    }
+    switch (level) {
+    case QWebEnginePage::WarningMessageLevel:
+        return QStringLiteral("js.console.warning");
+    case QWebEnginePage::ErrorMessageLevel:
+        return QStringLiteral("js.console.error");
+    case QWebEnginePage::InfoMessageLevel:
+        return QStringLiteral("js.console.info");
+    }
+    return QStringLiteral("js.console.unknown");
+}
+
+static QString formatJavaScriptConsoleDetail(
+    QWebEnginePage::JavaScriptConsoleMessageLevel level,
+    const QString& message,
+    int lineNumber,
+    const QString& sourceId) {
+    QStringList lines;
+    lines.append(QStringLiteral("JavaScript console %1.").arg(javaScriptConsoleLevelToString(level)));
+    appendDetailValue(lines, QStringLiteral("Source: "), sourceId);
+    if (lineNumber > 0) {
+        lines.append(QStringLiteral("Line: %1").arg(lineNumber));
+    }
+    appendDetailBlock(lines, QStringLiteral("Message:"), normalizedJavaScriptConsoleMessage(message));
+    return joinDetailLines(lines);
+}
+
+static QString formatCertificateErrorDetail(const QWebEngineCertificateError& certificateError) {
+    QStringList lines;
+    lines.append(QStringLiteral("TLS certificate error while loading a request."));
+    appendDetailValue(lines, QStringLiteral("URL: "), certificateError.url().toString());
+    appendDetailValue(lines, QStringLiteral("Description: "), certificateError.errorDescription());
+    lines.append(QStringLiteral("Error code: %1").arg(static_cast<int>(certificateError.error())));
+    lines.append(QStringLiteral("Overridable: %1").arg(boolToString(certificateError.isOverridable())));
+    lines.append(QStringLiteral("Deferred: %1").arg(boolToString(certificateError.deferred())));
+    return joinDetailLines(lines);
+}
+
 class LocalOnlyWebPage final : public QWebEnginePage {
 public:
     explicit LocalOnlyWebPage(QObject* parent = nullptr)
@@ -84,6 +208,32 @@ protected:
             return false;
         }
         return QWebEnginePage::acceptNavigationRequest(url, type, isMainFrame);
+    }
+
+    void javaScriptConsoleMessage(
+        JavaScriptConsoleMessageLevel level,
+        const QString& message,
+        int lineNumber,
+        const QString& sourceID) override {
+        if (shouldEmitJavaScriptConsoleLevel(level) && parent() != nullptr) {
+            QMetaObject::invokeMethod(
+                parent(),
+                "handleWebEngineDiagnostic",
+                Q_ARG(QString, javaScriptConsoleChannel(level, message)),
+                Q_ARG(QString, formatJavaScriptConsoleDetail(level, message, lineNumber, sourceID)));
+        }
+        QWebEnginePage::javaScriptConsoleMessage(level, message, lineNumber, sourceID);
+    }
+
+    bool certificateError(const QWebEngineCertificateError& certificateError) override {
+        if (parent() != nullptr) {
+            QMetaObject::invokeMethod(
+                parent(),
+                "handleWebEngineDiagnostic",
+                Q_ARG(QString, QStringLiteral("webengine.certificate_error")),
+                Q_ARG(QString, formatCertificateErrorDetail(certificateError)));
+        }
+        return QWebEnginePage::certificateError(certificateError);
     }
 };
 
@@ -155,7 +305,8 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     connect(m_reattachButton, &QPushButton::clicked, this, &AnQstWebHostBase::handleReattachRequested);
 
     m_view->setPage(new LocalOnlyWebPage(this));
-    m_view->page()->setWebChannel(m_webChannel);
+    auto* page = m_view->page();
+    page->setWebChannel(m_webChannel);
     setRemoteNavigationBlocked(true);
     installBridgeBootstrapScript();
     m_debugState.provider = AnQstWidgetResourceProvider::Qrc;
@@ -165,6 +316,37 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     applyDebugBorderHint();
 
     connect(m_view, &QWebEngineView::loadFinished, this, &AnQstWebHostBase::handleLoadFinished);
+    connect(m_view, &QWebEngineView::renderProcessTerminated, this,
+            [this, page](QWebEnginePage::RenderProcessTerminationStatus terminationStatus, int exitCode) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine render process terminated."));
+                lines.append(QStringLiteral("Status: %1").arg(renderProcessTerminationStatusToString(terminationStatus)));
+                lines.append(QStringLiteral("Exit code: %1").arg(exitCode));
+                appendDetailValue(lines, QStringLiteral("Requested URL: "), page->requestedUrl().toString());
+                appendDetailValue(lines, QStringLiteral("Current URL: "), m_view->url().toString());
+                emitWebEngineError(QStringLiteral("webengine.render_process_terminated"), joinDetailLines(lines));
+            });
+    connect(page, &QWebEnginePage::authenticationRequired, this,
+            [this](const QUrl& requestUrl, QAuthenticator* authenticator) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine request requires HTTP authentication."));
+                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
+                if (authenticator != nullptr) {
+                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
+                }
+                emitWebEngineError(QStringLiteral("webengine.authentication_required"), joinDetailLines(lines));
+            });
+    connect(page, &QWebEnginePage::proxyAuthenticationRequired, this,
+            [this](const QUrl& requestUrl, QAuthenticator* authenticator, const QString& proxyHost) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine request requires proxy authentication."));
+                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
+                appendDetailValue(lines, QStringLiteral("Proxy host: "), proxyHost);
+                if (authenticator != nullptr) {
+                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
+                }
+                emitWebEngineError(QStringLiteral("webengine.proxy_authentication_required"), joinDetailLines(lines));
+            });
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, this, &AnQstWebHostBase::anQstBridge_outputUpdated);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested, this, &AnQstWebHostBase::anQstBridge_slotInvocationRequested);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_outputUpdated);
@@ -469,6 +651,12 @@ void AnQstWebHostBase::anQstBridge_resolveSlot(const QString& requestId, bool ok
 
 void AnQstWebHostBase::handleLoadFinished(bool ok) {
     if (!ok) {
+        QStringList lines;
+        lines.append(QStringLiteral("Host failed to load entry point."));
+        appendDetailValue(lines, QStringLiteral("Entry point: "), m_entryPoint);
+        appendDetailValue(lines, QStringLiteral("Requested URL: "), m_view->page()->requestedUrl().toString());
+        appendDetailValue(lines, QStringLiteral("Current URL: "), m_view->url().toString());
+        emitWebEngineError(QStringLiteral("webengine.load_failed"), joinDetailLines(lines));
         emitHostError(
             QStringLiteral("HOST_LOAD_FAILED"),
             QStringLiteral("load"),
@@ -489,6 +677,10 @@ void AnQstWebHostBase::handleLoadFinished(bool ok) {
 }
 
 void AnQstWebHostBase::handleNavigationPolicyError(const QUrl& blockedUrl) {
+    QStringList lines;
+    lines.append(QStringLiteral("Navigation blocked by local-content policy."));
+    appendDetailValue(lines, QStringLiteral("URL: "), blockedUrl.toString());
+    emitWebEngineError(QStringLiteral("webengine.navigation_blocked"), joinDetailLines(lines));
     emitHostError(
         QStringLiteral("HOST_POLICY_SCHEME_BLOCKED"),
         QStringLiteral("policy"),
@@ -499,6 +691,10 @@ void AnQstWebHostBase::handleNavigationPolicyError(const QUrl& blockedUrl) {
 }
 
 void AnQstWebHostBase::handleNetworkPolicyError(const QUrl& blockedUrl) {
+    QStringList lines;
+    lines.append(QStringLiteral("Network resource blocked by local-content policy."));
+    appendDetailValue(lines, QStringLiteral("URL: "), blockedUrl.toString());
+    emitWebEngineError(QStringLiteral("webengine.resource_blocked"), joinDetailLines(lines));
     emitHostError(
         QStringLiteral("HOST_POLICY_SCHEME_BLOCKED"),
         QStringLiteral("policy"),
@@ -506,6 +702,10 @@ void AnQstWebHostBase::handleNetworkPolicyError(const QUrl& blockedUrl) {
         true,
         QStringLiteral("Network resource blocked by local-content policy."),
         { { QStringLiteral("url"), blockedUrl.toString() } });
+}
+
+void AnQstWebHostBase::handleWebEngineDiagnostic(const QString& channel, const QString& detail) {
+    emitWebEngineError(channel, detail);
 }
 
 void AnQstWebHostBase::emitHostError(
@@ -524,6 +724,10 @@ void AnQstWebHostBase::emitHostError(
     payload.insert(QStringLiteral("context"), context);
     payload.insert(QStringLiteral("timestamp"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     emit onHostError(payload);
+}
+
+void AnQstWebHostBase::emitWebEngineError(const QString& channel, const QString& detail) {
+    emit onWebEngineError(channel, detail);
 }
 
 bool AnQstWebHostBase::isBlockedScheme(const QUrl& url) const {
@@ -559,6 +763,99 @@ QString AnQstWebHostBase::loadDefaultBridgeBootstrapScript() const {
     script.append(QStringLiteral(R"JS(
 ;(() => {
   const anyWindow = window;
+  const describeValue = (value) => {
+    if (value === undefined) {
+      return "undefined";
+    }
+    if (value === null) {
+      return "null";
+    }
+    if (value instanceof Error) {
+      if (typeof value.message === "string" && value.message.length > 0) {
+        return value.message;
+      }
+      return String(value);
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    try {
+      const encoded = JSON.stringify(value);
+      if (typeof encoded === "string" && encoded.length > 0) {
+        return encoded;
+      }
+    } catch (_jsonError) {
+    }
+    return String(value);
+  };
+  const emitStructuredConsoleError = (channel, parts) => {
+    const lines = [`[AnQst][${channel}]`];
+    for (const part of parts) {
+      if (typeof part === "string" && part.length > 0) {
+        lines.push(part);
+      }
+    }
+    console.error(lines.join("\n"));
+  };
+  if (!anyWindow.__anqstRawErrorHooksInstalled) {
+    anyWindow.addEventListener(
+      "error",
+      (event) => {
+        const target = event?.target;
+        const source = event?.filename || target?.currentSrc || target?.src || target?.href || "";
+        const line = Number.isFinite(event?.lineno) ? String(event.lineno) : "";
+        const column = Number.isFinite(event?.colno) ? String(event.colno) : "";
+        const error = event?.error;
+        const stack = error && typeof error.stack === "string" ? error.stack : "";
+        const tagName = typeof target?.tagName === "string" ? target.tagName.toLowerCase() : "";
+        const parts = [];
+        if (target && target !== anyWindow && !error) {
+          parts.push("Resource load failure.");
+          if (tagName.length > 0) {
+            parts.push(`Element: <${tagName}>`);
+          }
+          if (source.length > 0) {
+            parts.push(`Source: ${source}`);
+          }
+          emitStructuredConsoleError("resource.error", parts);
+          return;
+        }
+        parts.push("Unhandled window error.");
+        if (typeof event?.message === "string" && event.message.length > 0) {
+          parts.push(`Message: ${event.message}`);
+        }
+        if (source.length > 0) {
+          parts.push(`Source: ${source}`);
+        }
+        if (line.length > 0) {
+          parts.push(`Line: ${line}`);
+        }
+        if (column.length > 0) {
+          parts.push(`Column: ${column}`);
+        }
+        if (stack.length > 0) {
+          parts.push("Stack:");
+          parts.push(stack);
+        }
+        emitStructuredConsoleError("window.error", parts);
+      },
+      true
+    );
+    anyWindow.addEventListener("unhandledrejection", (event) => {
+      const reason = event?.reason;
+      const stack = reason && typeof reason.stack === "string" ? reason.stack : "";
+      const parts = [
+        "Unhandled promise rejection.",
+        `Reason: ${describeValue(reason)}`
+      ];
+      if (stack.length > 0) {
+        parts.push("Stack:");
+        parts.push(stack);
+      }
+      emitStructuredConsoleError("unhandledrejection", parts);
+    });
+    anyWindow.__anqstRawErrorHooksInstalled = true;
+  }
   const transport = anyWindow?.qt?.webChannelTransport;
   if (!transport || typeof transport !== "object") {
     return;

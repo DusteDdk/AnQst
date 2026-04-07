@@ -179,6 +179,8 @@ Minimum content:
 - Node/Express output: `AnQst/generated/backend/node/express/<widgetName>_anQst/`
 - Qt widget library: `AnQst/generated/backend/cpp/qt/<widgetName>_widget/`
 - Qt integration CMake entrypoint: `AnQst/generated/backend/cpp/cmake/CMakeLists.txt`
+  - Consumes the already-generated widget tree.
+  - Does not invoke `npm`, `npx`, or `anqst`.
 - Designer plugin sources/build artifacts: `AnQst/generated/backend/cpp/qt/<widgetName>_widget/designerPlugin/`
 - Debug dumps: `AnQst/generated/debug/intermediate/...`
 

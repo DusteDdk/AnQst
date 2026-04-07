@@ -13,6 +13,10 @@ This directory is a future-facing documentation area for designing a reusable Qt
   - bridge AnQst transport over WebSocket for browser-attached development tools.
 - HTTP binding defaults to localhost and can be widened for LAN testing.
 - Host-owned bridge bootstrap: web apps must not include Qt `qwebchannel.js` script tags manually.
+- Embedded host diagnostics are exposed through `onWebEngineError(const QString& channel, const QString& detail)`.
+  - The native `QWebEngine` subset is the baseline and remains available even if JavaScript never initializes, bridge bootstrap never becomes usable, or the renderer crashes.
+  - JavaScript stack traces are additive enrichment captured through an early `DocumentCreation` script and surfaced through the same signal when the renderer and JS engine stay alive long enough to produce them.
+  - External-browser host mode is out of scope for this signal.
 
 ## Documentation structure
 

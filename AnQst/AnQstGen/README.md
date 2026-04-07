@@ -75,6 +75,8 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
   - If `QWidget` is enabled and `angular.json` exists:
     - runs production Angular build
     - embeds built web assets into generated Qt widget `webapp/`.
+  - Generated Qt integration CMake consumes the existing `./AnQst/generated` widget tree and fails fast if the required generated files are missing.
+  - Downstream CMake no longer invokes `npm`, `npx`, or `anqst`; run `anqst build` first, then build C++ against the generated tree.
   - If `--designerplugin` is enabled:
     - requires `ANQST_WEBBASE_DIR`
     - emits plugin sources in `./AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin`
@@ -140,3 +142,16 @@ code AnQst/BurgerConstructor.AnQst.d.ts
 npx @dusted/anqst test
 npx @dusted/anqst build
 ```
+
+## Two-stage workflow
+
+```bash
+# Stage 1: Node/Angular/generation environment
+npx @dusted/anqst build
+
+# Stage 2: pure Qt/CMake environment, consuming the generated tree
+cmake -S . -B build
+cmake --build build
+```
+
+Both stages must use the exact outputs from the same prior `anqst build` invocation.

@@ -31,6 +31,8 @@ This is a quick map of the project root so you can find the right place fast.
   - `emit.ts`: generated artifact emission + install-to-`src/anqst-generated` + Qt integration entrypoint emission (`anqst-cmake/CMakeLists.txt`)
 
 ## Specs and Language Definition
+- `AnQstGen/spec/AnQst-Spec-DSL.d.ts`  is the canonical source of truth for the AnQst-Spec language.
+- `AnQstGen/spec/AnQst-Spec-DSL.d.ts` is considered read-only, and must only be updated with explicit permission.
 
 ## Refined Design Docs
 
