@@ -61,11 +61,13 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Structured\/top-level codec helpers/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Boundary codec plan helpers/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /encodeAnQstStructured_.*\(draft\)/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /return decodeAnQstStructured_.*\(result\);/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodeAnQstStructured_.*\(value\)\)/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /encodedValue = encodeAnQstStructured_.*\(value\);/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodedValue\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => \{/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public AnQstWebHostBase/);
@@ -77,7 +79,8 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /decodeAnQstStructured_CdDraft\(args\.value\(0\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodeAnQstStructured_boolean\(result\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /typedValue = decodeAnQstStructured_CdDraft\(value\)/);
-  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodeAnQstStructured_boolean\(value\)\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodedValue = encodeAnQstStructured_boolean\(value\);/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodedValue\);/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
 });
@@ -129,12 +132,14 @@ declare namespace StructuredWidget {
   const cppWidget = outputs["backend/cpp/qt/StructuredWidget_widget/StructuredWidget.cpp"];
   const nodeIndex = outputs["backend/node/express/StructuredWidget_anQst/index.ts"];
 
-  assert.match(tsServices, /Structured\/top-level codec helpers/);
+  assert.match(tsServices, /Boundary codec plan helpers/);
   assert.match(tsServices, /encodeAnQstStructured_.*\(draft\)/);
   assert.match(tsServices, /const result = handler\(decodeAnQstStructured_.*\(wireArgs\[0\]\)\);/);
   assert.match(tsServices, /return result instanceof Error \? result : encodeAnQstStructured_.*\(result\);/);
-  assert.match(tsServices, /setInput\("StructuredService", "draft", encodeAnQstStructured_.*\(value\)\)/);
-  assert.match(tsServices, /onOutput\("StructuredService", "result", \(value\) => this\._result\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
+  assert.match(tsServices, /encodedValue = encodeAnQstStructured_.*\(value\);/);
+  assert.match(tsServices, /setInput\("StructuredService", "draft", encodedValue\)/);
+  assert.match(tsServices, /onOutput\("StructuredService", "result", \(value\) => \{/);
+  assert.match(tsServices, /this\._result\.set\(decodeAnQstStructured_.*\(value\)\)/);
 
   assert.match(cppWidget, /inline QVariant encodeAnQstStructured_Draft/);
   assert.match(cppWidget, /inline Result decodeAnQstStructured_Result/);
@@ -143,9 +148,10 @@ declare namespace StructuredWidget {
   assert.match(cppWidget, /invokeArgs\.push_back\(encodeAnQstStructured_Draft\(draft\)\);/);
   assert.match(cppWidget, /return decodeAnQstStructured_Result\(result\);/);
   assert.match(cppWidget, /const Draft typedValue = decodeAnQstStructured_Draft\(value\);/);
-  assert.match(cppWidget, /setOutputValue\(QStringLiteral\("StructuredService"\), QStringLiteral\("result"\), encodeAnQstStructured_Result\(value\)\)/);
+  assert.match(cppWidget, /encodedValue = encodeAnQstStructured_Result\(value\);/);
+  assert.match(cppWidget, /setOutputValue\(QStringLiteral\("StructuredService"\), QStringLiteral\("result"\), encodedValue\);/);
 
-  assert.match(nodeIndex, /Structured\/top-level codec helpers/);
+  assert.match(nodeIndex, /Boundary codec plan helpers/);
   assert.match(nodeIndex, /invokeSlot\("StructuredService", "replaceDraft", \[encodeAnQstStructured_.*\(draft\)\], timeoutMs\)\.then\(\(value\) => decodeAnQstStructured_.*\(value\)\)/);
   assert.match(nodeIndex, /Promise\.resolve\(handler\(buildHandlerBridge\(session\), decodeAnQstStructured_.*\(args\[0\]\)\)\)/);
   assert.match(nodeIndex, /result: encodeAnQstStructured_.*\(result\)/);
@@ -194,7 +200,7 @@ declare namespace EditorWidget {
   assert.match(tsServices, /draft\(\): Draft \| undefined \{ return this\._draft\(\); \}/);
   assert.match(tsServices, /reportFrontendDiagnostic\(diagnostic: Omit<AnQstBridgeDiagnostic, "timestamp" \| "source">\): void/);
   assert.match(tsServices, /Failed to serialize Input EditorService\.draft/);
-  assert.match(tsServices, /anQstBridge_hostDiagnostic\?: \{ connect: \(cb: \(payload: unknown\) => void\) => void \ };/);
+  assert.match(tsServices, /anQstBridge_hostDiagnostic\?: \{ connect: \(cb: \(payload: unknown\) => void\) => void ?\};/);
 
   assert.match(tsServicesDts, /export declare class AnQstBridgeDiagnostics/);
   assert.match(tsServicesDts, /showDraft\(handler: \(draft: Draft, selectedTrackIndex: number\) => void \| Promise<void> \| Error\): void;/);
@@ -321,7 +327,7 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"]);
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/types/index.d.ts"]);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /defaultSlotTimeoutMs = options\.defaultSlotTimeoutMs \?\? 1000/);
-  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /Structured\/top-level codec helpers/);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /Boundary codec plan helpers/);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /result: encodeAnQstStructured_.*\(result\)/);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /const decodedValue = decodeAnQstStructured_/);
   assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);

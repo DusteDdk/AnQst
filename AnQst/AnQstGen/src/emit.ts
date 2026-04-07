@@ -11,13 +11,13 @@ import {
   resolveGeneratedLayoutPaths
 } from "./layout";
 import {
-  buildStructuredCodecCatalog,
-  getStructuredParameterSite,
-  getStructuredPayloadSite,
-  type StructuredCodecCatalog,
-  renderCppStructuredCodecHelpers,
-  renderTsStructuredCodecHelpers
-} from "./structured-top-level-codecs";
+  buildBoundaryCodecCatalog,
+  getBoundaryParameterSite,
+  getBoundaryPayloadSite,
+  renderCppBoundaryCodecHelpers,
+  renderTsBoundaryCodecHelpers,
+  type BoundaryCodecCatalog
+} from "./boundary-codecs";
 
 function stripAnQstType(typeText: string): string {
   return typeText
@@ -744,7 +744,7 @@ function collectDragDropMimeConstants(spec: ParsedSpecModel): { typeName: string
 function collectDragDropPayloadHelpers(
   spec: ParsedSpecModel,
   cppTypes: CppTypeContext,
-  cppCodecCatalog: StructuredCodecCatalog
+  cppCodecCatalog: BoundaryCodecCatalog
 ): { typeName: string; cppType: string; codecId: string }[] {
   const seen = new Set<string>();
   const helpers: { typeName: string; cppType: string; codecId: string }[] = [];
@@ -754,7 +754,7 @@ function collectDragDropPayloadHelpers(
       const typeName = member.payloadTypeText.replace(/\s/g, "");
       if (seen.has(typeName)) continue;
       seen.add(typeName);
-      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+      const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
       if (!payloadSite) continue;
       helpers.push({
         typeName,
@@ -807,9 +807,8 @@ function renderWidgetUmbrellaHeader(spec: ParsedSpecModel): string {
 `;
 }
 
-function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
+function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodecCatalog: BoundaryCodecCatalog): string {
   const widgetClassName = `${spec.widgetName}Widget`;
-  const cppCodecCatalog = buildStructuredCodecCatalog(spec);
   const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
   const callbackAliases: string[] = [];
   const publicMethods: string[] = [];
@@ -964,11 +963,10 @@ ${fields.map((f) => `    ${f}`).join("\n")}
 `;
 }
 
-function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
+function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodecCatalog: BoundaryCodecCatalog): string {
   const widgetClassName = `${spec.widgetName}Widget`;
-  const cppCodecCatalog = buildStructuredCodecCatalog(spec);
   const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
-  const cppCodecHelpers = renderCppStructuredCodecHelpers(
+  const cppCodecHelpers = renderCppBoundaryCodecHelpers(
     cppCodecCatalog,
     (typeText, pathHintParts) => cppTypes.mapTypeText(typeText, pathHintParts)
   ).trim();
@@ -1075,7 +1073,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
     for (const member of service.members) {
       if (member.kind === "DropTarget" && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+        const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
         lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         lines.push(`            emit ${member.name}(${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload.value<${cppType}>()`}, x, y);`);
@@ -1083,7 +1081,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push(`    });`);
       } else if (member.kind === "HoverTarget" && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+        const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
         lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         lines.push(`            emit ${member.name}(${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload.value<${cppType}>()`}, x, y);`);
@@ -1190,12 +1188,12 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
       const timeoutMs = member.timeoutMs;
       const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+      const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
-        const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+        const paramSite = getBoundaryParameterSite(cppCodecCatalog, service.name, member.name, p.name);
         lines.push(`        const ${pType} ${p.name} = ${paramSite ? `decode${paramSite.codecId}(args.value(${i}))` : variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       lines.push(`        const QString requestId = QStringLiteral("call-%1").arg(++m_callRequestCounter);`);
@@ -1264,7 +1262,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
       for (let i = 0; i < member.parameters.length; i++) {
         const p = member.parameters[i];
         const pType = cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name]);
-        const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+        const paramSite = getBoundaryParameterSite(cppCodecCatalog, service.name, member.name, p.name);
         lines.push(`        const ${pType} ${p.name} = ${paramSite ? `decode${paramSite.codecId}(args.value(${i}))` : variantToCppExpression(pType, `args.value(${i})`)};`);
       }
       const argNames = member.parameters.map((p) => p.name).join(", ");
@@ -1280,7 +1278,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
     for (const member of service.members) {
       if (member.kind !== "Input" || !member.payloadTypeText) continue;
       const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+      const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
       lines.push(`    if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
       lines.push(`        const ${cppType} typedValue = ${payloadSite ? `decode${payloadSite.codecId}(value)` : variantToCppExpression(cppType, "value")};`);
       lines.push(`        set${pascalCase(member.name)}(typedValue);`);
@@ -1304,13 +1302,13 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
 
       if (member.kind === "Slot") {
         const ret = member.payloadTypeText ? cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]) : "void";
-        const payloadSite = member.payloadTypeText ? getStructuredPayloadSite(cppCodecCatalog, service.name, member.name) : undefined;
+        const payloadSite = member.payloadTypeText ? getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name) : undefined;
         const args = member.parameters.map((p) => `${cppTypes.mapTypeText(p.typeText, [service.name, member.name, p.name])} ${p.name}`).join(", ");
         lines.push(`${ret} ${widgetClassName}::slot_${member.name}(${args}) {`);
         lines.push(`    QVariantList invokeArgs;`);
         for (const p of member.parameters) {
           const pType = mapTsTypeToCpp(p.typeText);
-          const paramSite = getStructuredParameterSite(cppCodecCatalog, service.name, member.name, p.name);
+          const paramSite = getBoundaryParameterSite(cppCodecCatalog, service.name, member.name, p.name);
           lines.push(`    invokeArgs.push_back(${paramSite ? `encode${paramSite.codecId}(${p.name})` : cppToVariantExpression(pType, p.name)});`);
         }
         lines.push(`    QVariant result;`);
@@ -1333,7 +1331,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push("");
       } else if ((member.kind === "Input" || member.kind === "Output") && member.payloadTypeText) {
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
-        const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+        const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
         const cap = member.name.charAt(0).toUpperCase() + member.name.slice(1);
         lines.push(`${cppType} ${widgetClassName}::${member.name}() const {`);
         lines.push(`    return m_${member.name};`);
@@ -1574,7 +1572,7 @@ function slotHandlerReturnType(tsRet: string): string {
   return `${tsRet} | Promise<${tsRet}> | Error`;
 }
 
-function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalog: StructuredCodecCatalog): string {
+function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalog: BoundaryCodecCatalog): string {
   const members = spec.services.find((s) => s.name === serviceName)?.members ?? [];
 
   const fieldLines: string[] = [];
@@ -1585,11 +1583,11 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalo
 
   for (const m of members) {
     const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
-    const paramSites = m.parameters.map((p) => getStructuredParameterSite(codecCatalog, serviceName, m.name, p.name));
+    const paramSites = m.parameters.map((p) => getBoundaryParameterSite(codecCatalog, serviceName, m.name, p.name));
     const encodedValueArray = paramSites.length > 0
       ? `[${m.parameters.map((p, index) => `${paramSites[index] ? `encode${paramSites[index]!.codecId}(${p.name})` : p.name}`).join(", ")}]`
       : "[]";
-    const payloadSite = getStructuredPayloadSite(codecCatalog, serviceName, m.name);
+    const payloadSite = getBoundaryPayloadSite(codecCatalog, serviceName, m.name);
     if (m.kind === "Call") {
       const ret = mapTypeTextToTs(m.payloadTypeText ?? "void");
       if (payloadSite) {
@@ -1807,8 +1805,7 @@ export declare class ${serviceName} {
 }`;
 }
 
-function renderTsServices(spec: ParsedSpecModel): string {
-  const codecCatalog = buildStructuredCodecCatalog(spec);
+function renderTsServices(spec: ParsedSpecModel, codecCatalog: BoundaryCodecCatalog): string {
   const serviceClasses = spec.services.map((s) => renderTsService(spec, s.name, codecCatalog)).join("\n");
   const externalTypeImports = renderRequiredTypeImports(
     spec,
@@ -1820,8 +1817,8 @@ function renderTsServices(spec: ParsedSpecModel): string {
   return `import { Injectable, inject, signal } from "@angular/core";
 ${typeImportsBlock}
 
-// Structured/top-level codec helpers
-${renderTsStructuredCodecHelpers(codecCatalog)}
+// Boundary codec plan helpers
+${renderTsBoundaryCodecHelpers(codecCatalog)}
 
 type SlotHandler = (...args: unknown[]) => unknown;
 type OutputHandler = (value: unknown) => void;
@@ -2772,8 +2769,7 @@ function renderNodeExpressWsTypes(spec: ParsedSpecModel): string {
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 
-function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
-  const codecCatalog = buildStructuredCodecCatalog(spec);
+function renderNodeExpressWsIndex(spec: ParsedSpecModel, codecCatalog: BoundaryCodecCatalog): string {
   const typeImports = renderRequiredTypeImports(
     spec,
     `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}/index.ts`
@@ -2810,8 +2806,8 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .map((member) => {
           const ret = mapTypeTextToTs(member.payloadTypeText ?? "void");
           const args = nodeParamArgs(member);
-          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
-          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const paramSites = member.parameters.map((p) => getBoundaryParameterSite(codecCatalog, service.name, member.name, p.name));
+          const payloadSite = getBoundaryPayloadSite(codecCatalog, service.name, member.name);
           const encodedArgs = member.parameters.length > 0
             ? `[${member.parameters.map((p, index) => `${paramSites[index] ? `encode${paramSites[index]!.codecId}(${p.name})` : p.name}`).join(", ")}]`
             : "[]";
@@ -2828,7 +2824,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .filter((member) => member.kind === "Output" && member.payloadTypeText)
         .map((member) => {
           const typeText = mapTypeTextToTs(member.payloadTypeText!);
-          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const payloadSite = getBoundaryPayloadSite(codecCatalog, service.name, member.name);
           return `  set${service.name}_${nodeCap(member.name)}(value: ${typeText}): void {
     this.setOutputValue("${service.name}", "${member.name}", ${payloadSite ? `encode${payloadSite.codecId}(value)` : "value"});
   }`;
@@ -2892,7 +2888,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
         .filter((member) => (member.kind === "Input" || member.kind === "Output") && member.payloadTypeText)
         .map((member) => {
           const typeText = mapTypeTextToTs(member.payloadTypeText!);
-          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const payloadSite = getBoundaryPayloadSite(codecCatalog, service.name, member.name);
           if (member.kind === "Input") {
             return `            ${member.name}: {\n              get: () => session.readInput("${service.name}", "${member.name}").then((value) => ${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${typeText}`}),\n              on: (handler: (value: ${typeText}) => void) => session.onInput("${service.name}", "${member.name}", (value) => handler(${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${typeText}`}))\n            },`;
           }
@@ -2909,8 +2905,8 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Call" && member.payloadTypeText)
         .map((member) => {
-          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
-          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const paramSites = member.parameters.map((p) => getBoundaryParameterSite(codecCatalog, service.name, member.name, p.name));
+          const payloadSite = getBoundaryPayloadSite(codecCatalog, service.name, member.name);
           const decodedArgs = member.parameters.length > 0
             ? member.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(args[${index}])` : `args[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ")
             : "";
@@ -2968,7 +2964,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Emitter")
         .map((member) => {
-          const paramSites = member.parameters.map((p) => getStructuredParameterSite(codecCatalog, service.name, member.name, p.name));
+          const paramSites = member.parameters.map((p) => getBoundaryParameterSite(codecCatalog, service.name, member.name, p.name));
           const decodedArgs = member.parameters.length > 0
             ? member.parameters.map((p, index) => `${paramSites[index] ? `decode${paramSites[index]!.codecId}(args[${index}])` : `args[${index}] as ${mapTypeTextToTs(p.typeText)}`}`).join(", ")
             : "";
@@ -3016,7 +3012,7 @@ function renderNodeExpressWsIndex(spec: ParsedSpecModel): string {
       service.members
         .filter((member) => member.kind === "Input" && member.payloadTypeText)
         .map((member) => {
-          const payloadSite = getStructuredPayloadSite(codecCatalog, service.name, member.name);
+          const payloadSite = getBoundaryPayloadSite(codecCatalog, service.name, member.name);
           return `    if (service === "${service.name}" && member === "${member.name}") {
       const handler = implementation.${service.name}.${member.name};
       if (typeof handler !== "function") {
@@ -3059,8 +3055,8 @@ import type { WebSocket, WebSocketServer } from "ws";
 ${typeImports}
 ${typeDecls}
 
-// Structured/top-level codec helpers
-${renderTsStructuredCodecHelpers(codecCatalog)}
+// Boundary codec plan helpers
+${renderTsBoundaryCodecHelpers(codecCatalog)}
 
 ${handlerInterfaces}
 
@@ -3552,10 +3548,11 @@ export function generateOutputs(
   const cppDir = `backend/cpp/qt/${generatedCppLibraryDirName(spec.widgetName)}`;
   const nodeDir = `backend/node/express/${generatedNodeExpressWsDirName(spec.widgetName)}`;
   const outputs: GeneratedFiles = {};
+  const codecCatalog = buildBoundaryCodecCatalog(spec);
   if (options.emitAngularService) {
     outputs[`${frontendDir}/package.json`] = renderNpmPackage(spec);
     outputs[`${frontendDir}/index.ts`] = renderTsIndex();
-    outputs[`${frontendDir}/services.ts`] = renderTsServices(spec);
+    outputs[`${frontendDir}/services.ts`] = renderTsServices(spec, codecCatalog);
     outputs[`${frontendDir}/types.ts`] = renderTsTypes(spec);
     outputs[`${frontendDir}/index.js`] = renderJsIndex();
     outputs[`${frontendDir}/services.js`] = renderJsServices();
@@ -3569,13 +3566,13 @@ export function generateOutputs(
     outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec);
     outputs[`${cppDir}/${spec.widgetName}.qrc`] = renderEmbeddedQrc(spec.widgetName, []);
     outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetUmbrellaHeader(spec);
-    outputs[`${cppDir}/include/${spec.widgetName}Widget.h`] = renderWidgetHeader(spec, cppTypes);
+    outputs[`${cppDir}/include/${spec.widgetName}Widget.h`] = renderWidgetHeader(spec, cppTypes, codecCatalog);
     outputs[`${cppDir}/include/${spec.widgetName}Types.h`] = renderTypesHeader(spec, cppTypes);
-    outputs[`${cppDir}/${spec.widgetName}.cpp`] = renderCppStub(spec, cppTypes);
+    outputs[`${cppDir}/${spec.widgetName}.cpp`] = renderCppStub(spec, cppTypes, codecCatalog);
   }
   if (options.emitNodeExpressWs) {
     outputs[`${nodeDir}/package.json`] = renderNodeExpressWsPackage(spec);
-    outputs[`${nodeDir}/index.ts`] = renderNodeExpressWsIndex(spec);
+    outputs[`${nodeDir}/index.ts`] = renderNodeExpressWsIndex(spec, codecCatalog);
     outputs[`${nodeDir}/types/index.d.ts`] = renderNodeExpressWsTypes(spec);
   }
   return outputs;
