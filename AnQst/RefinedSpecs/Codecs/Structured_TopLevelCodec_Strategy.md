@@ -1,5 +1,17 @@
 # AnQst Structured Type Codec Strategy
 
+## Status
+
+This document is now a lower-level historical strategy note.
+
+It is not the authoritative source for whole-boundary planning decisions when it conflicts with:
+
+- `RefinedSpecs/Prose/AnQst-Codec-Planning-and-IR.md`
+- `RefinedSpecs/Prose/AnQst-Codec-Design-Principles.md`
+- `Tasks/Codec-Architecture-Correction-Replacement.md`
+
+Its examples remain useful for understanding one-boundary flattening and nested-struct absorption, but its fixed carrier recipes, fixed metadata choices, and literal-union treatment are not normative. Whole-boundary layout, metadata strategy, finite-domain representation, and runtime materialization are planner-owned decisions chosen from full boundary context.
+
 ## 1. Purpose
 
 This document specifies the codec generation strategy for **structured types** — types declared as TypeScript interfaces or object type aliases in an AnQst-Spec. It covers:

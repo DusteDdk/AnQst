@@ -56,6 +56,13 @@ interface CleanCommandArgs {
   force: boolean;
 }
 
+class CliUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+}
+
 interface BuildCommandArgs {
   designerPlugin: boolean;
 }
@@ -367,13 +374,13 @@ function parseSpecCommandArg(commandName: string, specArg: string | undefined, e
 
   for (const arg of allArgs) {
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown ${commandName} flag '${arg}'. ${usageFor(commandName)}`);
+      throw new CliUsageError(`Unknown ${commandName} flag '${arg}'. ${usageFor(commandName)}`);
     }
     positional.push(arg);
   }
 
   if (positional.length !== 1) {
-    throw new Error(usageFor(commandName));
+    throw new CliUsageError(usageFor(commandName));
   }
   return positional[0];
 }
@@ -401,13 +408,13 @@ function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[])
       continue;
     }
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown build flag '${arg}'. ${usageFor("build")}`);
+      throw new CliUsageError(`Unknown build flag '${arg}'. ${usageFor("build")}`);
     }
     positional.push(arg);
   }
 
   if (positional.length > 0) {
-    throw new Error(`Unexpected extra argument '${positional[0]}'. ${usageFor("build")}`);
+    throw new CliUsageError(`Unexpected extra argument '${positional[0]}'. ${usageFor("build")}`);
   }
   return { designerPlugin };
 }
@@ -423,16 +430,16 @@ function parseCleanCommandArgs(specArg: string | undefined, extraArgs: string[])
       continue;
     }
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown clean flag '${arg}'. Use -f or --force.`);
+      throw new CliUsageError(`Unknown clean flag '${arg}'. Use -f or --force.`);
     }
     if (targetPathArg !== null) {
-      throw new Error(`Unexpected extra argument '${arg}'. Usage: anqst clean <path> [-f|--force]`);
+      throw new CliUsageError(`Unexpected extra argument '${arg}'. Usage: anqst clean <path> [-f|--force]`);
     }
     targetPathArg = arg;
   }
 
   if (targetPathArg === null) {
-    throw new Error("Usage: anqst clean <path> [-f|--force]");
+    throw new CliUsageError("Usage: anqst clean <path> [-f|--force]");
   }
   return { targetPathArg, force };
 }
@@ -560,6 +567,22 @@ function renderInstallAliasMessage(): string {
   return `\x1b[38;5;214m${text}\x1b[0m`;
 }
 
+function formatUnexpectedError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return `[AnQst] ${String(error)}`;
+  }
+
+  const lines = [`[AnQst] ${error.message}`];
+  const stack = typeof error.stack === "string" ? error.stack.trim() : "";
+  if (stack.length > 0) {
+    lines.push("");
+    lines.push("Stack trace:");
+    lines.push(stack);
+  }
+
+  return lines.join("\n");
+}
+
 export function runCommand(command: string | undefined, specArg: string | undefined, extraArgs: string[] = []): number {
   try {
     if (!command) {
@@ -628,8 +651,11 @@ export function runCommand(command: string | undefined, specArg: string | undefi
       console.error(formatVerifyError(error));
       return 1;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[AnQst] ${message}`);
+    if (error instanceof CliUsageError) {
+      console.error(error.message);
+      return 1;
+    }
+    console.error(formatUnexpectedError(error));
     return 1;
   }
 }

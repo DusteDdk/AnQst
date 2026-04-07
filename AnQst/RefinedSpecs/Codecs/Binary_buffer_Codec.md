@@ -29,7 +29,7 @@ const encoded = base93Encode(bytes);
 → encoded (string)
 ```
 
-The `base93Encode` function is the standard AnQst base93 encoder (see `AnQstGen/src/base93.ts`). It takes a `Uint8Array` and produces a string.
+The `base93Encode` function is the standard AnQst base93 encoder (TS emission template: `AnQstGen/src/base93.ts`; shared C++ runtime: `AnQstWidget/AnQstWebBase/src/AnQstBase93.cpp` / `AnQstBase93.h`). It takes a `Uint8Array` and produces a string.
 
 ### 3.2 TS Decoder (base93 string → ArrayBuffer)
 
@@ -44,17 +44,17 @@ The `base93Decode` function returns a `Uint8Array`. The `.buffer` property gives
 ### 3.3 C++ Encoder (QByteArray → base93 string)
 
 ```cpp
-const uint8_t* data = reinterpret_cast<const uint8_t*>(byteArray.constData());
-int len = byteArray.size();
-QString encoded = base93Encode(data, len);
+std::vector<std::uint8_t> bytes(byteArray.begin(), byteArray.end());
+QString encoded = anqstBase93Encode(bytes);
 ```
 
-The C++ base93 encoder mirrors the TS implementation, operating on `uint8_t*` and length.
+The C++ base93 encoder mirrors the TS implementation and is provided centrally by `AnQstWebBase` (`AnQstBase93.h`).
 
 ### 3.4 C++ Decoder (base93 string → QByteArray)
 
 ```cpp
-QByteArray bytes = base93Decode(encoded);
+std::vector<std::uint8_t> decoded = anqstBase93Decode(encoded);
+QByteArray bytes(reinterpret_cast<const char*>(decoded.data()), static_cast<int>(decoded.size()));
 ```
 
 ## 4. Standalone Behavior

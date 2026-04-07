@@ -1,4 +1,5 @@
 #include "AnQstWebHostBase.h"
+#include "AnQstBase93.h"
 #include "AnQstHostBridgeFacade.h"
 #include "AngularHttpBaseServer.h"
 #include "AnQstWidgetDebugDialog.h"
@@ -27,6 +28,7 @@
 #include <QTimer>
 #include <cstdlib>
 #include <stdexcept>
+#include <vector>
 
 #if __has_include(<catch2/catch_session.hpp>) && __has_include(<catch2/catch_test_macros.hpp>)
 #include <catch2/catch_session.hpp>
@@ -186,6 +188,29 @@ void scheduleDebugDialogInteraction(
 
 } // namespace
 
+TEST_CASE("shared AnQst base93 runtime preserves canonical vectors and round-trips", "[base93][runtime]") {
+    const std::vector<std::uint8_t> empty{};
+    CHECK(anqstBase93Encode(empty) == QString());
+    CHECK(anqstBase93Decode(QString()) == empty);
+
+    const std::vector<std::uint8_t> one{1u};
+    CHECK(anqstBase93Encode(one) == QStringLiteral(" !"));
+    CHECK(anqstBase93Decode(QStringLiteral(" !")) == one);
+
+    const std::vector<std::uint8_t> maxWord{255u, 255u, 255u, 255u};
+    CHECK(anqstBase93Encode(maxWord) == QStringLiteral("ZG[H$"));
+    CHECK(anqstBase93Decode(QStringLiteral("ZG[H$")) == maxWord);
+
+    std::vector<std::uint8_t> allBytes(256u);
+    for (std::size_t i = 0; i < allBytes.size(); ++i) {
+        allBytes[i] = static_cast<std::uint8_t>(i);
+    }
+    const QString encoded = anqstBase93Encode(allBytes);
+    CHECK(encoded.contains(QLatin1Char('"')) == false);
+    CHECK(encoded.contains(QLatin1Char('\\')) == false);
+    CHECK(anqstBase93Decode(encoded) == allBytes);
+}
+
 TEST_CASE("setContentRoot is single-assignment and emits structured warning", "[host][lifecycle]") {
     ensureApp();
     AnQstWebHostBase host;
@@ -263,7 +288,7 @@ TEST_CASE("bridge Call handler is invoked", "[host][behavior][call]") {
     CHECK(callResult.toString() == QStringLiteral("DemoBehaviorService:callGreeting:Alice"));
 }
 
-TEST_CASE("hover targets deserialize canonical drag-drop wire arrays", "[host][dragdrop][hover]") {
+TEST_CASE("hover targets preserve tagged drag-drop payload text after validating array carriers", "[host][dragdrop][hover]") {
     ensureApp();
     AnQstWebHostBase host;
     auto* facade = host.findChild<AnQstHostBridgeFacade*>();
@@ -279,7 +304,7 @@ TEST_CASE("hover targets deserialize canonical drag-drop wire arrays", "[host][d
     QSignalSpy errorSpy(&host, &AnQstWebHostBase::onHostError);
 
     QMimeData mime;
-    mime.setData(QStringLiteral("application/anqst-test-hover"), QByteArrayLiteral("[\"draft-wire\"]"));
+    mime.setData(QStringLiteral("application/anqst-test-hover"), QByteArrayLiteral("A[\"draft-wire\"]"));
     QDragEnterEvent enterEvent(QPoint(11, 13), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
 
     REQUIRE(host.eventFilter(&host, &enterEvent));
@@ -290,8 +315,7 @@ TEST_CASE("hover targets deserialize canonical drag-drop wire arrays", "[host][d
     REQUIRE(args.count() == 5);
     CHECK(args.at(0).toString() == QStringLiteral("DemoBehaviorService"));
     CHECK(args.at(1).toString() == QStringLiteral("hoveringDraft"));
-    REQUIRE(args.at(2).canConvert<QVariantList>());
-    CHECK(args.at(2).toList() == QVariantList{QStringLiteral("draft-wire")});
+    CHECK(args.at(2).toString() == QStringLiteral("A[\"draft-wire\"]"));
     CHECK(args.at(3).toDouble() == 11.0);
     CHECK(args.at(4).toDouble() == 13.0);
 }
@@ -320,8 +344,9 @@ TEST_CASE("drop targets reject legacy object MIME payloads with diagnostics", "[
     CHECK(payload.value("category").toString() == QStringLiteral("bridge"));
     CHECK(payload.value("severity").toString() == QStringLiteral("error"));
     CHECK(payload.value("recoverable").toBool());
-    CHECK(payload.value("message").toString().contains(QStringLiteral("JSON array")));
+    CHECK(payload.value("message").toString().contains(QStringLiteral("unknown transport tag")));
     CHECK(payload.value("context").toMap().value("mimeType").toString() == QStringLiteral("application/anqst-test-drop"));
+    CHECK(payload.value("context").toMap().value("transportTag").toString() == QStringLiteral("{"));
 }
 
 TEST_CASE("bridge Emitter and Input handlers are forwarded", "[host][behavior][emitter][input]") {

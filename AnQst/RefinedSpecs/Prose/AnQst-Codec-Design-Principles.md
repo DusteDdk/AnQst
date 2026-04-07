@@ -6,11 +6,15 @@ This document defines the design principles governing AnQst's codec generation: 
 
 The purpose of codecs is not merely to make values JSON-transportable. Their purpose is to transport the data declared in an AnQst-Spec efficiently and in a language-appropriate representation so that the value received on the other side is usable and semantically correct for that runtime. This is why AnQst distinguishes, for example, between JavaScript `bigint` and the various 64-bit integer mappings available in C++. It is also why codecs do not perform runtime type-checking, integrity verification, or build-compatibility checks: those concerns are outside the codec layer.
 
+This architecture is bridge-first, not wire-first.
+
+The conceptual product is the strongly typed bridge between JS/V8 and C++/Qt. The JSON/QWebChannel carrier is the final top-level transport constraint, not the primary design center.
+
 ## 2. Foundational Principle: Specialized Generation, No Generic Fallback
 
 The codec system operates at two distinct levels:
 
-- **Base-type factories:** For every type in the `AnQst.Type` enum (`AnQst-Spec-DSL.d.ts`, lines 237-286), there exists a dedicated, super-optimized encode/decode routine. These are reusable leaf-level primitives (e.g., base93 encode for integers and binary values, native JSON string emission for strings, raw-string boolean encoding when that is the optimal strategy). They handle individual values, not structures. Base-type codecs are restricted to returning a single JSON-transportable string.
+- **Base-type factories:** For every type in the `AnQst.Type` enum (`AnQst-Spec-DSL.d.ts`, lines 237-286), there exists a dedicated, super-optimized encode/decode routine. These are reusable leaf-level primitives (e.g., base93 encode for integers and binary values, native JSON string emission for strings, planner-selected finite-domain codes for closed sets). They handle individual values, not structures. Base-type codecs are rendering participants, not owners of a service-boundary wire contract.
 
 - **Top-level codecs:** For each type that appears at the service boundary (a method argument, return payload, or property value), the generator produces a single comprehensive codec. This codec handles the entire type-graph reachable from that top-level type — all fields at all nesting depths — by calling base-type factories for leaf values and flattening the structure into the optimal wire representation. Substructure types that are not themselves service-boundary types do not get independent codecs or independent wire representations; their fields are absorbed into the containing top-level codec.
 
@@ -27,11 +31,13 @@ AnQstGen has complete knowledge of all static and dynamic structures before it b
 
 This total knowledge is what makes per-type codec specialization possible. A generic framework that does not control both sides of the bridge cannot assume this, and must therefore include self-describing metadata, type tags, or version headers in every message. AnQst does not.
 
+Finite-domain information is part of this total static knowledge. Literal unions and other closed sets must survive long enough for the planner to choose a runtime-efficient boundary strategy, and generated public target-language types should preserve that closed-world information when feasible.
+
 ## 4. Base93 Encoding
 
-Numbers and binary data are encoded using base93. Booleans use the most efficient JSON-safe string representation chosen by the codec strategy; in the current architecture that may be a raw single-character string rather than base93. The base93 alphabet consists of 93 characters from the printable ASCII range (0x20-0x7E), excluding `"` and `\` to ensure the encoded strings are JSON-safe without escaping.
+Numbers and binary data are encoded using base93 when the chosen boundary plan places them in a packed binary region. Booleans and other finite-domain values use the representation chosen by the whole-boundary planner. That may be a raw code string, a packed byte code, or another closed-world specialization when that improves generated runtime behavior. The base93 alphabet consists of 93 characters from the printable ASCII range (0x20-0x7E), excluding `"` and `\` to ensure the encoded strings are JSON-safe without escaping.
 
-Base93 is more space-efficient than base64 (93 vs 64 symbols per character position) and avoids the JSON escaping overhead that would affect base64's `+` and `/` characters in some contexts. The encoder packs 4 bytes into 5 base93 characters; the decoder reverses this. The implementation is in `AnQstGen/src/base93.ts`.
+Base93 is more space-efficient than base64 (93 vs 64 symbols per character position) and avoids the JSON escaping overhead that would affect base64's `+` and `/` characters in some contexts. The encoder packs 4 bytes into 5 base93 characters; the decoder reverses this. TypeScript emission templates live in `AnQstGen/src/base93.ts`, and the shared C++ runtime implementation lives in `AnQstWidget/AnQstWebBase/src/AnQstBase93.cpp` (`AnQstBase93.h`).
 
 Strings are never base93-encoded. Strings are always emitted as native JSON strings — either as a naked value (when the type contains only one string) or as a member of a flat string array (when the type-graph contains multiple strings).
 
@@ -41,15 +47,17 @@ The codec for a given type is free to rearrange and pack fields in whatever orde
 
 ### 5.1 Byte Blob Packing
 
-All non-string, non-dynamic leaf values in a type-graph — integers of any width, `number` (IEEE 754 double), `boolean`, and `bigint` — are represented as raw bytes and concatenated into a single byte sequence. This combined sequence is then base93-encoded into one string. The decoder knows the exact byte offset of each field within the blob because both encoder and decoder are generated from the same spec.
+All non-string, non-dynamic leaf values in a type-graph that the planner chooses to place in a packed binary region — integers of any width, `number` (IEEE 754 double), `boolean`, `bigint`, and finite-domain codes where appropriate — are represented as raw bytes and concatenated into a single byte sequence. This combined sequence is then base93-encoded into one string. The decoder knows the exact byte offset of each field within the blob because both encoder and decoder are generated from the same spec.
 
-This means a struct containing a `qint32` (4 bytes), two `qint8` values (1 byte each), and a `boolean` (1 byte) produces a single 7-byte sequence encoded as one base93 string, rather than four separate encoded values. The top-level codec should order fields within the blob to maximize base93 encoding efficiency — grouping 32-bit fields to fill 4-byte words, then 16-bit, then 8-bit — since the base93 encoder's natural unit is 4 bytes (→ 5 characters), and remainder bytes are less efficient.
+This means a struct containing a `qint32` (4 bytes), two `qint8` values (1 byte each), and a `boolean` (1 byte) may produce a single 7-byte sequence encoded as one base93 string, rather than four separate encoded values, when that is the chosen boundary plan. The top-level codec should order fields within the blob to maximize generated runtime efficiency first and base93 efficiency second.
 
 ### 5.2 String Collection
 
 Strings within a type-graph are packed together into a single flat array of strings. Since both sides of the generated codec know each string's position in the array, the actual key or placement of each string within the deserialized structure is irrelevant for the wire format.
 
 This means that if a structure contains nested substructures with string fields, all strings from the entire type-graph are collected into one flat array, not nested arrays that mirror the structure hierarchy.
+
+Finite-domain values may also be carried in the string region when that is the chosen planner specialization, but that is a whole-boundary decision rather than a leaf-owned default.
 
 ### 5.3 Field Reordering
 
@@ -74,6 +82,14 @@ The codec architecture is therefore:
 
 This avoids structural and call overhead entirely.
 
+The top-level planner owns the important decisions:
+
+- whether finite domains remain textual or are recoded
+- whether booleans are byte-packed, text-coded, or otherwise represented
+- whether arrays consume the tail or require explicit count metadata
+- whether metadata is grouped for runtime speed
+- whether target-language public types preserve closed domains instead of widening them
+
 ### 6.1 Variable-Length Array Serialization
 
 A codec that must serialize array-typed fields faces a constraint: its output must still be a single string or a flat array of allowed items, never nested arrays. Generated codecs cannot rely on sub-codecs to serialize their array elements, since those sub-codecs would also be permitted to output arrays, which would create illegal nesting. This is intentional.
@@ -83,9 +99,11 @@ When a codec serializes array data, the array elements must be inlined into the 
 - **Statically known length:** No length encoding is needed. Both encoder and decoder know the array length at generation time, so elements are simply placed at known positions in the output.
 - **Single variable-length array, no other data:** The elements can be serialized directly as the output array. The decoder knows the entire output consists of that array's elements.
 - **Single variable-length array, with other data:** The array elements can be appended as the last items in the output by convention. The decoder knows that everything after the fixed-position items belongs to the variable-length array.
-- **Multiple variable-length arrays:** The codec can encode the length of each array as an integer (via base93) before the first element of that array, allowing the decoder to determine where one array ends and the next begins.
+- **Multiple variable-length arrays:** The codec can encode the length of each array as an integer before the first element of that array, allowing the decoder to determine where one array ends and the next begins.
 
 The encoder and decoder for each type should be designed in lock-step — determining the shape of both together makes it simpler to keep them in sync, since every packing decision in the encoder implies a corresponding unpacking decision in the decoder.
+
+Count, tail, and metadata choices are planner-owned compute decisions. A slightly larger header is correct when it removes a second pass or other avoidable runtime work.
 
 ## 7. Acceptance Criteria for Codec Efficiency
 

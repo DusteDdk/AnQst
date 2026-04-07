@@ -1,0 +1,21 @@
+codec AnQstStructured_boolean :: boolean
+regions blob=1 string=0 binary=0 dynamic=0
+  - blob leaf AlbumService.validate.Payload -> AnQstStructured_boolean_blob_1
+
+codec AnQstStructured_Album :: Album
+regions blob=2 string=2 binary=0 dynamic=0
+  - struct AlbumService.validate.album
+    field name
+      - string leaf AlbumService.validate.album.name -> AnQstStructured_Album_string_1
+    field tracks
+      - array AlbumService.validate.album.tracks count=AnQstStructured_Album_array_count_2
+        - struct AlbumService.validate.album.tracks.Item
+          field title
+            - string leaf AlbumService.validate.album.tracks.Item.title -> AnQstStructured_Album_string_3
+          field seconds
+            - blob leaf AlbumService.validate.album.tracks.Item.seconds -> AnQstStructured_Album_blob_4
+
+codec AnQstStructured_string :: string
+regions blob=0 string=1 binary=0 dynamic=0
+  - string leaf AlbumService.pulse.value -> AnQstStructured_string_string_1
+

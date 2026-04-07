@@ -1432,8 +1432,38 @@ bool AnQstWebHostBase::matchDropMimeType(const QMimeData* mime, QString* matched
 
 QVariant AnQstWebHostBase::deserializeMimePayload(const QMimeData* mime, const QString& mimeType) {
     const QByteArray rawData = mime->data(mimeType);
+    if (rawData.isEmpty()) {
+        emitHostError(
+            QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Drag/drop MIME payload is empty."),
+            {
+                {QStringLiteral("mimeType"), mimeType},
+            });
+        return QVariant();
+    }
+    const char transportTag = rawData.at(0);
+    const QByteArray payloadBytes = rawData.mid(1);
+    if (transportTag == 'S') {
+        return QString::fromUtf8(rawData);
+    }
+    if (transportTag != 'A' && transportTag != 'O') {
+        emitHostError(
+            QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Drag/drop MIME payload has an unknown transport tag."),
+            {
+                {QStringLiteral("mimeType"), mimeType},
+                {QStringLiteral("transportTag"), QString::fromLatin1(QByteArray(1, transportTag))},
+            });
+        return QVariant();
+    }
     QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
+    const QJsonDocument doc = QJsonDocument::fromJson(payloadBytes, &parseError);
     if (parseError.error != QJsonParseError::NoError) {
         emitHostError(
             QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
@@ -1447,19 +1477,37 @@ QVariant AnQstWebHostBase::deserializeMimePayload(const QMimeData* mime, const Q
             });
         return QVariant();
     }
-    if (!doc.isArray()) {
-        emitHostError(
-            QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
-            QStringLiteral("bridge"),
-            QStringLiteral("error"),
-            true,
-            QStringLiteral("Drag/drop MIME payload must be a JSON array of normalized AnQst wire items."),
-            {
-                {QStringLiteral("mimeType"), mimeType},
-            });
-        return QVariant();
+    if (transportTag == 'A') {
+        if (!doc.isArray()) {
+            emitHostError(
+                QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+                QStringLiteral("bridge"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("Drag/drop MIME payload declared a JSON array carrier but did not decode as an array."),
+                {
+                    {QStringLiteral("mimeType"), mimeType},
+                });
+            return QVariant();
+        }
+        return QString::fromUtf8(rawData);
     }
-    return doc.array().toVariantList();
+    if (transportTag == 'O') {
+        if (!doc.isObject()) {
+            emitHostError(
+                QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+                QStringLiteral("bridge"),
+                QStringLiteral("error"),
+                true,
+                QStringLiteral("Drag/drop MIME payload declared a JSON object carrier but did not decode as an object."),
+                {
+                    {QStringLiteral("mimeType"), mimeType},
+                });
+            return QVariant();
+        }
+        return QString::fromUtf8(rawData);
+    }
+    return QVariant();
 }
 
 void AnQstWebHostBase::dispatchHoverThrottle() {
@@ -1538,7 +1586,9 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
             m_cachedHoverMember.clear();
             m_cachedHoverPayload = QVariant();
         }
-        return true;
+        // Always forward DragLeave to the web surface. Swallowing it breaks HTML5 drag/drop
+        // inside the page when this filter is installed for AnQst Qt→web targets.
+        return QWidget::eventFilter(obj, event);
     }
 
     if (event->type() == QEvent::Drop) {

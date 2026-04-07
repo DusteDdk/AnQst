@@ -6,6 +6,7 @@ import path from "node:path";
 import { PNG } from "pngjs";
 import { runClean, runCommand, runGenerate, runVerify } from "../src/app";
 import { ANQST_LAYOUT_VERSION } from "../src/layout";
+import { getProgramDiagnostics } from "../src/program";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 const defaultGenerateTargets = ["QWidget", "AngularService", "node_express_ws"];
@@ -417,6 +418,45 @@ test("build target selection works for AngularService only", () => {
   });
 });
 
+test("spec analysis ignores unrelated app sources before generated imports exist", () => {
+  withTempProject((projectDir) => {
+    const { specPath, widgetName } = configureInstilledProject(projectDir, { generate: ["AngularService"] });
+    fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, "src", "app.ts"),
+      `import { Playback } from "anqst-generated/services";
+
+export const serviceToken = Playback;
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      path.join(projectDir, "tsconfig.json"),
+      `${JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "CommonJS",
+          baseUrl: ".",
+          paths: {
+            "AnQst-Spec-DSL": [
+              path.relative(projectDir, path.join(anqstGenRoot, "spec", "AnQst-Spec-DSL.d.ts"))
+            ],
+            "anqst-generated/*": [`AnQst/generated/frontend/${widgetName}_Angular/*`]
+          }
+        },
+        include: ["src/**/*.ts"]
+      }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const diagnostics = getProgramDiagnostics(specPath);
+    assert.equal(diagnostics.some((line) => line.includes("anqst-generated/services")), false);
+
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+  });
+});
+
 test("build target selection works for QWidget only", () => {
   withTempProject((projectDir) => {
     configureInstilledProject(projectDir, { generate: ["QWidget"] });
@@ -610,6 +650,37 @@ test("build command fails when AnQst setting path is invalid type", () => {
       console.error = originalError;
     }
     assert.ok(errors.some((line) => line.includes("Invalid package.json key 'AnQst'")));
+  });
+});
+
+test("build command prints stack trace for unexpected errors", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir);
+    const originalExistsSync = fs.existsSync;
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      fs.existsSync = ((targetPath: fs.PathLike) => {
+        if (String(targetPath).endsWith("package.json")) {
+          throw new Error("synthetic internal failure");
+        }
+        return originalExistsSync(targetPath);
+      }) as typeof fs.existsSync;
+      const code = runCommand("build", undefined);
+      assert.equal(code, 1);
+    } finally {
+      fs.existsSync = originalExistsSync;
+      console.error = originalError;
+    }
+
+    const captured = errors.join("\n");
+    assert.match(captured, /\[AnQst\] synthetic internal failure/);
+    assert.match(captured, /Stack trace:/);
+    assert.match(captured, /Error: synthetic internal failure/);
+    assert.match(captured, /\bat\b/);
   });
 });
 

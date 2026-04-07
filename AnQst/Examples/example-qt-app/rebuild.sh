@@ -1,10 +1,6 @@
 #!/bin/bash
 
-full=false
-if [ "$1" == "full" ]
-then
-    full=true
-fi
+full=true
 
 if $full
 then

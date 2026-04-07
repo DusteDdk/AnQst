@@ -92,7 +92,7 @@ function readTsConfigFrom(specPath: string): { rootNames: string[]; options: ts.
 export function createTscProgramContext(specPath: string): TscProgramContext {
   const absoluteSpecPath = path.resolve(specPath);
   const tsConfig = readTsConfigFrom(absoluteSpecPath);
-  const rootNames = tsConfig ? [...new Set([...tsConfig.rootNames, absoluteSpecPath])] : [absoluteSpecPath];
+  const rootNames = [absoluteSpecPath];
   const options: ts.CompilerOptions = tsConfig?.options ?? {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.CommonJS,

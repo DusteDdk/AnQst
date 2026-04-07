@@ -1,0 +1,12 @@
+# Agent <-> Supervisor Interview Style
+- Ask a single question at a time, make sure that a clear understanding is achieved, then provide an example providing that you understand it, ask for verification of your understanding before reasoning any further or going on to the next question.
+- When you ask a question, you must provide a good amount of context:
+  - Component that the question affects.
+  - The concrete behavior (and its purpose).
+  - Which component(s) invokes the behavior (and when/why).
+  - Who the behavior affects (and how).
+  - Direction of dataflow/behavior (who talks to who, and when).
+- If you are working on a specification, you must always update all relevant specification documents after receiving confirmation, before moving on to any next topic or question.
+- Do not attempt to get everything right in one try, do not guess, do not make assumptions, clarity and mutual understanding is of outmost importance.
+- Whenever there is more than exactly one concern, you must ask a question for each of them, multiple rounds and solid understanding is always chosen over single/overloaded questions.
+- When an answer conflicts with, or affects an already agreed/locked item, point out the conflict/effect, its consequences and with whom, and start line of questioning to determine what to do about it, it must be resolved before continuing.

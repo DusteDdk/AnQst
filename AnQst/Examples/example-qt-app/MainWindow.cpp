@@ -58,13 +58,50 @@ CdEntryEditor::User userFromSettingsJson(const QJsonObject &object) {
     return user;
 }
 
+QString genreToSettingsString(CdEntryEditor::Genre genre) {
+    switch (genre) {
+    case CdEntryEditor::Genre::Rock:
+        return QStringLiteral("Rock");
+    case CdEntryEditor::Genre::Pop:
+        return QStringLiteral("Pop");
+    case CdEntryEditor::Genre::Jazz:
+        return QStringLiteral("Jazz");
+    case CdEntryEditor::Genre::Classical:
+        return QStringLiteral("Classical");
+    case CdEntryEditor::Genre::Electronic:
+        return QStringLiteral("Electronic");
+    case CdEntryEditor::Genre::Other:
+        return QStringLiteral("Other");
+    }
+    return QStringLiteral("Other");
+}
+
+CdEntryEditor::Genre genreFromSettingsString(const QString &value) {
+    if (value == QStringLiteral("Rock")) {
+        return CdEntryEditor::Genre::Rock;
+    }
+    if (value == QStringLiteral("Pop")) {
+        return CdEntryEditor::Genre::Pop;
+    }
+    if (value == QStringLiteral("Jazz")) {
+        return CdEntryEditor::Genre::Jazz;
+    }
+    if (value == QStringLiteral("Classical")) {
+        return CdEntryEditor::Genre::Classical;
+    }
+    if (value == QStringLiteral("Electronic")) {
+        return CdEntryEditor::Genre::Electronic;
+    }
+    return CdEntryEditor::Genre::Other;
+}
+
 QJsonObject draftToSettingsJson(const CdEntryEditor::CdDraft &draft) {
     QJsonObject object;
     object.insert(QStringLiteral("cdId"), QString::number(draft.cdId));
     object.insert(QStringLiteral("artist"), draft.artist);
     object.insert(QStringLiteral("albumTitle"), draft.albumTitle);
     object.insert(QStringLiteral("releaseYear"), draft.releaseYear);
-    object.insert(QStringLiteral("genre"), draft.genre);
+    object.insert(QStringLiteral("genre"), genreToSettingsString(draft.genre));
     object.insert(QStringLiteral("catalogNumber"), draft.catalogNumber);
     object.insert(QStringLiteral("barcode"), draft.barcode);
     object.insert(QStringLiteral("notes"), draft.notes);
@@ -84,7 +121,7 @@ CdEntryEditor::CdDraft draftFromSettingsJson(const QJsonObject &object) {
     draft.artist = object.value(QStringLiteral("artist")).toString();
     draft.albumTitle = object.value(QStringLiteral("albumTitle")).toString();
     draft.releaseYear = object.value(QStringLiteral("releaseYear")).toInt(QDate::currentDate().year());
-    draft.genre = object.value(QStringLiteral("genre")).toString(QStringLiteral("Other"));
+    draft.genre = genreFromSettingsString(object.value(QStringLiteral("genre")).toString(QStringLiteral("Other")));
     draft.catalogNumber = object.value(QStringLiteral("catalogNumber")).toString();
     draft.barcode = object.value(QStringLiteral("barcode")).toString();
     draft.notes = object.value(QStringLiteral("notes")).toString();
@@ -123,7 +160,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     editorWidget->handle.suggestGenres([](const QString &, const QString &) -> QList<CdEntryEditor::Genre> {
-        return QList<CdEntryEditor::Genre>{QStringLiteral("Other")};
+        return QList<CdEntryEditor::Genre>{CdEntryEditor::Genre::Other};
     });
 
     editorWidget->handle.normalizeBarcode([](const QString &rawValue) {
@@ -422,7 +459,7 @@ CdEntryEditor::CdDraft MainWindow::makeDefaultDraft() const {
     CdEntryEditor::CdDraft draft;
     draft.cdId = QDateTime::currentMSecsSinceEpoch();
     draft.releaseYear = QDate::currentDate().year();
-    draft.genre = QStringLiteral("Other");
+    draft.genre = CdEntryEditor::Genre::Other;
     draft.createdBy.name = QStringLiteral("Qt Host");
     return draft;
 }

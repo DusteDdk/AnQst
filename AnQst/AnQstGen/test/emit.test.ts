@@ -61,13 +61,16 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/types/services.d.ts"], /validate\(draft: CdDraft\): Promise<boolean>;/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /QtWebChannelAdapter/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /WebSocketBridgeAdapter/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Structured\/top-level codec helpers/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /Boundary codec plan helpers/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /encodeAnQstStructured_.*\(draft\)/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /return decodeAnQstStructured_.*\(result\);/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodeAnQstStructured_.*\(value\)\)/);
-  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /encodedValue = encodeAnQstStructured_.*\(value\);/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodedValue\)/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => \{/);
+  assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
+  assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /<AnQst_version>/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public AnQstWebHostBase/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class handle/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /handle handle;/);
@@ -77,7 +80,8 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /decodeAnQstStructured_CdDraft\(args\.value\(0\)\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodeAnQstStructured_boolean\(result\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /typedValue = decodeAnQstStructured_CdDraft\(value\)/);
-  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodeAnQstStructured_boolean\(value\)\)/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodedValue = encodeAnQstStructured_boolean\(value\);/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodedValue\);/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
 });
@@ -129,23 +133,33 @@ declare namespace StructuredWidget {
   const cppWidget = outputs["backend/cpp/qt/StructuredWidget_widget/StructuredWidget.cpp"];
   const nodeIndex = outputs["backend/node/express/StructuredWidget_anQst/index.ts"];
 
-  assert.match(tsServices, /Structured\/top-level codec helpers/);
+  assert.match(tsServices, /Boundary codec plan helpers/);
   assert.match(tsServices, /encodeAnQstStructured_.*\(draft\)/);
   assert.match(tsServices, /const result = handler\(decodeAnQstStructured_.*\(wireArgs\[0\]\)\);/);
   assert.match(tsServices, /return result instanceof Error \? result : encodeAnQstStructured_.*\(result\);/);
-  assert.match(tsServices, /setInput\("StructuredService", "draft", encodeAnQstStructured_.*\(value\)\)/);
-  assert.match(tsServices, /onOutput\("StructuredService", "result", \(value\) => this\._result\.set\(decodeAnQstStructured_.*\(value\)\)\)/);
+  assert.match(tsServices, /encodedValue = encodeAnQstStructured_.*\(value\);/);
+  assert.match(tsServices, /setInput\("StructuredService", "draft", encodedValue\)/);
+  assert.match(tsServices, /onOutput\("StructuredService", "result", \(value\) => \{/);
+  assert.match(tsServices, /this\._result\.set\(decodeAnQstStructured_.*\(value\)\)/);
+  assert.match(tsServices, /const __anqstScalarScratchBuffer = new ArrayBuffer\(8\);/);
+  assert.doesNotMatch(tsServices, /const __encodeScratchBuffer = new ArrayBuffer\(8\);/);
 
   assert.match(cppWidget, /inline QVariant encodeAnQstStructured_Draft/);
   assert.match(cppWidget, /inline Result decodeAnQstStructured_Result/);
+  assert.match(cppWidget, /#include "AnQstBase93\.h"/);
+  assert.match(cppWidget, /anqstBase93Encode\(/);
+  assert.match(cppWidget, /anqstBase93Decode\(/);
+  assert.doesNotMatch(cppWidget, /inline int base93AlphabetIndex/);
+  assert.doesNotMatch(cppWidget, /inline std::string base93Encode/);
   assert.match(cppWidget, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\)/);
   assert.match(cppWidget, /return encodeAnQstStructured_Result\(result\);/);
   assert.match(cppWidget, /invokeArgs\.push_back\(encodeAnQstStructured_Draft\(draft\)\);/);
   assert.match(cppWidget, /return decodeAnQstStructured_Result\(result\);/);
   assert.match(cppWidget, /const Draft typedValue = decodeAnQstStructured_Draft\(value\);/);
-  assert.match(cppWidget, /setOutputValue\(QStringLiteral\("StructuredService"\), QStringLiteral\("result"\), encodeAnQstStructured_Result\(value\)\)/);
+  assert.match(cppWidget, /encodedValue = encodeAnQstStructured_Result\(value\);/);
+  assert.match(cppWidget, /setOutputValue\(QStringLiteral\("StructuredService"\), QStringLiteral\("result"\), encodedValue\);/);
 
-  assert.match(nodeIndex, /Structured\/top-level codec helpers/);
+  assert.match(nodeIndex, /Boundary codec plan helpers/);
   assert.match(nodeIndex, /invokeSlot\("StructuredService", "replaceDraft", \[encodeAnQstStructured_.*\(draft\)\], timeoutMs\)\.then\(\(value\) => decodeAnQstStructured_.*\(value\)\)/);
   assert.match(nodeIndex, /Promise\.resolve\(handler\(buildHandlerBridge\(session\), decodeAnQstStructured_.*\(args\[0\]\)\)\)/);
   assert.match(nodeIndex, /result: encodeAnQstStructured_.*\(result\)/);
@@ -194,7 +208,7 @@ declare namespace EditorWidget {
   assert.match(tsServices, /draft\(\): Draft \| undefined \{ return this\._draft\(\); \}/);
   assert.match(tsServices, /reportFrontendDiagnostic\(diagnostic: Omit<AnQstBridgeDiagnostic, "timestamp" \| "source">\): void/);
   assert.match(tsServices, /Failed to serialize Input EditorService\.draft/);
-  assert.match(tsServices, /anQstBridge_hostDiagnostic\?: \{ connect: \(cb: \(payload: unknown\) => void\) => void \ };/);
+  assert.match(tsServices, /anQstBridge_hostDiagnostic\?: \{ connect: \(cb: \(payload: unknown\) => void\) => void ?\};/);
 
   assert.match(tsServicesDts, /export declare class AnQstBridgeDiagnostics/);
   assert.match(tsServicesDts, /showDraft\(handler: \(draft: Draft, selectedTrackIndex: number\) => void \| Promise<void> \| Error\): void;/);
@@ -237,16 +251,123 @@ declare namespace DragDropWidget {
   const cppHeader = outputs["backend/cpp/qt/DragDropWidget_widget/include/DragDropWidgetWidget.h"];
   const cppSource = outputs["backend/cpp/qt/DragDropWidget_widget/DragDropWidget.cpp"];
 
-  assert.match(tsServices, /this\._cdDropped\.set\(\{ payload: decodeAnQstStructured_Draft\(payload\), x, y \}\);/);
-  assert.match(tsServices, /this\._cdHovering\.set\(\{ payload: decodeAnQstStructured_Draft\(payload\), x, y \}\);/);
+  assert.match(tsServices, /function decodeDragDropPayload_Draft\(rawPayload: unknown\): Draft \{/);
+  assert.match(tsServices, /if \(transportTag === "A"\) \{/);
+  assert.doesNotMatch(tsServices, /transportTag === "O"/);
+  assert.match(tsServices, /this\._cdDropped\.set\(\{ payload: decodeDragDropPayload_Draft\(payload\), x, y \}\);/);
+  assert.match(tsServices, /this\._cdHovering\.set\(\{ payload: decodeDragDropPayload_Draft\(payload\), x, y \}\);/);
 
   assert.match(cppHeader, /static QByteArray encodeDragDropPayload_Draft\(const Draft& payload\);/);
   assert.match(cppHeader, /static std::optional<Draft> decodeDragDropPayload_Draft\(const QByteArray& rawPayload\);/);
 
-  assert.match(cppSource, /QJsonDocument::fromVariant\(anqstNormalizeWireItems\(encodeAnQstStructured_Draft\(payload\)\)\)\.toJson\(QJsonDocument::Compact\)/);
-  assert.match(cppSource, /const QJsonDocument document = QJsonDocument::fromJson\(rawPayload, &parseError\);/);
+  assert.match(cppSource, /const QVariant wire = encodeAnQstStructured_Draft\(payload\);/);
+  assert.match(cppSource, /if \(wire\.type\(\) == QVariant::List\) \{/);
+  assert.match(cppSource, /out\.append\('A'\);/);
+  assert.match(cppSource, /QJsonDocument\(QJsonArray::fromVariantList\(wire\.toList\(\)\)\)\.toJson\(QJsonDocument::Compact\)/);
+  assert.doesNotMatch(cppSource, /out\.append\('J'\);/);
+  assert.doesNotMatch(cppSource, /QJsonDocument::fromVariant\(wire\)/);
+  assert.doesNotMatch(cppSource, /toVariantMap\(\)/);
+  assert.match(cppSource, /const char transportTag = rawPayload\.at\(0\);/);
+  assert.match(cppSource, /if \(transportTag == 'A'\) \{/);
+  assert.match(cppSource, /const QJsonDocument document = QJsonDocument::fromJson\(payloadBytes, &parseError\);/);
   assert.match(cppSource, /if \(parseError\.error != QJsonParseError::NoError \|\| !document\.isArray\(\)\) \{/);
-  assert.match(cppSource, /return decodeAnQstStructured_Draft\(document\.array\(\)\.toVariantList\(\)\);/);
+  assert.match(cppSource, /return decodeAnQstStructured_Draft\(QVariant\(document\.array\(\)\.toVariantList\(\)\)\);/);
+  assert.match(cppSource, /const auto decodedPayload = decodeDragDropPayload_Draft\(payload\.toString\(\)\.toUtf8\(\)\);/);
+});
+
+test("generateOutputs preserves finite domains in public C++ types and emits coded finite-domain codecs", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-finite-domain-"));
+  const specPath = path.join(tempRoot, "FiniteWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace FiniteWidget {
+  type Genre = "Rock" | "Jazz" | "Pop";
+
+  interface Draft {
+    genre: Genre;
+    featured: true | false;
+    albumTitle: string;
+  }
+
+  interface SaveResult {
+    ok: boolean;
+  }
+
+  interface FiniteService extends AnQst.Service {
+    save(draft: Draft): AnQst.Call<SaveResult>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
+  const tsServices = outputs["frontend/FiniteWidget_Angular/services.ts"];
+  const cppTypes = outputs["backend/cpp/qt/FiniteWidget_widget/include/FiniteWidgetTypes.h"];
+  const cppSource = outputs["backend/cpp/qt/FiniteWidget_widget/FiniteWidget.cpp"];
+
+  assert.match(cppTypes, /enum class Genre : std::uint8_t \{/);
+  assert.match(cppTypes, /Rock = 0,/);
+  assert.match(cppTypes, /Jazz = 1,/);
+  assert.match(cppTypes, /Pop = 2,/);
+  assert.doesNotMatch(cppTypes, /using Genre = QString/);
+  assert.match(cppTypes, /Genre genre;/);
+  assert.match(cppTypes, /Q_DECLARE_METATYPE\(FiniteWidget::Genre\)/);
+
+  assert.match(tsServices, /__anqstNamed_AnQstStructured_Draft_Genre_encode\(value\.genre, __bytes, __items\);/);
+  assert.match(tsServices, /function __anqstNamed_AnQstStructured_Draft_Genre_encode\([^)]*\): void \{[\s\S]*?switch \(value\) \{/);
+  assert.doesNotMatch(tsServices, /__items\.push\(value\.genre\);/);
+
+  assert.match(cppSource, /anqstNamed_AnQstStructured_Draft_Genre_encode\(value\.genre, bytes, items\);/);
+  assert.match(cppSource, /inline void anqstNamed_AnQstStructured_Draft_Genre_encode\([\s\S]*?switch \(value\) \{/);
+  assert.match(cppSource, /switch \(value\.featured\) \{/);
+  assert.match(cppSource, /Draft_featured value\d+\{\};/);
+});
+
+test("generateOutputs emits inline qint8/quint8 operations for trusted boundary codecs", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-qint8-"));
+  const specPath = path.join(tempRoot, "SmallIntWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace SmallIntWidget {
+  interface Tiny {
+    signed: AnQst.Type.qint8;
+    unsigned: AnQst.Type.quint8;
+    label: string;
+  }
+
+  interface SmallIntService extends AnQst.Service {
+    validate(payload: Tiny): AnQst.Call<Tiny>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
+  const tsServices = outputs["frontend/SmallIntWidget_Angular/services.ts"];
+  const cppSource = outputs["backend/cpp/qt/SmallIntWidget_widget/SmallIntWidget.cpp"];
+
+  assert.match(tsServices, /__bytes\.push\(\(\(value\.signed\) as number\) & 0xff\);/);
+  assert.match(tsServices, /__bytes\.push\(\(\(value\.unsigned\) as number\) & 0xff\);/);
+  assert.match(tsServices, /__blobView\.getInt8\(__dataCursor\.offset\+\+\)/);
+  assert.match(tsServices, /__blob\[__dataCursor\.offset\+\+\]!/);
+  assert.doesNotMatch(tsServices, /function __anqstReadItem\(/);
+
+  assert.match(cppSource, /bytes\.push_back\(static_cast<std::uint8_t>\(static_cast<std::int8_t>\(value\.signed\)\)\);/);
+  assert.match(cppSource, /bytes\.push_back\(static_cast<std::uint8_t>\(value\.unsigned\)\);/);
+  assert.match(cppSource, /static_cast<std::int8_t>\(\(blob\[dataOffset\+\+\]\)\)/);
+  assert.match(cppSource, /blob\[dataOffset\+\+\]/);
+  assert.doesNotMatch(cppSource, /inline const QVariant& anqstReadItem\(/);
+  assert.doesNotMatch(cppSource, /\banqstRequireBytes\b/);
+  assert.doesNotMatch(cppSource, /\banqstPushQint8\b/);
+  assert.doesNotMatch(cppSource, /\banqstReadQint8\b/);
 });
 
 test("generateOutputs emits only required imported type bindings", () => {
@@ -284,6 +405,7 @@ declare namespace DemoWidget {
   const tsTypes = outputs["frontend/DemoWidget_Angular/types.ts"];
   const dtsServices = outputs["frontend/DemoWidget_Angular/types/services.d.ts"];
   const dtsTypes = outputs["frontend/DemoWidget_Angular/types/types.d.ts"];
+  const dtsIndex = outputs["frontend/DemoWidget_Angular/types/index.d.ts"];
   const cppHeader = outputs["backend/cpp/qt/DemoWidget_widget/include/DemoWidgetWidget.h"];
 
   assert.match(tsServices, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/types\/domain";/);
@@ -297,6 +419,7 @@ declare namespace DemoWidget {
 
   assert.match(dtsTypes, /import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/);
   assert.doesNotMatch(dtsTypes, /\bTeam\b/);
+  assert.equal((dtsIndex.match(/import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/g) ?? []).length, 1);
   assert.match(dtsServices, /save\(handler: \(payload: Payload\) => void \| Promise<void> \| Error\): void;/);
   assert.match(cppHeader, /public slots:/);
   assert.match(cppHeader, /void slot_save\(Payload payload\);/);
@@ -321,7 +444,7 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"]);
   assert.ok(nodeOnly["backend/node/express/CdWidget_anQst/types/index.d.ts"]);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /defaultSlotTimeoutMs = options\.defaultSlotTimeoutMs \?\? 1000/);
-  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /Structured\/top-level codec helpers/);
+  assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /Boundary codec plan helpers/);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /result: encodeAnQstStructured_.*\(result\)/);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /const decodedValue = decodeAnQstStructured_/);
   assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);
@@ -386,6 +509,8 @@ declare namespace CdEntryEditor {
   assert.match(typesHeader, /struct User_meta \{/);
   assert.match(typesHeader, /QList<double> friends;/);
   assert.match(typesHeader, /Q_DECLARE_METATYPE\(CdEntryEditor::CdDraft\)/);
+  assert.match(cppFile, /User_meta/);
+  assert.doesNotMatch(cppFile, /CdEntryService_validateDraft_draft_createdBy_meta/);
   assert.match(cppFile, /qRegisterMetaType<CdEntryEditor::CdDraft>\("CdEntryEditor::CdDraft"\);/);
   assert.match(cppFile, /\[Timeout\] CdEntryService\.replaceTracks: The webapp inside the widget did not anwser within %1 ms\./);
   assert.match(cppFile, /\[RequestFailed\]: %1/);

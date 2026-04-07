@@ -50,6 +50,8 @@ function(anqst_configure_qt_runtime target_name)
 endfunction()
 
 add_library(anqstwebhostbase STATIC
+    src/AnQstBase93.cpp
+    src/AnQstBase93.h
     src/AnQstBridgeProxy.cpp
     src/AnQstBridgeProxy.h
     src/AnQstWidgetDebugDialog.cpp

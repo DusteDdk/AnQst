@@ -1,0 +1,21 @@
+codec AnQstStructured_boolean :: boolean
+summary {"hasBlobLeaves":true,"hasStringLeaves":false,"hasBinaryLeaves":false,"hasDynamicLeaves":false,"hasRepeatedStructures":false,"hasOptionalPresence":false,"usedLeafCapabilities":["boolean"]}
+  - leaf AlbumService.validate.Payload :: boolean -> blob
+
+codec AnQstStructured_Album :: Album
+summary {"hasBlobLeaves":true,"hasStringLeaves":true,"hasBinaryLeaves":false,"hasDynamicLeaves":false,"hasRepeatedStructures":true,"hasOptionalPresence":false,"usedLeafCapabilities":["string","number"]}
+  - struct AlbumService.validate.album
+    field name
+      - leaf AlbumService.validate.album.name :: string -> string
+    field tracks
+      - array AlbumService.validate.album.tracks :: count metadata required
+        - struct AlbumService.validate.album.tracks.Item
+          field title
+            - leaf AlbumService.validate.album.tracks.Item.title :: string -> string
+          field seconds
+            - leaf AlbumService.validate.album.tracks.Item.seconds :: number -> blob
+
+codec AnQstStructured_string :: string
+summary {"hasBlobLeaves":false,"hasStringLeaves":true,"hasBinaryLeaves":false,"hasDynamicLeaves":false,"hasRepeatedStructures":false,"hasOptionalPresence":false,"usedLeafCapabilities":["string"]}
+  - leaf AlbumService.pulse.value :: string -> string
+

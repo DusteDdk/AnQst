@@ -1,5 +1,19 @@
 # AnQst Base-Type Codec: `boolean`
 
+## Status
+
+This file is now a lower-level leaf reference, not an authoritative whole-boundary wire contract.
+
+When it conflicts with:
+
+- `RefinedSpecs/Prose/AnQst-Codec-Planning-and-IR.md`
+- `RefinedSpecs/Prose/AnQst-Codec-Design-Principles.md`
+- `Tasks/Codec-Architecture-Correction-Replacement.md`
+
+the prose and replacement documents win.
+
+In particular, boolean representation is a planner-owned whole-boundary decision. A boundary planner may choose raw text codes, byte-packed blob placement, or another closed-world specialization when that is better for the generated runtime behavior. The specific single-character string strategy described below is therefore illustrative, not mandatory.
+
 ## 1. Type Identity
 
 | Property | Value |

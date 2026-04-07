@@ -47,7 +47,7 @@
     "build": "node scripts/build-with-stamp.js",
     "build:test": "npm run clean && tsc -p tsconfig.json && npm run chmod:bin",
     "prepare": "npm run build",
-    "test": "npm run build:test && node --test dist/test/**/*.test.js",
+    "test": "npm run build:test && node --test dist/test/*.test.js",
     "start": "node dist/src/bin/anqst.js"
   },
   "dependencies": {

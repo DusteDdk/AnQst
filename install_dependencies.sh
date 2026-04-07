@@ -23,6 +23,7 @@ sudo apt-get install -y \
   git \
   python3 \
   qtbase5-dev \
+  qttools5-dev \
   qttools5-dev-tools \
   qtdeclarative5-dev \
   libqt5webchannel5-dev \
@@ -32,6 +33,7 @@ sudo apt-get install -y \
   qtmultimedia5-dev \
   libqt5svg5-dev \
   libqt5webenginewidgets5 \
+  xvfb \
   catch2 \
   nodejs
 

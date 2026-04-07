@@ -6,7 +6,6 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   BASE93_ALPHABET,
-  emitBase93CppFunctions,
   emitBase93Encoder,
   emitBase93Decoder
 } from "../src/base93";
@@ -16,6 +15,8 @@ const VALID_CHARS = new Set(BASE93_ALPHABET.split(""));
 const CPP_COMPILER_CANDIDATES = ["c++", "g++", "clang++"] as const;
 
 let cachedCppCompiler: string | null | undefined;
+let cachedQtCorePkg: string | null | undefined;
+let cachedBase93CppPaths: { includeDir: string; sourcePath: string } | null | undefined;
 
 function buildDifficultPayload(): Uint8Array {
   const parts: number[] = [];
@@ -65,6 +66,43 @@ function detectCppCompiler(): string | null {
   return null;
 }
 
+function detectQtCorePkg(): string | null {
+  if (cachedQtCorePkg !== undefined) return cachedQtCorePkg;
+
+  for (const pkg of ["Qt6Core", "Qt5Core"] as const) {
+    const probe = spawnSync("pkg-config", ["--exists", pkg], { encoding: "utf8" });
+    if (!probe.error && probe.status === 0) {
+      cachedQtCorePkg = pkg;
+      return pkg;
+    }
+  }
+
+  cachedQtCorePkg = null;
+  return null;
+}
+
+function resolveBase93CppPaths(): { includeDir: string; sourcePath: string } | null {
+  if (cachedBase93CppPaths !== undefined) return cachedBase93CppPaths;
+
+  const includeCandidates = [
+    path.resolve(process.cwd(), "..", "AnQstWidget", "AnQstWebBase", "src"),
+    path.resolve(process.cwd(), "AnQstWidget", "AnQstWebBase", "src"),
+    path.resolve(__dirname, "..", "..", "..", "AnQstWidget", "AnQstWebBase", "src")
+  ];
+
+  for (const includeDir of includeCandidates) {
+    const sourcePath = path.join(includeDir, "AnQstBase93.cpp");
+    const headerPath = path.join(includeDir, "AnQstBase93.h");
+    if (fs.existsSync(sourcePath) && fs.existsSync(headerPath)) {
+      cachedBase93CppPaths = { includeDir, sourcePath };
+      return cachedBase93CppPaths;
+    }
+  }
+
+  cachedBase93CppPaths = null;
+  return null;
+}
+
 function formatSpawnFailure(step: string, command: string, args: string[], result: ReturnType<typeof spawnSync>): string {
   const message = result.error?.message ?? `exit status ${result.status ?? "unknown"}`;
   const stderr = String(result.stderr ?? "").trim();
@@ -81,6 +119,21 @@ function compileCppProgram(t: TestContext, programName: string, source: string):
     t.skip("Skipping generated C++ interoperability test because no compiler was found.");
     return null;
   }
+  const qtPkg = detectQtCorePkg();
+  if (!qtPkg) {
+    t.skip("Skipping generated C++ interoperability test because QtCore pkg-config metadata was not found.");
+    return null;
+  }
+  const base93CppPaths = resolveBase93CppPaths();
+  if (!base93CppPaths) {
+    t.skip("Skipping generated C++ interoperability test because AnQstBase93 runtime sources were not found.");
+    return null;
+  }
+
+  const cflags = spawnSync("pkg-config", ["--cflags", qtPkg], { encoding: "utf8" });
+  const libs = spawnSync("pkg-config", ["--libs", qtPkg], { encoding: "utf8" });
+  assert.equal(cflags.status, 0, formatSpawnFailure("pkg-config", "pkg-config", ["--cflags", qtPkg], cflags));
+  assert.equal(libs.status, 0, formatSpawnFailure("pkg-config", "pkg-config", ["--libs", qtPkg], libs));
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-base93-cpp-"));
   t.after(() => {
@@ -90,16 +143,32 @@ function compileCppProgram(t: TestContext, programName: string, source: string):
   const sourcePath = path.join(tempRoot, `${programName}.cpp`);
   const executablePath = path.join(tempRoot, process.platform === "win32" ? `${programName}.exe` : programName);
   fs.writeFileSync(sourcePath, source, "utf8");
+  const cflagsArgs = cflags.stdout
+    .trim()
+    .split(/\s+/)
+    .filter((s) => s.length > 0);
+  const libArgs = libs.stdout
+    .trim()
+    .split(/\s+/)
+    .filter((s) => s.length > 0);
+  const args = [
+    "-std=c++17",
+    "-O2",
+    "-fPIC",
+    ...cflagsArgs,
+    `-I${base93CppPaths.includeDir}`,
+    sourcePath,
+    base93CppPaths.sourcePath,
+    "-o",
+    executablePath,
+    ...libArgs
+  ];
 
-  const compile = spawnSync(
-    compiler,
-    ["-std=c++17", "-O2", sourcePath, "-o", executablePath],
-    { encoding: "utf8" }
-  );
+  const compile = spawnSync(compiler, args, { encoding: "utf8" });
   assert.equal(
     compile.status,
     0,
-    formatSpawnFailure("C++ compilation", compiler, ["-std=c++17", "-O2", sourcePath, "-o", executablePath], compile)
+    formatSpawnFailure("C++ compilation", compiler, args, compile)
   );
 
   return executablePath;
@@ -112,14 +181,27 @@ function runCppProgram(executablePath: string, input = ""): string {
 }
 
 function emitCppProgram(mainBody: string): string {
-  return `#include <cstdint>
+  return `#include <QString>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <vector>
+#include "AnQstBase93.h"
 
-${emitBase93CppFunctions()}
+inline int base93AlphabetIndex(char c) {
+  const unsigned char uc = static_cast<unsigned char>(c);
+  return static_cast<int>(uc) - 32 - (uc > 34) - (uc > 92);
+}
+
+inline std::string base93Encode(const std::vector<std::uint8_t>& d) {
+  return anqstBase93Encode(d).toStdString();
+}
+
+inline std::vector<std::uint8_t> base93Decode(const std::string& s) {
+  return anqstBase93Decode(QString::fromStdString(s));
+}
 
 ${mainBody}
 `;
@@ -421,7 +503,7 @@ test("encode survives JSON.stringify/parse round-trip without escape overhead", 
     )}...`);
 });
 
-test("emitBase93CppFunctions can generate a native self-test program", (t) => {
+test("shared AnQstBase93 C++ runtime passes native self-test", (t) => {
   const executablePath = compileCppProgram(t, "base93-selftest", emitCppSelfTestProgram());
   if (!executablePath) return;
 
