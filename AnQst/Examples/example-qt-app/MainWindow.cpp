@@ -2,8 +2,10 @@
 #include "ui_MainWindow.h"
 
 
+#include <QApplication>
 #include <QDate>
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,21 +21,21 @@
 
 namespace {
 
-QJsonObject trackToJson(const CdEntryEditor::Track &track) {
+QJsonObject trackToSettingsJson(const CdEntryEditor::Track &track) {
     QJsonObject object;
     object.insert(QStringLiteral("title"), track.title);
     object.insert(QStringLiteral("durationSeconds"), track.durationSeconds);
     return object;
 }
 
-CdEntryEditor::Track trackFromJson(const QJsonObject &object) {
+CdEntryEditor::Track trackFromSettingsJson(const QJsonObject &object) {
     CdEntryEditor::Track track;
     track.title = object.value(QStringLiteral("title")).toString();
     track.durationSeconds = object.value(QStringLiteral("durationSeconds")).toDouble();
     return track;
 }
 
-QJsonObject userToJson(const CdEntryEditor::User &user) {
+QJsonObject userToSettingsJson(const CdEntryEditor::User &user) {
     QJsonObject object;
     object.insert(QStringLiteral("name"), user.name);
     QJsonArray friends;
@@ -46,7 +48,7 @@ QJsonObject userToJson(const CdEntryEditor::User &user) {
     return object;
 }
 
-CdEntryEditor::User userFromJson(const QJsonObject &object) {
+CdEntryEditor::User userFromSettingsJson(const QJsonObject &object) {
     CdEntryEditor::User user;
     user.name = object.value(QStringLiteral("name")).toString();
     const QJsonArray friends = object.value(QStringLiteral("meta")).toObject().value(QStringLiteral("friends")).toArray();
@@ -56,7 +58,7 @@ CdEntryEditor::User userFromJson(const QJsonObject &object) {
     return user;
 }
 
-QJsonObject draftToJson(const CdEntryEditor::CdDraft &draft) {
+QJsonObject draftToSettingsJson(const CdEntryEditor::CdDraft &draft) {
     QJsonObject object;
     object.insert(QStringLiteral("cdId"), QString::number(draft.cdId));
     object.insert(QStringLiteral("artist"), draft.artist);
@@ -66,17 +68,17 @@ QJsonObject draftToJson(const CdEntryEditor::CdDraft &draft) {
     object.insert(QStringLiteral("catalogNumber"), draft.catalogNumber);
     object.insert(QStringLiteral("barcode"), draft.barcode);
     object.insert(QStringLiteral("notes"), draft.notes);
-    object.insert(QStringLiteral("createdBy"), userToJson(draft.createdBy));
+    object.insert(QStringLiteral("createdBy"), userToSettingsJson(draft.createdBy));
 
     QJsonArray tracks;
     for (const CdEntryEditor::Track &track : draft.tracks) {
-        tracks.append(trackToJson(track));
+        tracks.append(trackToSettingsJson(track));
     }
     object.insert(QStringLiteral("tracks"), tracks);
     return object;
 }
 
-CdEntryEditor::CdDraft draftFromJson(const QJsonObject &object) {
+CdEntryEditor::CdDraft draftFromSettingsJson(const QJsonObject &object) {
     CdEntryEditor::CdDraft draft;
     draft.cdId = object.value(QStringLiteral("cdId")).toVariant().toLongLong();
     draft.artist = object.value(QStringLiteral("artist")).toString();
@@ -86,11 +88,11 @@ CdEntryEditor::CdDraft draftFromJson(const QJsonObject &object) {
     draft.catalogNumber = object.value(QStringLiteral("catalogNumber")).toString();
     draft.barcode = object.value(QStringLiteral("barcode")).toString();
     draft.notes = object.value(QStringLiteral("notes")).toString();
-    draft.createdBy = userFromJson(object.value(QStringLiteral("createdBy")).toObject());
+    draft.createdBy = userFromSettingsJson(object.value(QStringLiteral("createdBy")).toObject());
 
     const QJsonArray tracks = object.value(QStringLiteral("tracks")).toArray();
     for (const QJsonValue &value : tracks) {
-        draft.tracks.push_back(trackFromJson(value.toObject()));
+        draft.tracks.push_back(trackFromSettingsJson(value.toObject()));
     }
     return draft;
 }
@@ -143,18 +145,11 @@ MainWindow::MainWindow(QWidget *parent)
         return result;
     });
 
-    editorWidget->handle.saveRequested([this](const QString &draftJson) {
+    editorWidget->handle.saveRequested([this](const CdEntryEditor::CdDraft &draft) {
         CdEntryEditor::SaveResult result;
         result.saved = false;
         result.cdId = 0;
         result.message = QStringLiteral("Save request rejected.");
-        QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(draftJson.toUtf8(), &parseError);
-        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-            statusBar()->showMessage(QStringLiteral("Save failed: invalid draft payload"), 2000);
-            return result;
-        }
-        const CdEntryEditor::CdDraft draft = draftFromJson(document.object());
         result.saved = commitDraft(draft);
         result.cdId = draft.cdId;
         result.message = result.saved ? QStringLiteral("Saved.") : QStringLiteral("Save failed.");
@@ -171,6 +166,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(editorWidget, &CdEntryEditorWidget::fieldTouched, [this](const QString &fieldName) {
         statusBar()->showMessage(QStringLiteral("Field changed: %1").arg(fieldName), 1200);
+    });
+    connect(editorWidget, &CdEntryEditorWidget::diagnosticsForwarded, this, [this](const QVariantMap &payload) {
+        handleWidgetDiagnostic(payload);
     });
     editorWidget->setDraftHandler([this](const CdEntryEditor::CdDraft &) {});
 
@@ -196,6 +194,29 @@ MainWindow::~MainWindow() {
     delete ui;
 }
 
+void MainWindow::showStatusMessage(const QString &message, const int timeoutMs) {
+    statusBar()->showMessage(message, timeoutMs);
+}
+
+void MainWindow::handleWidgetDiagnostic(const QVariantMap &payload) {
+    const QString severity = payload.value(QStringLiteral("severity")).toString();
+    const QString code = payload.value(QStringLiteral("code")).toString();
+    const QString message = payload.value(QStringLiteral("message")).toString();
+    const QString effectiveSeverity = severity.isEmpty() ? QStringLiteral("info") : severity;
+    const QString effectiveCode = code.isEmpty() ? QStringLiteral("UnknownDiagnostic") : code;
+    const QString effectiveMessage = message.isEmpty() ? QStringLiteral("No diagnostic message provided.") : message;
+    const QString formatted = QStringLiteral("%1: %2").arg(effectiveCode, effectiveMessage);
+    const int timeoutMs = effectiveSeverity == QStringLiteral("info") ? 2500 : 5000;
+
+    if (effectiveSeverity == QStringLiteral("fatal") || effectiveSeverity == QStringLiteral("error")) {
+        qWarning().noquote() << "CdEntryEditor diagnostic" << payload;
+    } else {
+        qInfo().noquote() << "CdEntryEditor diagnostic" << payload;
+    }
+
+    showStatusMessage(formatted, timeoutMs);
+}
+
 void MainWindow::wireUi() {
     ui->mainSplitter->setStretchFactor(0, 4);
     ui->mainSplitter->setStretchFactor(1, 1);
@@ -208,7 +229,18 @@ void MainWindow::wireUi() {
     });
 
     connect(ui->listEntries, &QListWidget::currentRowChanged, this, [this](const int row) {
+        // Mouse press is also the start of a drag gesture, so defer editor
+        // switching until click release for pointer-driven selection.
+        if (QApplication::mouseButtons().testFlag(Qt::LeftButton)) {
+            return;
+        }
         selectEntry(row);
+    });
+    connect(ui->listEntries, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        if (item == nullptr) {
+            return;
+        }
+        selectEntry(ui->listEntries->row(item));
     });
     connect(ui->btnAddEntry, &QToolButton::clicked, this, [this]() {
         addEntry();
@@ -237,7 +269,7 @@ void MainWindow::loadEntries() {
 
     entries.clear();
     for (const QJsonValue &value : document.array()) {
-        entries.push_back(draftFromJson(value.toObject()));
+        entries.push_back(draftFromSettingsJson(value.toObject()));
     }
 }
 
@@ -245,7 +277,7 @@ void MainWindow::saveEntries() const {
     QSettings settings;
     QJsonArray array;
     for (const CdEntryEditor::CdDraft &draft : entries) {
-        array.append(draftToJson(draft));
+        array.append(draftToSettingsJson(draft));
     }
     const QString serialized = QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact));
     settings.setValue(QStringLiteral("example-qt-app/cdEntries"), serialized);
@@ -306,6 +338,24 @@ void MainWindow::refreshEntryList() {
     ui->btnDeleteEntry->setEnabled(!entries.isEmpty());
 }
 
+bool MainWindow::presentEntryInEditor(const int index) {
+    try {
+        applyingHostSelection = true;
+        editorWidget->slot_showDraft(entries[index], 0);
+        applyingHostSelection = false;
+        return true;
+    } catch (const std::exception &ex) {
+        applyingHostSelection = false;
+        showStatusMessage(QStringLiteral("Failed to load editor entry: %1").arg(QString::fromUtf8(ex.what())), 6000);
+        qWarning().noquote() << "CdEntryEditor slot_showDraft failed:" << ex.what();
+    } catch (...) {
+        applyingHostSelection = false;
+        showStatusMessage(QStringLiteral("Failed to load editor entry."), 6000);
+        qWarning() << "CdEntryEditor slot_showDraft failed with an unknown exception.";
+    }
+    return false;
+}
+
 void MainWindow::selectEntry(const int index) {
     if (index < 0 || index >= entries.size()) {
         return;
@@ -321,16 +371,19 @@ void MainWindow::selectEntry(const int index) {
         return;
     }
 
-    selectedEntryIndex = index;
+    const int previousIndex = selectedEntryIndex;
     if (ui->listEntries->currentRow() != index) {
         const QSignalBlocker blocker(ui->listEntries);
         ui->listEntries->setCurrentRow(index);
     }
 
-    applyingHostSelection = true;
-    const QString draftJson = QString::fromUtf8(QJsonDocument(draftToJson(entries[index])).toJson(QJsonDocument::Compact));
-    editorWidget->slot_showDraft(draftJson, 0);
-    applyingHostSelection = false;
+    if (!presentEntryInEditor(index)) {
+        const QSignalBlocker blocker(ui->listEntries);
+        ui->listEntries->setCurrentRow(previousIndex);
+        return;
+    }
+
+    selectedEntryIndex = index;
     isDraftDirty = false;
     setWindowModified(false);
 

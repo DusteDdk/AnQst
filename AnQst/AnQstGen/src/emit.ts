@@ -741,6 +741,31 @@ function collectDragDropMimeConstants(spec: ParsedSpecModel): { typeName: string
   return constants;
 }
 
+function collectDragDropPayloadHelpers(
+  spec: ParsedSpecModel,
+  cppTypes: CppTypeContext,
+  cppCodecCatalog: StructuredCodecCatalog
+): { typeName: string; cppType: string; codecId: string }[] {
+  const seen = new Set<string>();
+  const helpers: { typeName: string; cppType: string; codecId: string }[] = [];
+  for (const service of spec.services) {
+    for (const member of service.members) {
+      if ((member.kind !== "DropTarget" && member.kind !== "HoverTarget") || !member.payloadTypeText) continue;
+      const typeName = member.payloadTypeText.replace(/\s/g, "");
+      if (seen.has(typeName)) continue;
+      seen.add(typeName);
+      const payloadSite = getStructuredPayloadSite(cppCodecCatalog, service.name, member.name);
+      if (!payloadSite) continue;
+      helpers.push({
+        typeName,
+        cppType: cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]),
+        codecId: payloadSite.codecId
+      });
+    }
+  }
+  return helpers;
+}
+
 function renderTypesHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const decls = cppTypes.orderedDecls.map(renderCppDecl).join("\n\n");
   const metatypes = cppTypes.structNames
@@ -784,6 +809,8 @@ function renderWidgetUmbrellaHeader(spec: ParsedSpecModel): string {
 
 function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const widgetClassName = `${spec.widgetName}Widget`;
+  const cppCodecCatalog = buildStructuredCodecCatalog(spec);
+  const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
   const callbackAliases: string[] = [];
   const publicMethods: string[] = [];
   const slotMethods: string[] = [];
@@ -793,6 +820,10 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
   const properties: string[] = [];
   const fields: string[] = [];
   const publicSlots: string[] = [];
+  const dragDropHelperMethods = dragDropPayloadHelpers.flatMap((helper) => [
+    `static QByteArray encodeDragDropPayload_${helper.typeName}(const ${helper.cppType}& payload);`,
+    `static std::optional<${helper.cppType}> decodeDragDropPayload_${helper.typeName}(const QByteArray& rawPayload);`
+  ]);
 
   type MemberBinding = { service: string; member: string; kind: ServiceMemberModel["kind"] };
   const bindings: MemberBinding[] = [];
@@ -842,6 +873,7 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
   }
 
   return `#pragma once
+#include <QByteArray>
 #include <QDateTime>
 #include <QHash>
 #include <QMetaMethod>
@@ -849,6 +881,7 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext): st
 #include <QVariant>
 #include <QVariantList>
 #include <functional>
+#include <optional>
 #include "AnQstWebHostBase.h"
 #include "${spec.widgetName}Types.h"
 
@@ -879,6 +912,7 @@ ${handleMethods.join("\n")}
     static constexpr const char* kBootstrapContentRoot = "qrc:/${spec.widgetName.toLowerCase()}";
     static constexpr const char* kBootstrapBridgeObject = "${spec.widgetName}Bridge";
     static constexpr int kMaxQueuedCallsPerEndpoint = 1024;
+${dragDropHelperMethods.map((s) => `    ${s}`).join("\n")}
 
     handle handle;
 ${publicMethods.map((s) => `    ${s}`).join("\n")}
@@ -933,6 +967,7 @@ ${fields.map((f) => `    ${f}`).join("\n")}
 function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string {
   const widgetClassName = `${spec.widgetName}Widget`;
   const cppCodecCatalog = buildStructuredCodecCatalog(spec);
+  const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
   const cppCodecHelpers = renderCppStructuredCodecHelpers(
     cppCodecCatalog,
     (typeText, pathHintParts) => cppTypes.mapTypeText(typeText, pathHintParts)
@@ -942,6 +977,8 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   lines.push(`#include <QDebug>`);
   lines.push(`#include <QElapsedTimer>`);
   lines.push(`#include <QEventLoop>`);
+  lines.push(`#include <QJsonArray>`);
+  lines.push(`#include <QJsonDocument>`);
   lines.push(`#include <QMetaType>`);
   lines.push(`#include <QTimer>`);
   lines.push(`#include <cstring>`);
@@ -971,6 +1008,25 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
   }
   lines.push("}");
   lines.push("");
+  for (const helper of dragDropPayloadHelpers) {
+    lines.push(`QByteArray ${widgetClassName}::encodeDragDropPayload_${helper.typeName}(const ${helper.cppType}& payload) {`);
+    lines.push(`    return QJsonDocument::fromVariant(anqstNormalizeWireItems(encode${helper.codecId}(payload))).toJson(QJsonDocument::Compact);`);
+    lines.push(`}`);
+    lines.push("");
+    lines.push(`std::optional<${helper.cppType}> ${widgetClassName}::decodeDragDropPayload_${helper.typeName}(const QByteArray& rawPayload) {`);
+    lines.push(`    QJsonParseError parseError;`);
+    lines.push(`    const QJsonDocument document = QJsonDocument::fromJson(rawPayload, &parseError);`);
+    lines.push(`    if (parseError.error != QJsonParseError::NoError || !document.isArray()) {`);
+    lines.push(`        return std::nullopt;`);
+    lines.push(`    }`);
+    lines.push(`    try {`);
+    lines.push(`        return decode${helper.codecId}(document.array().toVariantList());`);
+    lines.push(`    } catch (...) {`);
+    lines.push(`        return std::nullopt;`);
+    lines.push(`    }`);
+    lines.push(`}`);
+    lines.push("");
+  }
   for (const service of spec.services) {
     for (const member of service.members) {
       if (member.kind !== "Call" || !member.payloadTypeText) continue;
@@ -1285,9 +1341,40 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext): string 
         lines.push("");
         lines.push(`void ${widgetClassName}::set${cap}(const ${cppType}& value) {`);
         lines.push(`    if (m_${member.name} == value) return;`);
+        if (member.kind === "Output") {
+          lines.push(`    QVariant encodedValue;`);
+          lines.push(`    try {`);
+          lines.push(`        encodedValue = ${payloadSite ? `encode${payloadSite.codecId}(value)` : cppToVariantExpression(cppType, "value")};`);
+          lines.push(`    } catch (const std::exception& ex) {`);
+          lines.push(`        emitHostError(`);
+          lines.push(`            QStringLiteral("SerializationError"),`);
+          lines.push(`            QStringLiteral("bridge"),`);
+          lines.push(`            QStringLiteral("error"),`);
+          lines.push(`            true,`);
+          lines.push(`            QStringLiteral("Failed to serialize Output ${service.name}.${member.name}."),`);
+          lines.push(`            {`);
+          lines.push(`                {QStringLiteral("service"), QStringLiteral("${service.name}")},`);
+          lines.push(`                {QStringLiteral("member"), QStringLiteral("${member.name}")},`);
+          lines.push(`                {QStringLiteral("detail"), QString::fromUtf8(ex.what())},`);
+          lines.push(`            });`);
+          lines.push(`        return;`);
+          lines.push(`    } catch (...) {`);
+          lines.push(`        emitHostError(`);
+          lines.push(`            QStringLiteral("SerializationError"),`);
+          lines.push(`            QStringLiteral("bridge"),`);
+          lines.push(`            QStringLiteral("error"),`);
+          lines.push(`            true,`);
+          lines.push(`            QStringLiteral("Failed to serialize Output ${service.name}.${member.name}."),`);
+          lines.push(`            {`);
+          lines.push(`                {QStringLiteral("service"), QStringLiteral("${service.name}")},`);
+          lines.push(`                {QStringLiteral("member"), QStringLiteral("${member.name}")},`);
+          lines.push(`            });`);
+          lines.push(`        return;`);
+          lines.push(`    }`);
+        }
         lines.push(`    m_${member.name} = value;`);
         if (member.kind === "Output") {
-          lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), ${payloadSite ? `encode${payloadSite.codecId}(value)` : cppToVariantExpression(cppType, "value")});`);
+          lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), encodedValue);`);
         }
         lines.push(`    emit ${member.name}Changed(value);`);
         lines.push("}");
@@ -1495,7 +1582,6 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalo
   const setMembers: string[] = [];
   const onSlotMembers: string[] = [];
   const constructorBodyLines: string[] = [];
-  constructorBodyLines.push("    this._bridge.ready().catch((error) => console.error('AnQst bridge ready() failed', error, (error as { stack?: unknown })?.stack));");
 
   for (const m of members) {
     const args = m.parameters.map((p) => `${p.name}: ${mapTypeTextToTs(p.typeText)}`).join(", ");
@@ -1514,7 +1600,25 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalo
       continue;
     }
     if (m.kind === "Emitter") {
-      methodLines.push(`  ${m.name}(${args}): void { this._bridge.emit("${serviceName}", "${m.name}", ${encodedValueArray}); }`);
+      methodLines.push(`  ${m.name}(${args}): void {`);
+      methodLines.push(`    let encodedArgs: unknown[];`);
+      methodLines.push(`    try {`);
+      methodLines.push(`      encodedArgs = ${encodedValueArray};`);
+      methodLines.push(`    } catch (error) {`);
+      methodLines.push(`      this._bridge.reportFrontendDiagnostic({`);
+      methodLines.push(`        code: "SerializationError",`);
+      methodLines.push(`        severity: "error",`);
+      methodLines.push(`        category: "bridge",`);
+      methodLines.push(`        recoverable: true,`);
+      methodLines.push(`        message: \`Failed to serialize Emitter ${serviceName}.${m.name}: \${errorMessage(error)}\`,`);
+      methodLines.push(`        service: "${serviceName}",`);
+      methodLines.push(`        member: "${m.name}",`);
+      methodLines.push(`        context: { interaction: "Emitter" }`);
+      methodLines.push(`      });`);
+      methodLines.push(`      return;`);
+      methodLines.push(`    }`);
+      methodLines.push(`    this._bridge.emit("${serviceName}", "${m.name}", encodedArgs);`);
+      methodLines.push(`  }`);
       continue;
     }
     if (m.kind === "Slot") {
@@ -1535,29 +1639,90 @@ function renderTsService(spec: ParsedSpecModel, serviceName: string, codecCatalo
     }
     if ((m.kind === "Input" || m.kind === "Output") && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
-      fieldLines.push(`  private readonly _${m.name} = signal<${tsType}>((undefined as unknown) as ${tsType});`);
-      methodLines.push(`  ${m.name}(): ${tsType} { return this._${m.name}(); }`);
+      fieldLines.push(`  private readonly _${m.name} = signal<${tsType} | undefined>(undefined);`);
+      methodLines.push(`  ${m.name}(): ${tsType} | undefined { return this._${m.name}(); }`);
       if (m.kind === "Input") {
         setMembers.push(`    ${m.name}: (value: ${tsType}): void => {`);
+        setMembers.push(`      let encodedValue: unknown;`);
+        setMembers.push(`      try {`);
+        setMembers.push(`        encodedValue = ${payloadSite ? `encode${payloadSite.codecId}(value)` : "value"};`);
+        setMembers.push(`      } catch (error) {`);
+        setMembers.push(`        this._bridge.reportFrontendDiagnostic({`);
+        setMembers.push(`          code: "SerializationError",`);
+        setMembers.push(`          severity: "error",`);
+        setMembers.push(`          category: "bridge",`);
+        setMembers.push(`          recoverable: true,`);
+        setMembers.push(`          message: \`Failed to serialize Input ${serviceName}.${m.name}: \${errorMessage(error)}\`,`);
+        setMembers.push(`          service: "${serviceName}",`);
+        setMembers.push(`          member: "${m.name}",`);
+        setMembers.push(`          context: { interaction: "Input" }`);
+        setMembers.push(`        });`);
+        setMembers.push(`        return;`);
+        setMembers.push(`      }`);
         setMembers.push(`      this._${m.name}.set(value);`);
-        setMembers.push(`      this._bridge.setInput("${serviceName}", "${m.name}", ${payloadSite ? `encode${payloadSite.codecId}(value)` : "value"});`);
+        setMembers.push(`      this._bridge.setInput("${serviceName}", "${m.name}", encodedValue);`);
         setMembers.push("    },");
       }
       if (m.kind === "Output") {
-        constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => this._${m.name}.set(${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${tsType}`}));`);
+        constructorBodyLines.push(`    this._bridge.onOutput("${serviceName}", "${m.name}", (value) => {`);
+        constructorBodyLines.push(`      try {`);
+        constructorBodyLines.push(`        this._${m.name}.set(${payloadSite ? `decode${payloadSite.codecId}(value)` : `value as ${tsType}`});`);
+        constructorBodyLines.push(`      } catch (error) {`);
+        constructorBodyLines.push(`        this._bridge.reportFrontendDiagnostic({`);
+        constructorBodyLines.push(`          code: "DeserializationError",`);
+        constructorBodyLines.push(`          severity: "error",`);
+        constructorBodyLines.push(`          category: "bridge",`);
+        constructorBodyLines.push(`          recoverable: true,`);
+        constructorBodyLines.push(`          message: \`Failed to deserialize Output ${serviceName}.${m.name}: \${errorMessage(error)}\`,`);
+        constructorBodyLines.push(`          service: "${serviceName}",`);
+        constructorBodyLines.push(`          member: "${m.name}",`);
+        constructorBodyLines.push(`          context: { interaction: "Output" }`);
+        constructorBodyLines.push(`        });`);
+        constructorBodyLines.push(`      }`);
+        constructorBodyLines.push(`    });`);
       }
     }
     if (m.kind === "DropTarget" && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
       fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
       methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
-      constructorBodyLines.push(`    this._bridge.onDrop("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y }));`);
+      constructorBodyLines.push(`    this._bridge.onDrop("${serviceName}", "${m.name}", (payload, x, y) => {`);
+      constructorBodyLines.push(`      try {`);
+      constructorBodyLines.push(`        this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y });`);
+      constructorBodyLines.push(`      } catch (error) {`);
+      constructorBodyLines.push(`        this._bridge.reportFrontendDiagnostic({`);
+      constructorBodyLines.push(`          code: "DeserializationError",`);
+      constructorBodyLines.push(`          severity: "error",`);
+      constructorBodyLines.push(`          category: "bridge",`);
+      constructorBodyLines.push(`          recoverable: true,`);
+      constructorBodyLines.push(`          message: \`Failed to deserialize DropTarget ${serviceName}.${m.name}: \${errorMessage(error)}\`,`);
+      constructorBodyLines.push(`          service: "${serviceName}",`);
+      constructorBodyLines.push(`          member: "${m.name}",`);
+      constructorBodyLines.push(`          context: { interaction: "DropTarget" }`);
+      constructorBodyLines.push(`        });`);
+      constructorBodyLines.push(`      }`);
+      constructorBodyLines.push(`    });`);
     }
     if (m.kind === "HoverTarget" && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
       fieldLines.push(`  private readonly _${m.name} = signal<{ payload: ${tsType}; x: number; y: number } | null>(null);`);
       methodLines.push(`  ${m.name}(): { payload: ${tsType}; x: number; y: number } | null { return this._${m.name}(); }`);
-      constructorBodyLines.push(`    this._bridge.onHover("${serviceName}", "${m.name}", (payload, x, y) => this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y }));`);
+      constructorBodyLines.push(`    this._bridge.onHover("${serviceName}", "${m.name}", (payload, x, y) => {`);
+      constructorBodyLines.push(`      try {`);
+      constructorBodyLines.push(`        this._${m.name}.set({ payload: ${payloadSite ? `decode${payloadSite.codecId}(payload)` : `payload as ${tsType}`}, x, y });`);
+      constructorBodyLines.push(`      } catch (error) {`);
+      constructorBodyLines.push(`        this._bridge.reportFrontendDiagnostic({`);
+      constructorBodyLines.push(`          code: "DeserializationError",`);
+      constructorBodyLines.push(`          severity: "error",`);
+      constructorBodyLines.push(`          category: "bridge",`);
+      constructorBodyLines.push(`          recoverable: true,`);
+      constructorBodyLines.push(`          message: \`Failed to deserialize HoverTarget ${serviceName}.${m.name}: \${errorMessage(error)}\`,`);
+      constructorBodyLines.push(`          service: "${serviceName}",`);
+      constructorBodyLines.push(`          member: "${m.name}",`);
+      constructorBodyLines.push(`          context: { interaction: "HoverTarget" }`);
+      constructorBodyLines.push(`        });`);
+      constructorBodyLines.push(`      }`);
+      constructorBodyLines.push(`    });`);
       constructorBodyLines.push(`    this._bridge.onHoverLeft("${serviceName}", "${m.name}", () => this._${m.name}.set(null));`);
     }
   }
@@ -1610,7 +1775,7 @@ function renderTsServiceDts(spec: ParsedSpecModel, serviceName: string): string 
     }
     if ((m.kind === "Input" || m.kind === "Output") && m.payloadTypeText) {
       const tsType = mapTypeTextToTs(m.payloadTypeText);
-      classMembers.push(`  ${m.name}(): ${tsType};`);
+      classMembers.push(`  ${m.name}(): ${tsType} | undefined;`);
       if (m.kind === "Input") {
         setMembers.push(`  ${m.name}(value: ${tsType}): void;`);
       }
@@ -1665,6 +1830,28 @@ type OutputListener = (service: string, member: string, value: unknown) => void;
 type DropListener = (service: string, member: string, payload: unknown, x: number, y: number) => void;
 type HoverListener = (service: string, member: string, payload: unknown, x: number, y: number) => void;
 type HoverLeftListener = (service: string, member: string) => void;
+type HostDiagnosticListener = (payload: unknown) => void;
+type DisconnectListener = () => void;
+
+export type AnQstBridgeSeverity = "info" | "warn" | "error" | "fatal";
+export type AnQstBridgeSource = "frontend" | "host";
+export type AnQstBridgeTransport = "qt-webchannel" | "dev-websocket";
+export type AnQstBridgeState = "starting" | "ready" | "failed" | "disconnected";
+
+export interface AnQstBridgeDiagnostic {
+  code: string;
+  severity: AnQstBridgeSeverity;
+  category: string;
+  recoverable: boolean;
+  message: string;
+  timestamp: string;
+  source: AnQstBridgeSource;
+  transport?: AnQstBridgeTransport;
+  service?: string;
+  member?: string;
+  requestId?: string;
+  context?: Record<string, unknown>;
+}
 
 interface HostBridgeApi {
   anQstBridge_call(service: string, member: string, args: unknown[], callback: (result: unknown) => void): void;
@@ -1676,6 +1863,7 @@ interface HostBridgeApi {
   anQstBridge_slotInvocationRequested: {
     connect: (cb: (requestId: string, service: string, member: string, args: unknown[]) => void) => void;
   };
+  anQstBridge_hostDiagnostic?: { connect: (cb: (payload: unknown) => void) => void };
   anQstBridge_dropReceived: { connect: (cb: (service: string, member: string, payload: unknown, x: number, y: number) => void) => void };
   anQstBridge_hoverUpdated: { connect: (cb: (service: string, member: string, payload: unknown, x: number, y: number) => void) => void };
   anQstBridge_hoverLeft: { connect: (cb: (service: string, member: string) => void) => void };
@@ -1689,6 +1877,7 @@ interface QWebChannelCtor {
 }
 
 interface BridgeAdapter {
+  readonly transport: AnQstBridgeTransport;
   call<T>(service: string, member: string, args: unknown[]): Promise<T>;
   emit(service: string, member: string, args: unknown[]): void;
   setInput(service: string, member: string, value: unknown): void;
@@ -1696,9 +1885,80 @@ interface BridgeAdapter {
   resolveSlot(requestId: string, ok: boolean, payload: unknown, error: string): void;
   onOutput(handler: OutputListener): void;
   onSlotInvocation(handler: SlotInvocationListener): void;
+  onHostDiagnostic(handler: HostDiagnosticListener): void;
+  onDisconnected(handler: DisconnectListener): void;
   onDrop(handler: DropListener): void;
   onHover(handler: HoverListener): void;
   onHoverLeft(handler: HoverLeftListener): void;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && typeof error.message === "string" && error.message.length > 0) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function normalizeSeverity(value: unknown): AnQstBridgeSeverity {
+  if (value === "info" || value === "warn" || value === "error" || value === "fatal") {
+    return value;
+  }
+  return "error";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readBoolean(record: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = record?.[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readContext(record: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const context = asRecord(record?.["context"]);
+  return context === undefined ? undefined : context;
+}
+
+function normalizeHostDiagnostic(
+  payload: unknown,
+  transport: AnQstBridgeTransport
+): Omit<AnQstBridgeDiagnostic, "timestamp"> {
+  const row = asRecord(payload);
+  if (row === undefined) {
+    return {
+      code: "HostDiagnosticMalformed",
+      severity: "error",
+      category: "bridge",
+      recoverable: true,
+      message: "Host emitted a malformed diagnostic payload.",
+      source: "host",
+      transport
+    };
+  }
+
+  const context = readContext(row);
+  return {
+    code: readString(row, "code") ?? "HostDiagnostic",
+    severity: normalizeSeverity(row["severity"]),
+    category: readString(row, "category") ?? "bridge",
+    recoverable: readBoolean(row, "recoverable") ?? true,
+    message: readString(row, "message") ?? "Host emitted a diagnostic payload.",
+    source: "host",
+    transport,
+    service: readString(row, "service") ?? readString(context, "service"),
+    member: readString(row, "member") ?? readString(context, "member"),
+    requestId: readString(row, "requestId") ?? readString(context, "requestId"),
+    context
+  };
 }
 
 function isBridgeCallError(value: unknown): value is {
@@ -1720,6 +1980,8 @@ function isBridgeCallError(value: unknown): value is {
 }
 
 class QtWebChannelAdapter implements BridgeAdapter {
+  readonly transport = "qt-webchannel" as const;
+
   private constructor(private readonly host: HostBridgeApi) {}
 
   static async create(): Promise<QtWebChannelAdapter> {
@@ -1787,6 +2049,14 @@ class QtWebChannelAdapter implements BridgeAdapter {
     this.host.anQstBridge_slotInvocationRequested.connect(handler);
   }
 
+  onHostDiagnostic(handler: HostDiagnosticListener): void {
+    this.host.anQstBridge_hostDiagnostic?.connect(handler);
+  }
+
+  onDisconnected(_handler: DisconnectListener): void {
+    // QWebChannel does not expose a deterministic disconnect event here.
+  }
+
   onDrop(handler: DropListener): void {
     this.host.anQstBridge_dropReceived.connect(handler);
   }
@@ -1801,6 +2071,7 @@ class QtWebChannelAdapter implements BridgeAdapter {
 }
 
 class WebSocketBridgeAdapter implements BridgeAdapter {
+  readonly transport = "dev-websocket" as const;
   private readonly pending = new Map<string, {
     service: string;
     member: string;
@@ -1810,6 +2081,8 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
   }>();
   private readonly outputListeners: OutputListener[] = [];
   private readonly slotListeners: SlotInvocationListener[] = [];
+  private readonly hostDiagnosticListeners: HostDiagnosticListener[] = [];
+  private readonly disconnectListeners: DisconnectListener[] = [];
   private readonly dropListeners: DropListener[] = [];
   private readonly hoverListeners: HoverListener[] = [];
   private readonly hoverLeftListeners: HoverLeftListener[] = [];
@@ -1881,7 +2154,9 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
         return;
       }
       if (type === "hostError") {
-        console.error("AnQst host error:", message["payload"]);
+        for (const listener of this.hostDiagnosticListeners) {
+          listener(message["payload"]);
+        }
         return;
       }
       if (type === "widgetReattached") {
@@ -1900,6 +2175,9 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
         });
       }
       this.pending.clear();
+      for (const listener of this.disconnectListeners) {
+        listener();
+      }
     });
   }
 
@@ -1968,6 +2246,14 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
     this.slotListeners.push(handler);
   }
 
+  onHostDiagnostic(handler: HostDiagnosticListener): void {
+    this.hostDiagnosticListeners.push(handler);
+  }
+
+  onDisconnected(handler: DisconnectListener): void {
+    this.disconnectListeners.push(handler);
+  }
+
   onDrop(handler: DropListener): void {
     this.dropListeners.push(handler);
   }
@@ -1983,16 +2269,52 @@ class WebSocketBridgeAdapter implements BridgeAdapter {
 
 @Injectable({ providedIn: "root" })
 class AnQstBridgeRuntime {
+  private static readonly maxDiagnostics = 50;
   private adapter: BridgeAdapter | null = null;
   private readonly slotHandlers = new Map<string, SlotHandler>();
   private readonly outputHandlers = new Map<string, OutputHandler[]>();
   private readonly dropHandlers = new Map<string, ((payload: unknown, x: number, y: number) => void)[]>();
   private readonly hoverHandlers = new Map<string, ((payload: unknown, x: number, y: number) => void)[]>();
   private readonly hoverLeftHandlers = new Map<string, (() => void)[]>();
-  private readonly startup = this.init();
+  private readonly diagnosticListeners = new Set<(diagnostic: AnQstBridgeDiagnostic) => void>();
+  private readonly _diagnostics = signal<readonly AnQstBridgeDiagnostic[]>([]);
+  private readonly _state = signal<AnQstBridgeState>("starting");
+  private readonly startup = this.init().catch((error) => {
+    this._state.set("failed");
+    this.reportFrontendDiagnostic({
+      code: "BridgeBootstrapError",
+      severity: "fatal",
+      category: "bridge",
+      recoverable: false,
+      message: \`Failed to initialize bridge: \${errorMessage(error)}\`
+    });
+    throw error;
+  });
+
+  diagnostics(): readonly AnQstBridgeDiagnostic[] {
+    return this._diagnostics();
+  }
+
+  state(): AnQstBridgeState {
+    return this._state();
+  }
+
+  subscribeDiagnostics(listener: (diagnostic: AnQstBridgeDiagnostic) => void): () => void {
+    this.diagnosticListeners.add(listener);
+    return () => this.diagnosticListeners.delete(listener);
+  }
 
   async ready(): Promise<void> {
     return this.startup;
+  }
+
+  reportFrontendDiagnostic(diagnostic: Omit<AnQstBridgeDiagnostic, "timestamp" | "source">): void {
+    this.pushDiagnostic({
+      ...diagnostic,
+      source: "frontend",
+      transport: diagnostic.transport ?? this.adapter?.transport,
+      timestamp: new Date().toISOString()
+    });
   }
 
   async call<T>(service: string, member: string, args: unknown[]): Promise<T> {
@@ -2001,35 +2323,62 @@ class AnQstBridgeRuntime {
   }
 
   emit(service: string, member: string, args: unknown[]): void {
-    if (this.adapter !== null) {
-      this.adapter.emit(service, member, args);
-      return;
-    }
-    this.ready()
-      .then(() => this.requireAdapterSync().emit(service, member, args))
-      .catch((error) => console.error(error));
+    this.publishNonCall("Emitter", service, member, (adapter) => adapter.emit(service, member, args));
   }
 
   setInput(service: string, member: string, value: unknown): void {
-    if (this.adapter !== null) {
-      this.adapter.setInput(service, member, value);
-      return;
-    }
-    this.ready()
-      .then(() => this.requireAdapterSync().setInput(service, member, value))
-      .catch((error) => console.error(error));
+    this.publishNonCall("Input", service, member, (adapter) => adapter.setInput(service, member, value));
   }
 
   registerSlot(service: string, member: string, handler: SlotHandler): void {
     const key = this.key(service, member);
     this.slotHandlers.set(key, handler);
     if (this.adapter !== null) {
-      this.adapter.registerSlot(service, member);
+      try {
+        this.adapter.registerSlot(service, member);
+      } catch (error) {
+        this.reportFrontendDiagnostic({
+          code: "BridgePublishError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`Failed to register Slot \${service}.\${member}: \${errorMessage(error)}\`,
+          service,
+          member,
+          context: { interaction: "Slot" }
+        });
+      }
       return;
     }
     this.ready()
-      .then(() => this.requireAdapterSync().registerSlot(service, member))
-      .catch((error) => console.error(error));
+      .then(() => {
+        try {
+          this.requireAdapterSync().registerSlot(service, member);
+        } catch (error) {
+          this.reportFrontendDiagnostic({
+            code: "BridgePublishError",
+            severity: "error",
+            category: "bridge",
+            recoverable: true,
+            message: \`Failed to register Slot \${service}.\${member}: \${errorMessage(error)}\`,
+            service,
+            member,
+            context: { interaction: "Slot" }
+          });
+        }
+      })
+      .catch((error) => {
+        this.reportFrontendDiagnostic({
+          code: "BridgePublishError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`Failed to register Slot \${service}.\${member}: \${errorMessage(error)}\`,
+          service,
+          member,
+          context: { interaction: "Slot" }
+        });
+      });
   }
 
   onOutput(service: string, member: string, handler: OutputHandler): void {
@@ -2072,6 +2421,73 @@ class AnQstBridgeRuntime {
     return this.requireAdapterSync();
   }
 
+  private pushDiagnostic(diagnostic: AnQstBridgeDiagnostic): void {
+    const previous = this._diagnostics();
+    const trimmed = previous.length >= AnQstBridgeRuntime.maxDiagnostics
+      ? previous.slice(previous.length - (AnQstBridgeRuntime.maxDiagnostics - 1))
+      : previous;
+    const next = [...trimmed, diagnostic];
+    this._diagnostics.set(next);
+    for (const listener of this.diagnosticListeners) {
+      listener(diagnostic);
+    }
+  }
+
+  private publishNonCall(
+    interaction: "Emitter" | "Input",
+    service: string,
+    member: string,
+    publish: (adapter: BridgeAdapter) => void
+  ): void {
+    if (this.adapter !== null) {
+      try {
+        publish(this.adapter);
+      } catch (error) {
+        this.reportFrontendDiagnostic({
+          code: "BridgePublishError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`Failed to publish \${interaction} \${service}.\${member}: \${errorMessage(error)}\`,
+          service,
+          member,
+          context: { interaction }
+        });
+      }
+      return;
+    }
+
+    this.ready()
+      .then(() => {
+        try {
+          publish(this.requireAdapterSync());
+        } catch (error) {
+          this.reportFrontendDiagnostic({
+            code: "BridgePublishError",
+            severity: "error",
+            category: "bridge",
+            recoverable: true,
+            message: \`Failed to publish \${interaction} \${service}.\${member}: \${errorMessage(error)}\`,
+            service,
+            member,
+            context: { interaction }
+          });
+        }
+      })
+      .catch((error) => {
+        this.reportFrontendDiagnostic({
+          code: "BridgePublishError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`Failed to publish \${interaction} \${service}.\${member}: \${errorMessage(error)}\`,
+          service,
+          member,
+          context: { interaction }
+        });
+      });
+  }
+
   private async init(): Promise<void> {
     const anyWindow = window as unknown as { qt?: { webChannelTransport?: unknown }; QWebChannel?: QWebChannelCtor };
     if (typeof anyWindow.QWebChannel === "function" && anyWindow.qt?.webChannelTransport !== undefined) {
@@ -2080,44 +2496,98 @@ class AnQstBridgeRuntime {
       this.adapter = await WebSocketBridgeAdapter.create();
     }
 
-    this.adapter.onOutput((service, member, value) => {
+    const adapter = this.adapter;
+    adapter.onHostDiagnostic((payload) => {
+      this.pushDiagnostic({
+        ...normalizeHostDiagnostic(payload, adapter.transport),
+        timestamp: new Date().toISOString()
+      });
+    });
+    adapter.onDisconnected(() => {
+      this._state.set("disconnected");
+      this.reportFrontendDiagnostic({
+        code: "BridgeDisconnectedError",
+        severity: "error",
+        category: "bridge",
+        recoverable: true,
+        message: "Bridge disconnected.",
+        transport: adapter.transport
+      });
+    });
+
+    adapter.onOutput((service, member, value) => {
       const key = this.key(service, member);
       for (const outputHandler of this.outputHandlers.get(key) ?? []) {
         outputHandler(value);
       }
     });
-    this.adapter.onSlotInvocation(async (requestId, service, member, args) => {
+    adapter.onSlotInvocation(async (requestId, service, member, args) => {
       const key = this.key(service, member);
       const handler = this.slotHandlers.get(key);
       if (handler === undefined) {
-        this.adapter!.resolveSlot(requestId, false, undefined, "No slot handler registered.");
+        this.reportFrontendDiagnostic({
+          code: "HandlerNotRegisteredError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`No slot handler registered for \${service}.\${member}.\`,
+          service,
+          member,
+          requestId,
+          context: { interaction: "Slot" }
+        });
+        adapter.resolveSlot(requestId, false, undefined, "No slot handler registered.");
         return;
       }
       try {
         const result = await Promise.resolve(handler(...args));
         if (result instanceof Error) {
-          this.adapter!.resolveSlot(requestId, false, undefined, result.message);
+          this.reportFrontendDiagnostic({
+            code: "SlotRequestFailed",
+            severity: "error",
+            category: "bridge",
+            recoverable: true,
+            message: result.message.length > 0
+              ? result.message
+              : \`Slot \${service}.\${member} returned an Error.\`,
+            service,
+            member,
+            requestId,
+            context: { interaction: "Slot" }
+          });
+          adapter.resolveSlot(requestId, false, undefined, result.message);
           return;
         }
-        this.adapter!.resolveSlot(requestId, true, result, "");
+        adapter.resolveSlot(requestId, true, result, "");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.adapter!.resolveSlot(requestId, false, undefined, message);
+        const message = errorMessage(error);
+        this.reportFrontendDiagnostic({
+          code: "SlotHandlerError",
+          severity: "error",
+          category: "bridge",
+          recoverable: true,
+          message: \`Slot handler \${service}.\${member} threw: \${message}\`,
+          service,
+          member,
+          requestId,
+          context: { interaction: "Slot" }
+        });
+        adapter.resolveSlot(requestId, false, undefined, message);
       }
     });
-    this.adapter.onDrop((service, member, payload, x, y) => {
+    adapter.onDrop((service, member, payload, x, y) => {
       const key = this.key(service, member);
       for (const handler of this.dropHandlers.get(key) ?? []) {
         handler(payload, x, y);
       }
     });
-    this.adapter.onHover((service, member, payload, x, y) => {
+    adapter.onHover((service, member, payload, x, y) => {
       const key = this.key(service, member);
       for (const handler of this.hoverHandlers.get(key) ?? []) {
         handler(payload, x, y);
       }
     });
-    this.adapter.onHoverLeft((service, member) => {
+    adapter.onHoverLeft((service, member) => {
       const key = this.key(service, member);
       for (const handler of this.hoverLeftHandlers.get(key) ?? []) {
         handler();
@@ -2126,15 +2596,33 @@ class AnQstBridgeRuntime {
     for (const key of this.slotHandlers.keys()) {
       const parts = key.split("::");
       if (parts.length === 2) {
-        this.adapter.registerSlot(parts[0], parts[1]);
+        adapter.registerSlot(parts[0], parts[1]);
       }
     }
+    this._state.set("ready");
   }
 
   private key(service: string, member: string): string {
     return \`\${service}::\${member}\`;
   }
 
+}
+
+@Injectable({ providedIn: "root" })
+export class AnQstBridgeDiagnostics {
+  private readonly _bridge = inject(AnQstBridgeRuntime);
+
+  diagnostics(): readonly AnQstBridgeDiagnostic[] {
+    return this._bridge.diagnostics();
+  }
+
+  state(): AnQstBridgeState {
+    return this._bridge.state();
+  }
+
+  subscribe(listener: (diagnostic: AnQstBridgeDiagnostic) => void): () => void {
+    return this._bridge.subscribeDiagnostics(listener);
+  }
 }
 ${serviceClasses}
 `;
@@ -2156,10 +2644,38 @@ function renderTypeServicesDts(spec: ParsedSpecModel): string {
     `frontend/${generatedFrontendDirName(spec.widgetName)}/types/services.d.ts`
   ).trim();
   const localTypeImports = renderLocalTypeImports(spec).trim();
+  const bridgeDiagnosticsDecl = `export type AnQstBridgeSeverity = "info" | "warn" | "error" | "fatal";
+
+export type AnQstBridgeSource = "frontend" | "host";
+
+export type AnQstBridgeTransport = "qt-webchannel" | "dev-websocket";
+
+export type AnQstBridgeState = "starting" | "ready" | "failed" | "disconnected";
+
+export interface AnQstBridgeDiagnostic {
+  code: string;
+  severity: AnQstBridgeSeverity;
+  category: string;
+  recoverable: boolean;
+  message: string;
+  timestamp: string;
+  source: AnQstBridgeSource;
+  transport?: AnQstBridgeTransport;
+  service?: string;
+  member?: string;
+  requestId?: string;
+  context?: Record<string, unknown>;
+}
+
+export declare class AnQstBridgeDiagnostics {
+  diagnostics(): readonly AnQstBridgeDiagnostic[];
+  state(): AnQstBridgeState;
+  subscribe(listener: (diagnostic: AnQstBridgeDiagnostic) => void): () => void;
+}`;
   const serviceDecls = spec.services
     .map((s) => renderTsServiceDts(spec, s.name))
     .join("\n\n");
-  const sections = [externalTypeImports, localTypeImports, serviceDecls.trim()].filter((s) => s.length > 0);
+  const sections = [externalTypeImports, localTypeImports, bridgeDiagnosticsDecl, serviceDecls.trim()].filter((s) => s.length > 0);
   return sections.length > 0 ? `${sections.join("\n\n")}\n` : "";
 }
 

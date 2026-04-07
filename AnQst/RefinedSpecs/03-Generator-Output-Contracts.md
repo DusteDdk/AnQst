@@ -52,11 +52,13 @@ For each service member:
 - `Call<T>` -> `method(args): Promise<T>`
 - `Slot<T>` -> `onSlot.method(handler: (...args) => T | Promise<T> | Error): void`
 - `Emitter` -> `method(args): void`
-- `Output<T>` -> readonly reactive accessor `prop(): T` and `set.prop(value: T): void`
-- `Input<T>` -> readonly reactive accessor `prop(): T` and `set.prop(value: T): void`
+- `Output<T>` -> readonly reactive accessor `prop(): T | undefined` and `set.prop(value: T): void`
+- `Input<T>` -> readonly reactive accessor `prop(): T | undefined` and `set.prop(value: T): void`
 
 `set` namespace object MUST be generated once per service.
 `onSlot` namespace object MUST be generated once per service.
+
+Until the first value has been observed or published, generated `Input`/`Output` accessors MUST model the unset state honestly rather than fabricating a value.
 
 ## 3.2 Angular integration contract
 
@@ -71,6 +73,7 @@ For each service member:
 
 - `Call` errors MUST map to rejected errors as defined in interaction semantics.
 - Generator SHOULD emit a diagnostic event stream API for non-throwing constructs (`Emitter`, `Input`, `Output` transport failures).
+- Generated Angular surface SHOULD expose that diagnostic stream through a dedicated injectable service rather than requiring direct bridge-runtime access.
 
 ## 4. Qt/C++ Bundle Contract
 

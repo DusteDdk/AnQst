@@ -1,4 +1,5 @@
 #include "AnQstWebHostBase.h"
+#include "AnQstHostBridgeFacade.h"
 #include "AngularHttpBaseServer.h"
 #include "AnQstWidgetDebugDialog.h"
 
@@ -6,13 +7,16 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDragEnterEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDropEvent>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QShortcut>
@@ -22,6 +26,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <cstdlib>
+#include <stdexcept>
 
 #if __has_include(<catch2/catch_session.hpp>) && __has_include(<catch2/catch_test_macros.hpp>)
 #include <catch2/catch_session.hpp>
@@ -258,6 +263,67 @@ TEST_CASE("bridge Call handler is invoked", "[host][behavior][call]") {
     CHECK(callResult.toString() == QStringLiteral("DemoBehaviorService:callGreeting:Alice"));
 }
 
+TEST_CASE("hover targets deserialize canonical drag-drop wire arrays", "[host][dragdrop][hover]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    auto* facade = host.findChild<AnQstHostBridgeFacade*>();
+    REQUIRE(facade != nullptr);
+    facade->setDispatchEnabled(true);
+    host.registerHoverTarget(
+        QStringLiteral("DemoBehaviorService"),
+        QStringLiteral("hoveringDraft"),
+        QStringLiteral("application/anqst-test-hover"),
+        0);
+
+    QSignalSpy hoverSpy(&host, &AnQstWebHostBase::anQstBridge_hoverUpdated);
+    QSignalSpy errorSpy(&host, &AnQstWebHostBase::onHostError);
+
+    QMimeData mime;
+    mime.setData(QStringLiteral("application/anqst-test-hover"), QByteArrayLiteral("[\"draft-wire\"]"));
+    QDragEnterEvent enterEvent(QPoint(11, 13), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+
+    REQUIRE(host.eventFilter(&host, &enterEvent));
+    REQUIRE(waitForSignal(hoverSpy));
+    CHECK(errorSpy.count() == 0);
+
+    const auto args = hoverSpy.takeFirst();
+    REQUIRE(args.count() == 5);
+    CHECK(args.at(0).toString() == QStringLiteral("DemoBehaviorService"));
+    CHECK(args.at(1).toString() == QStringLiteral("hoveringDraft"));
+    REQUIRE(args.at(2).canConvert<QVariantList>());
+    CHECK(args.at(2).toList() == QVariantList{QStringLiteral("draft-wire")});
+    CHECK(args.at(3).toDouble() == 11.0);
+    CHECK(args.at(4).toDouble() == 13.0);
+}
+
+TEST_CASE("drop targets reject legacy object MIME payloads with diagnostics", "[host][dragdrop][drop]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    host.registerDropTarget(
+        QStringLiteral("DemoBehaviorService"),
+        QStringLiteral("droppedDraft"),
+        QStringLiteral("application/anqst-test-drop"));
+
+    QSignalSpy dropSpy(&host, &AnQstWebHostBase::anQstBridge_dropReceived);
+    QSignalSpy errorSpy(&host, &AnQstWebHostBase::onHostError);
+
+    QMimeData mime;
+    mime.setData(QStringLiteral("application/anqst-test-drop"), QByteArrayLiteral("{\"legacy\":true}"));
+    QDropEvent dropEvent(QPointF(5.0, 7.0), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+
+    REQUIRE(host.eventFilter(&host, &dropEvent));
+    CHECK(dropSpy.count() == 0);
+    REQUIRE(waitForSignal(errorSpy));
+
+    const QVariantMap payload = firstPayload(errorSpy);
+    CHECK(payload.value("code").toString() == QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"));
+    CHECK(payload.value("category").toString() == QStringLiteral("bridge"));
+    CHECK(payload.value("severity").toString() == QStringLiteral("error"));
+    CHECK(payload.value("recoverable").toBool());
+    CHECK(payload.value("message").toString().contains(QStringLiteral("JSON array")));
+    CHECK(payload.value("context").toMap().value("mimeType").toString() == QStringLiteral("application/anqst-test-drop"));
+}
+
 TEST_CASE("bridge Emitter and Input handlers are forwarded", "[host][behavior][emitter][input]") {
     ensureApp();
     AnQstWebHostBase host;
@@ -280,6 +346,50 @@ TEST_CASE("bridge Emitter and Input handlers are forwarded", "[host][behavior][e
     CHECK(capturedInputValue.toString() == QStringLiteral("hello"));
 }
 
+TEST_CASE("facade emitter handler failures emit diagnostics without throwing", "[host][facade][emitter][diagnostics]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    QSignalSpy diagnosticSpy(&facade, &AnQstHostBridgeFacade::bridgeHostError);
+
+    facade.setEmitterHandler([](const QString&, const QString&, const QVariantList&) {
+        throw std::runtime_error("planned emitter failure");
+    });
+
+    REQUIRE_NOTHROW(facade.emitMessage(QStringLiteral("DemoBehaviorService"), QStringLiteral("emitterTelemetry"), {}));
+    REQUIRE(waitForSignal(diagnosticSpy));
+
+    const QVariantMap payload = firstPayload(diagnosticSpy);
+    CHECK(payload.value("code").toString() == "EmitterHandlerError");
+    CHECK(payload.value("category").toString() == "bridge");
+    CHECK(payload.value("severity").toString() == "error");
+    CHECK(payload.value("recoverable").toBool());
+    CHECK(payload.value("context").toMap().value("service").toString() == QStringLiteral("DemoBehaviorService"));
+    CHECK(payload.value("context").toMap().value("member").toString() == QStringLiteral("emitterTelemetry"));
+    CHECK(payload.value("context").toMap().value("detail").toString() == QStringLiteral("planned emitter failure"));
+}
+
+TEST_CASE("facade input handler failures emit diagnostics without throwing", "[host][facade][input][diagnostics]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    QSignalSpy diagnosticSpy(&facade, &AnQstHostBridgeFacade::bridgeHostError);
+
+    facade.setInputHandler([](const QString&, const QString&, const QVariant&) {
+        throw std::runtime_error("planned input failure");
+    });
+
+    REQUIRE_NOTHROW(facade.setInput(QStringLiteral("DemoBehaviorService"), QStringLiteral("inputTypedValue"), QStringLiteral("hello")));
+    REQUIRE(waitForSignal(diagnosticSpy));
+
+    const QVariantMap payload = firstPayload(diagnosticSpy);
+    CHECK(payload.value("code").toString() == "InputHandlerError");
+    CHECK(payload.value("category").toString() == "bridge");
+    CHECK(payload.value("severity").toString() == "error");
+    CHECK(payload.value("recoverable").toBool());
+    CHECK(payload.value("context").toMap().value("service").toString() == QStringLiteral("DemoBehaviorService"));
+    CHECK(payload.value("context").toMap().value("member").toString() == QStringLiteral("inputTypedValue"));
+    CHECK(payload.value("context").toMap().value("detail").toString() == QStringLiteral("planned input failure"));
+}
+
 TEST_CASE("Slot queueing dispatches when handler is registered", "[host][behavior][slot]") {
     ensureApp();
     AnQstWebHostBase host;
@@ -300,6 +410,54 @@ TEST_CASE("Slot queueing dispatches when handler is registered", "[host][behavio
     CHECK(ok);
     CHECK(error.isEmpty());
     CHECK(result.toString() == QStringLiteral("echo:abc"));
+}
+
+TEST_CASE("facade distinguishes slot registration timeout diagnostics", "[host][facade][slot][diagnostics]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    facade.setSlotInvocationTimeoutMs(20);
+    QSignalSpy diagnosticSpy(&facade, &AnQstHostBridgeFacade::bridgeHostError);
+
+    QVariant result;
+    QString error;
+    const bool ok = facade.invokeSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"), {}, &result, &error);
+
+    CHECK_FALSE(ok);
+    CHECK(error == QStringLiteral("slot invocation timeout"));
+    REQUIRE(waitForSignal(diagnosticSpy));
+
+    const QVariantMap payload = firstPayload(diagnosticSpy);
+    CHECK(payload.value("code").toString() == "HandlerNotRegisteredError");
+    CHECK(payload.value("category").toString() == "runtime");
+    CHECK(payload.value("severity").toString() == "error");
+    CHECK(payload.value("recoverable").toBool());
+    CHECK(payload.value("context").toMap().value("reason").toString() == QStringLiteral("registration_timeout"));
+    CHECK(payload.value("context").toMap().value("slotRegistered").toBool() == false);
+}
+
+TEST_CASE("facade distinguishes slot reply timeout diagnostics", "[host][facade][slot][diagnostics]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    facade.setSlotInvocationTimeoutMs(20);
+    QSignalSpy diagnosticSpy(&facade, &AnQstHostBridgeFacade::bridgeHostError);
+
+    facade.registerSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"));
+
+    QVariant result;
+    QString error;
+    const bool ok = facade.invokeSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"), {}, &result, &error);
+
+    CHECK_FALSE(ok);
+    CHECK(error == QStringLiteral("slot invocation timeout"));
+    REQUIRE(waitForSignal(diagnosticSpy));
+
+    const QVariantMap payload = firstPayload(diagnosticSpy);
+    CHECK(payload.value("code").toString() == "BridgeTimeoutError");
+    CHECK(payload.value("category").toString() == "runtime");
+    CHECK(payload.value("severity").toString() == "error");
+    CHECK(payload.value("recoverable").toBool());
+    CHECK(payload.value("context").toMap().value("reason").toString() == QStringLiteral("reply_timeout"));
+    CHECK(payload.value("context").toMap().value("slotRegistered").toBool());
 }
 
 TEST_CASE("Output value emits through bridge signal when host is ready", "[host][behavior][output]") {
@@ -398,8 +556,6 @@ TEST_CASE("blocked navigation emits raw WebEngine error", "[host][webengine][pol
 TEST_CASE("javascript runtime errors emit detailed WebEngine diagnostics without bridge", "[host][webengine][javascript]") {
     ensureApp();
     AnQstWebHostBase host;
-    host.resize(320, 240);
-    host.show();
 
     QSignalSpy webEngineSpy(&host, &AnQstWebHostBase::onWebEngineError);
 

@@ -45,3 +45,12 @@ target_link_libraries(example_qt_app
     PRIVATE
         CdEntryEditorWidget
 )
+
+include(CTest)
+add_test(
+    NAME example_qt_app_headless_smoke
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/headless_smoke.sh" "$<TARGET_FILE:example_qt_app>"
+)
+set_tests_properties(example_qt_app_headless_smoke PROPERTIES
+    ENVIRONMENT "QTWEBENGINE_DISABLE_SANDBOX=1;QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox"
+)

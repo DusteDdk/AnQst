@@ -113,6 +113,15 @@ private slots:
     void handleDebugShortcut();
     void handleReattachRequested();
 
+protected:
+    void emitHostError(
+        const QString& code,
+        const QString& category,
+        const QString& severity,
+        bool recoverable,
+        const QString& message,
+        const QVariantMap& context = QVariantMap());
+
 private:
     struct DebugState {
         AnQstWidgetResourceProvider provider = AnQstWidgetResourceProvider::Qrc;
@@ -143,13 +152,6 @@ private:
     QString browserUrl() const;
     QString debugWidgetName() const;
     void applyDebugBorderHint();
-    void emitHostError(
-        const QString& code,
-        const QString& category,
-        const QString& severity,
-        bool recoverable,
-        const QString& message,
-        const QVariantMap& context = QVariantMap());
     void emitWebEngineError(const QString& channel, const QString& detail);
     bool isBlockedScheme(const QUrl& url) const;
     bool isContentRootSet() const;
@@ -166,7 +168,7 @@ private:
 
     void installDragDropEventFilter();
     bool matchDropMimeType(const QMimeData* mime, QString* matchedMimeType) const;
-    QVariant deserializeMimePayload(const QMimeData* mime, const QString& mimeType) const;
+    QVariant deserializeMimePayload(const QMimeData* mime, const QString& mimeType);
     void dispatchHoverThrottle();
 
     LocalWebView* m_view;

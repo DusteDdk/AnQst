@@ -72,16 +72,22 @@ bool AnQstHostBridgeFacade::invokeSlot(const QString& service, const QString& me
     }
 
     if (!response.done) {
+        const bool slotRegistered = m_registeredSlots.value(key, false);
         emitHostError(
-            QStringLiteral("HOST_SYNC_SEMANTIC_VIOLATION"),
+            slotRegistered ? QStringLiteral("BridgeTimeoutError") : QStringLiteral("HandlerNotRegisteredError"),
             QStringLiteral("runtime"),
-            QStringLiteral("fatal"),
-            false,
-            QStringLiteral("Slot invocation timed out before a response was received."),
+            QStringLiteral("error"),
+            true,
+            slotRegistered
+                ? QStringLiteral("Slot invocation timed out while waiting for a frontend reply.")
+                : QStringLiteral("Slot invocation timed out before the frontend registered the slot handler."),
             {
                 {QStringLiteral("service"), service},
                 {QStringLiteral("member"), member},
                 {QStringLiteral("requestId"), requestId},
+                {QStringLiteral("timeoutMs"), m_slotInvocationTimeoutMs},
+                {QStringLiteral("slotRegistered"), slotRegistered},
+                {QStringLiteral("reason"), slotRegistered ? QStringLiteral("reply_timeout") : QStringLiteral("registration_timeout")},
             });
         m_slotInvocationResponses.remove(requestId);
         if (error != nullptr) {
@@ -170,14 +176,68 @@ QVariant AnQstHostBridgeFacade::call(const QString& service, const QString& memb
 }
 
 void AnQstHostBridgeFacade::emitMessage(const QString& service, const QString& member, const QVariantList& args) {
-    if (m_emitterHandler) {
+    if (!m_emitterHandler) {
+        return;
+    }
+
+    try {
         m_emitterHandler(service, member, args);
+    } catch (const std::exception& ex) {
+        emitHostError(
+            QStringLiteral("EmitterHandlerError"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Emitter handler threw while processing payload."),
+            {
+                {QStringLiteral("service"), service},
+                {QStringLiteral("member"), member},
+                {QStringLiteral("detail"), QString::fromUtf8(ex.what())},
+            });
+    } catch (...) {
+        emitHostError(
+            QStringLiteral("EmitterHandlerError"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Emitter handler threw while processing payload."),
+            {
+                {QStringLiteral("service"), service},
+                {QStringLiteral("member"), member},
+            });
     }
 }
 
 void AnQstHostBridgeFacade::setInput(const QString& service, const QString& member, const QVariant& value) {
-    if (m_inputHandler) {
+    if (!m_inputHandler) {
+        return;
+    }
+
+    try {
         m_inputHandler(service, member, value);
+    } catch (const std::exception& ex) {
+        emitHostError(
+            QStringLiteral("InputHandlerError"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Input handler threw while processing payload."),
+            {
+                {QStringLiteral("service"), service},
+                {QStringLiteral("member"), member},
+                {QStringLiteral("detail"), QString::fromUtf8(ex.what())},
+            });
+    } catch (...) {
+        emitHostError(
+            QStringLiteral("InputHandlerError"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Input handler threw while processing payload."),
+            {
+                {QStringLiteral("service"), service},
+                {QStringLiteral("member"), member},
+            });
     }
 }
 

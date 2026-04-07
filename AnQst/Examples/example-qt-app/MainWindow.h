@@ -25,12 +25,15 @@ public:
 
 private:
     void wireUi();
+    void handleWidgetDiagnostic(const QVariantMap &payload);
+    void showStatusMessage(const QString &message, int timeoutMs = 4000);
     void loadEntries();
     void saveEntries() const;
     bool commitDraft(const CdEntryEditor::CdDraft &draft);
     bool commitCurrentDraft();
     bool resolveUnsavedChanges();
     void refreshEntryList();
+    bool presentEntryInEditor(int index);
     void selectEntry(int index);
     void addEntry();
     void deleteEntry();

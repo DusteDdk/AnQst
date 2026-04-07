@@ -1,52 +1,8 @@
 #include "DraggableCdListWidget.h"
 
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
+#include "CdEntryEditorWidget.h"
+
 #include <QMimeData>
-
-namespace {
-
-QJsonObject trackToJson(const CdEntryEditor::Track& track) {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("title"), track.title);
-    obj.insert(QStringLiteral("durationSeconds"), track.durationSeconds);
-    return obj;
-}
-
-QJsonObject userToJson(const CdEntryEditor::User& user) {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("name"), user.name);
-    QJsonArray friends;
-    for (const double friendId : user.meta.friends) {
-        friends.append(friendId);
-    }
-    QJsonObject meta;
-    meta.insert(QStringLiteral("friends"), friends);
-    obj.insert(QStringLiteral("meta"), meta);
-    return obj;
-}
-
-QJsonObject draftToMimeJson(const CdEntryEditor::CdDraft& draft) {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("cdId"), QString::number(draft.cdId));
-    obj.insert(QStringLiteral("artist"), draft.artist);
-    obj.insert(QStringLiteral("albumTitle"), draft.albumTitle);
-    obj.insert(QStringLiteral("releaseYear"), draft.releaseYear);
-    obj.insert(QStringLiteral("genre"), draft.genre);
-    obj.insert(QStringLiteral("catalogNumber"), draft.catalogNumber);
-    obj.insert(QStringLiteral("barcode"), draft.barcode);
-    obj.insert(QStringLiteral("notes"), draft.notes);
-    obj.insert(QStringLiteral("createdBy"), userToJson(draft.createdBy));
-    QJsonArray tracks;
-    for (const CdEntryEditor::Track& track : draft.tracks) {
-        tracks.append(trackToJson(track));
-    }
-    obj.insert(QStringLiteral("tracks"), tracks);
-    return obj;
-}
-
-} // namespace
 
 DraggableCdListWidget::DraggableCdListWidget(QWidget* parent)
     : QListWidget(parent) {
@@ -71,10 +27,9 @@ QMimeData* DraggableCdListWidget::mimeData(const QList<QListWidgetItem*> items) 
         return nullptr;
     }
     const CdEntryEditor::CdDraft draft = m_draftProvider(row);
-    const QByteArray json = QJsonDocument(draftToMimeJson(draft)).toJson(QJsonDocument::Compact);
+    const QByteArray payload = CdEntryEditorWidget::encodeDragDropPayload_CdDraft(draft);
 
     auto* mimeData = new QMimeData();
-    mimeData->setData(QString::fromUtf8(CdEntryEditor::kDragDropMime_CdDraft), json);
+    mimeData->setData(QString::fromUtf8(CdEntryEditor::kDragDropMime_CdDraft), payload);
     return mimeData;
 }
-

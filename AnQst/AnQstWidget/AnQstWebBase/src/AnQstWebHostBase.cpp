@@ -16,8 +16,8 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QKeySequence>
 #include <QLabel>
 #include <QDebug>
@@ -352,6 +352,7 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_outputUpdated);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_slotInvocationRequested);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHostError, this, &AnQstWebHostBase::onHostError);
+    connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeHostError, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_hostDiagnostic);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::slotInvocationResolved, this, &AnQstWebHostBase::slotInvocationResolved);
 
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeDropReceived, this, &AnQstWebHostBase::anQstBridge_dropReceived);
@@ -1429,14 +1430,36 @@ bool AnQstWebHostBase::matchDropMimeType(const QMimeData* mime, QString* matched
     return false;
 }
 
-QVariant AnQstWebHostBase::deserializeMimePayload(const QMimeData* mime, const QString& mimeType) const {
+QVariant AnQstWebHostBase::deserializeMimePayload(const QMimeData* mime, const QString& mimeType) {
     const QByteArray rawData = mime->data(mimeType);
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+    if (parseError.error != QJsonParseError::NoError) {
+        emitHostError(
+            QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Drag/drop MIME payload is not valid JSON."),
+            {
+                {QStringLiteral("mimeType"), mimeType},
+                {QStringLiteral("detail"), parseError.errorString()},
+            });
         return QVariant();
     }
-    return doc.object().toVariantMap();
+    if (!doc.isArray()) {
+        emitHostError(
+            QStringLiteral("HOST_DRAGDROP_PAYLOAD_INVALID"),
+            QStringLiteral("bridge"),
+            QStringLiteral("error"),
+            true,
+            QStringLiteral("Drag/drop MIME payload must be a JSON array of normalized AnQst wire items."),
+            {
+                {QStringLiteral("mimeType"), mimeType},
+            });
+        return QVariant();
+    }
+    return doc.array().toVariantList();
 }
 
 void AnQstWebHostBase::dispatchHoverThrottle() {
@@ -1460,11 +1483,19 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
         auto* de = static_cast<QDragEnterEvent*>(event);
         QString matchedMime;
         if (matchDropMimeType(de->mimeData(), &matchedMime)) {
+            QVariant hoverPayload;
+            if (m_hoverTargets.contains(matchedMime)) {
+                hoverPayload = deserializeMimePayload(de->mimeData(), matchedMime);
+                if (!hoverPayload.isValid()) {
+                    de->ignore();
+                    return true;
+                }
+            }
             de->acceptProposedAction();
 
             if (m_hoverTargets.contains(matchedMime)) {
                 const DragTargetBinding& binding = m_hoverTargets.value(matchedMime);
-                m_cachedHoverPayload = deserializeMimePayload(de->mimeData(), matchedMime);
+                m_cachedHoverPayload = hoverPayload;
                 m_cachedHoverService = binding.service;
                 m_cachedHoverMember = binding.member;
                 m_pendingHoverPos = de->pos();
@@ -1525,6 +1556,10 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
         if (matchDropMimeType(de->mimeData(), &matchedMime) && m_dropTargets.contains(matchedMime)) {
             const DragTargetBinding& binding = m_dropTargets.value(matchedMime);
             const QVariant payload = deserializeMimePayload(de->mimeData(), matchedMime);
+            if (!payload.isValid()) {
+                de->ignore();
+                return true;
+            }
             m_bridgeFacade->emitDrop(
                 binding.service, binding.member,
                 payload,

@@ -18,7 +18,11 @@ fi
 echo "Building CDEntry Angular..."
 
 pushd lib/widgets/CdEntryEditor/
-rm package-lock.json node_modules
+if $full
+then
+    rm -f package-lock.json
+    rm -rf node_modules
+fi
 if [ ! -d  node_modules ]
 then
     npm install
@@ -26,10 +30,19 @@ fi
 
 if $full
 then
-    export ANQST_WEBBASE_DIR=`realpath ../../AnQstWidget/AnQstWebBase`
-    npx anqst build --designerplugin=true
+    export ANQST_WEBBASE_DIR=`realpath ../../../../../AnQstWidget/AnQstWebBase`
+    if ! npx anqst build --designerplugin=true
+    then
+        echo "Designer plugin build unavailable; rebuilding widget without the designer plugin."
+        npx anqst build
+    fi
     echo "Copy plugin.."
-    mkdir -p "$HOME/.local/lib/qt5/plugins/designer" && cp AnQst/generated/backend/cpp/qt/CdEntryEditor_widget/designerPlugin/build/CdEntryEditorDesignerPlugin.so "$HOME/.local/lib/qt5/plugins/designer/"
+    if [ -f AnQst/generated/backend/cpp/qt/CdEntryEditor_widget/designerPlugin/build/CdEntryEditorDesignerPlugin.so ]
+    then
+        mkdir -p "$HOME/.local/lib/qt5/plugins/designer" && cp AnQst/generated/backend/cpp/qt/CdEntryEditor_widget/designerPlugin/build/CdEntryEditorDesignerPlugin.so "$HOME/.local/lib/qt5/plugins/designer/"
+    else
+        echo "Designer plugin binary not available; skipping copy."
+    fi
 
 else
     npx anqst build

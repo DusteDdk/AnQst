@@ -83,12 +83,48 @@ textarea {
   font-size: 0.85rem;
 }
 
-.drop-banner {
+.diagnostic-banner,
+.status-banner {
+  padding: 0.65rem 0.85rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.diagnostic-banner {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid #8d6e63;
+  background: #fbe9e7;
+  color: #5d4037;
+}
+
+.diagnostic-banner[data-severity='fatal'],
+.diagnostic-banner[data-severity='error'] {
+  border-color: #b71c1c;
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.diagnostic-banner[data-severity='warn'] {
+  border-color: #e65100;
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.diagnostic-banner[data-severity='info'] {
+  border-color: #1565c0;
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.status-banner {
   background: #fff3e0;
   border: 1px solid #e65100;
   color: #e65100;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
   font-weight: 600;
-  font-size: 0.85rem;
+}
+
+.field-error {
+  color: #b71c1c;
+  font-size: 0.8rem;
 }

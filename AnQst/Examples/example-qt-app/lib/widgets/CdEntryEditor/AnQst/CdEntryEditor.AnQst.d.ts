@@ -42,10 +42,10 @@ declare namespace CdEntryEditor {
     normalizeBarcode(rawValue: string): AnQst.Call<string>;
 
     focusField(fieldName: string): AnQst.Slot<void>;
-    showDraft(draftJson: string, selectedTrackIndex: number): AnQst.Slot<void>;
+    showDraft(draft: CdDraft, selectedTrackIndex: number): AnQst.Slot<void>;
     replaceTracks(tracks: Track[]): AnQst.Slot<void>;
 
-    saveRequested(draftJson: string): AnQst.Call<SaveResult>;
+    saveRequested(draft: CdDraft): AnQst.Call<SaveResult>;
     dirtyChanged(isDirty: boolean): AnQst.Emitter;
     fieldTouched(fieldName: string): AnQst.Emitter;
 

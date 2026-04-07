@@ -153,6 +153,102 @@ declare namespace StructuredWidget {
   assert.match(nodeIndex, /setOutputValue\("StructuredService", "result", encodeAnQstStructured_.*\(value\)\)/);
 });
 
+test("generateOutputs models unset TS state honestly and exposes bridge diagnostics for typed payloads", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-diagnostics-"));
+  const specPath = path.join(tempRoot, "EditorWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace EditorWidget {
+  interface Draft {
+    cdId: AnQst.Type.qint64;
+    albumTitle: string;
+  }
+
+  interface SaveResult {
+    saved: boolean;
+    cdId: AnQst.Type.qint64;
+  }
+
+  interface EditorService extends AnQst.Service {
+    showDraft(draft: Draft, selectedTrackIndex: number): AnQst.Slot<void>;
+    saveRequested(draft: Draft): AnQst.Call<SaveResult>;
+    draft: AnQst.Input<Draft>;
+    currentCollectionName: AnQst.Output<string>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
+  const tsServices = outputs["frontend/EditorWidget_Angular/services.ts"];
+  const tsServicesDts = outputs["frontend/EditorWidget_Angular/types/services.d.ts"];
+  const cppHeader = outputs["backend/cpp/qt/EditorWidget_widget/include/EditorWidgetWidget.h"];
+  const cppSource = outputs["backend/cpp/qt/EditorWidget_widget/EditorWidget.cpp"];
+
+  assert.match(tsServices, /export class AnQstBridgeDiagnostics/);
+  assert.match(tsServices, /private readonly _draft = signal<Draft \| undefined>\(undefined\);/);
+  assert.match(tsServices, /draft\(\): Draft \| undefined \{ return this\._draft\(\); \}/);
+  assert.match(tsServices, /reportFrontendDiagnostic\(diagnostic: Omit<AnQstBridgeDiagnostic, "timestamp" \| "source">\): void/);
+  assert.match(tsServices, /Failed to serialize Input EditorService\.draft/);
+  assert.match(tsServices, /anQstBridge_hostDiagnostic\?: \{ connect: \(cb: \(payload: unknown\) => void\) => void \ };/);
+
+  assert.match(tsServicesDts, /export declare class AnQstBridgeDiagnostics/);
+  assert.match(tsServicesDts, /showDraft\(handler: \(draft: Draft, selectedTrackIndex: number\) => void \| Promise<void> \| Error\): void;/);
+  assert.match(tsServicesDts, /saveRequested\(draft: Draft\): Promise<SaveResult>;/);
+  assert.match(tsServicesDts, /draft\(\): Draft \| undefined;/);
+  assert.match(tsServicesDts, /currentCollectionName\(\): string \| undefined;/);
+
+  assert.match(cppHeader, /using SaveRequestedHandler = std::function<SaveResult\(const Draft& draft\)>;/);
+  assert.match(cppHeader, /void slot_showDraft\(Draft draft, double selectedTrackIndex\);/);
+  assert.match(cppSource, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\);/);
+  assert.match(cppSource, /invokeArgs\.push_back\(encodeAnQstStructured_Draft\(draft\)\);/);
+  assert.match(cppSource, /emitHostError\(\s*QStringLiteral\("SerializationError"\),/);
+});
+
+test("generateOutputs emits canonical drag-drop MIME helpers for structured payloads", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-dragdrop-"));
+  const specPath = path.join(tempRoot, "DragDropWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace DragDropWidget {
+  interface Draft {
+    cdId: AnQst.Type.qint64;
+    albumTitle: string;
+  }
+
+  interface DragService extends AnQst.Service {
+    cdDropped: AnQst.DropTarget<Draft>;
+    cdHovering: AnQst.HoverTarget<Draft>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
+  const tsServices = outputs["frontend/DragDropWidget_Angular/services.ts"];
+  const cppHeader = outputs["backend/cpp/qt/DragDropWidget_widget/include/DragDropWidgetWidget.h"];
+  const cppSource = outputs["backend/cpp/qt/DragDropWidget_widget/DragDropWidget.cpp"];
+
+  assert.match(tsServices, /this\._cdDropped\.set\(\{ payload: decodeAnQstStructured_Draft\(payload\), x, y \}\);/);
+  assert.match(tsServices, /this\._cdHovering\.set\(\{ payload: decodeAnQstStructured_Draft\(payload\), x, y \}\);/);
+
+  assert.match(cppHeader, /static QByteArray encodeDragDropPayload_Draft\(const Draft& payload\);/);
+  assert.match(cppHeader, /static std::optional<Draft> decodeDragDropPayload_Draft\(const QByteArray& rawPayload\);/);
+
+  assert.match(cppSource, /QJsonDocument::fromVariant\(anqstNormalizeWireItems\(encodeAnQstStructured_Draft\(payload\)\)\)\.toJson\(QJsonDocument::Compact\)/);
+  assert.match(cppSource, /const QJsonDocument document = QJsonDocument::fromJson\(rawPayload, &parseError\);/);
+  assert.match(cppSource, /if \(parseError\.error != QJsonParseError::NoError \|\| !document\.isArray\(\)\) \{/);
+  assert.match(cppSource, /return decodeAnQstStructured_Draft\(document\.array\(\)\.toVariantList\(\)\);/);
+});
+
 test("generateOutputs emits only required imported type bindings", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-imports-"));
   const specPath = path.join(tempRoot, "DemoWidget.AnQst.d.ts");

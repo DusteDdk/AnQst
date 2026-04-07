@@ -74,10 +74,10 @@ Notes:
   selector: 'app-user-management',
   template: `
     <input
-      [value]="formState.currentUsername()"
+      [value]="formState.currentUsername() ?? ''"
       (input)="formState.set.currentUsername(($event.target as HTMLInputElement).value)"
     />
-    <p>Active users: {{ formState.activeUsers() }}</p>
+    <p>Active users: {{ formState.activeUsers() ?? 0 }}</p>
   `
 })
 export class UserManagementComponent {

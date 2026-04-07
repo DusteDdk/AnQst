@@ -165,12 +165,15 @@ export namespace AnQst {
      *   - External: A Qt widget initiates a QDrag carrying QMimeData.
      *   - Parent: AnQstWebHostBase intercepts the drop via event filter on the
      *     embedded QWebEngineView's rendering surface.
-     *   - Parent: QMimeData for the accepted format is deserialized (JSON) into
-     *     the generated C++ struct and forwarded through the bridge.
+     *   - Parent: QMimeData for the accepted format is deserialized from a JSON
+     *     array of normalized AnQst wire items and forwarded through the bridge.
      *   - Widget: Service updates signal `PropertyName` with the deserialized
      *     payload and drop coordinates. Angular components react via effect() / template binding.
      * - MIME type is convention-derived: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
-     * - The source QWidget must serialize the drag payload as JSON under the same MIME type.
+     * - The source QWidget must serialize the generated AnQst wire payload as a
+     *   JSON array under the same MIME type. Generated Qt widgets expose helper
+     *   functions for this and source widgets should use them instead of
+     *   hand-written JSON mapping.
      * - Multiple DropTarget members per service are allowed (each accepting a different type).
      * @example
      * // AnQst spec:
@@ -193,8 +196,9 @@ export namespace AnQst {
      *   - External: A Qt widget initiates a QDrag carrying QMimeData.
      *   - Parent: AnQstWebHostBase intercepts drag-move events via event filter on the
      *     embedded QWebEngineView's rendering surface. Events are throttled (trailing edge).
-     *   - Parent: Payload is deserialized once on DragEnter; subsequent DragMove events
-     *     forward only the updated position.
+     *   - Parent: Payload is deserialized once on DragEnter from a JSON array of
+     *     normalized AnQst wire items; subsequent DragMove events forward only
+     *     the updated position.
      *   - Widget: Service updates signal `PropertyName` with the payload and current
      *     coordinates. Signal becomes null on DragLeave.
      * - Shares the same MIME type convention as DropTarget: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
@@ -328,4 +332,3 @@ export namespace AnQst {
     }
 
 }
-
