@@ -23,9 +23,10 @@ Given the same AnQst-Spec input, the generator produces the same:
 
 - TypeScript types, interfaces, and type aliases
 - TypeScript service class shapes (method names, parameter types, return types)
+- Browser-global frontend factory surfaces and browser frontend diagnostic surfaces
 - C++ struct definitions (field names, field types)
 - C++ widget class public API (signals, slots, properties, handler registration methods)
-- Angular DI tokens and injection surface
+- Angular DI tokens and injection surface when the Angular frontend profile is generated
 - CMake target names and include structure
 
 These are the **explicit, stable interface** exposed to users of the generated artifacts.

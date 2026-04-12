@@ -31,13 +31,15 @@ export namespace AnQst {
     interface Service { }
 
     /**
-     * Declare service `InterfaceName` as development-mode capable transport service.
+     * Declare service `InterfaceName` as development-mode capable browser transport service.
      *
      * @remarks
      * - Extends the same method/property semantics as `AnQst.Service`.
-     * - Signals to the generator/runtime that this widget should emit dual-transport bridge support
+     * - Signals to the generator/runtime that this widget should emit dual-transport browser bridge support
      *   (Qt WebChannel + HTTP/WebSocket development bridge).
      * - Existing generated service APIs remain unchanged.
+     * - The name is historical. The capability applies to browser frontend profiles generally,
+     *   not only Angular-specific generation.
      *
      * @example
      * export interface UserService extends AnQst.AngularHTTPBaseServerClass { }
@@ -63,7 +65,7 @@ export namespace AnQst {
      * @example
      * // AnQst spec:
      * getUserById(userId: string): AnQst.Call<User>
-     * //Angular app:
+     * //Browser app:
      * const user: User = await this.userService.getUserById("abc");
     */
     interface Call<T, Config extends CallConfig = {}> { dummy: T; config?: Config }
@@ -89,7 +91,7 @@ export namespace AnQst {
      * @example
      * // AnQst spec:
      * getUsernameSubstring(from: number, to:number ): AnQst.Slot<string>
-     * //Angular app:
+     * //Browser app:
      * this.userService.onSlot.getUsername( provider );
      * //Parent:
      * auto currentFormUsername = userMgmt.getUsername();
@@ -111,7 +113,7 @@ export namespace AnQst {
      * @example
      * // AnQst spec:
      * complain(whine: string): AnQst.Emitter;
-     * //Angular app:
+     * //Browser app:
      * this.userService.complain("Why won't you LISTEN!");
     */
     interface Emitter { }
@@ -121,14 +123,14 @@ export namespace AnQst {
      * Declare reactive `PropertyName`:`OutputType` and set.`PropertyName`(arg: `OutputType`)
      * @remarks
      * - **Parent** -> Widget
-     * True Angular signal semantics (Property updates, signal emits, no return path, no registration requirement)
+     * True frontend reactive semantics (Property updates, accessor reflects latest value, no return path, no registration requirement)
      * - Flow:
      *   - Parent: Sets generated widget property `PropertyName`.
      *   - Widget: Service updates readonly property `PropertyName` and emits signal.
      * @example
      * // AnQst spec:
      * activeUsers: AnQst.Output<number>;
-     * //Angular app template:
+     * //Browser app:
      * <p>{{ userService.activeUsers() }}</p>
      * //Parent:
      * int users = userMgmt.activeUsers;
@@ -148,7 +150,7 @@ export namespace AnQst {
      * @example
      * // AnQst spec:
      * currentUsername: AnQst.Input<string>;
-     * //Angular app template:
+     * //Browser app:
      * <input type="text" placeholder="Your Name Here" (input)="userService.set.currentUsername(($event.target as HTMLInputElement).value)" />
      * //Parent:
      * QString userName = userMgmt.currentUsername;
@@ -160,15 +162,15 @@ export namespace AnQst {
      * Declare drop-target `PropertyName`:`PayloadType`
      * @remarks
      * - **Parent** -> Widget (framework-mediated)
-     * - True Angular signal semantics.
+     * - True frontend reactive semantics.
      * - Flow:
      *   - External: A Qt widget initiates a QDrag carrying QMimeData.
      *   - Parent: AnQstWebHostBase intercepts the drop via event filter on the
      *     embedded QWebEngineView's rendering surface.
      *   - Parent: QMimeData for the accepted format is deserialized from a JSON
      *     array of normalized AnQst wire items and forwarded through the bridge.
-     *   - Widget: Service updates signal `PropertyName` with the deserialized
-     *     payload and drop coordinates. Angular components react via effect() / template binding.
+     *   - Widget: Service updates the generated accessor for `PropertyName` with the deserialized
+     *     payload and drop coordinates. Browser application code reacts through the generated frontend API.
      * - MIME type is convention-derived: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
      * - The source QWidget must serialize the generated AnQst wire payload as a
      *   JSON array under the same MIME type. Generated Qt widgets expose helper
@@ -178,11 +180,9 @@ export namespace AnQst {
      * @example
      * // AnQst spec:
      * trackDropped: AnQst.DropTarget<Track>;
-     * // Angular app:
-     * effect(() => {
-     *   const drop = this.service.trackDropped();
-     *   if (drop !== null) { console.log(drop.payload, drop.x, drop.y); }
-     * });
+     * // Browser app:
+     * const drop = frontend.services.DragService.trackDropped();
+     * if (drop !== null) { console.log(drop.payload, drop.x, drop.y); }
      */
     interface DropTarget<T> { dummy: T }
 
@@ -191,7 +191,7 @@ export namespace AnQst {
      * Declare hover-target `PropertyName`:`PayloadType`
      * @remarks
      * - **Parent** -> Widget (framework-mediated)
-     * - True Angular signal semantics.
+     * - True frontend reactive semantics.
      * - Flow:
      *   - External: A Qt widget initiates a QDrag carrying QMimeData.
      *   - Parent: AnQstWebHostBase intercepts drag-move events via event filter on the
@@ -199,8 +199,8 @@ export namespace AnQst {
      *   - Parent: Payload is deserialized once on DragEnter from a JSON array of
      *     normalized AnQst wire items; subsequent DragMove events forward only
      *     the updated position.
-     *   - Widget: Service updates signal `PropertyName` with the payload and current
-     *     coordinates. Signal becomes null on DragLeave.
+     *   - Widget: Service updates the generated accessor for `PropertyName` with the payload and current
+     *     coordinates. The accessor becomes null on DragLeave.
      * - Shares the same MIME type convention as DropTarget: `application/anqst-dragdropevent_<ServiceName>-<TypeName>`.
      * - A HoverTarget without a corresponding DropTarget means "show previews but reject the drop".
      * - Optional config supports throttle tuning:
@@ -217,11 +217,9 @@ export namespace AnQst {
      * trackHovering: AnQst.HoverTarget<Track, { maxRateHz: 10 }>;
      * // AnQst spec (no throttling):
      * trackHovering: AnQst.HoverTarget<Track, { maxRateHz: 0 }>;
-     * // Angular app:
-     * effect(() => {
-     *   const hover = this.service.trackHovering();
-     *   if (hover !== null) { highlight(document.elementFromPoint(hover.x, hover.y)); }
-     * });
+     * // Browser app:
+     * const hover = frontend.services.DragService.trackHovering();
+     * if (hover !== null) { highlight(document.elementFromPoint(hover.x, hover.y)); }
      */
 
     /**

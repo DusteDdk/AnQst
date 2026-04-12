@@ -36,6 +36,8 @@ export interface VerifyResult {
 interface GenerationTargets {
   emitQWidget: boolean;
   emitAngularService: boolean;
+  emitVanillaTS: boolean;
+  emitVanillaJS: boolean;
   emitNodeExpressWs: boolean;
 }
 
@@ -105,7 +107,13 @@ function resetGeneratedTargets(cwd: string, widgetName: string, targets: Generat
   const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
   const roots = new Set<string>();
   if (targets.emitAngularService) {
-    roots.add(layout.frontendRoot);
+    roots.add(layout.angularFrontendRoot);
+  }
+  if (targets.emitVanillaTS) {
+    roots.add(layout.vanillaTsFrontendRoot);
+  }
+  if (targets.emitVanillaJS) {
+    roots.add(layout.vanillaJsFrontendRoot);
   }
   if (targets.emitNodeExpressWs) {
     roots.add(layout.nodeExpressRoot);
@@ -125,16 +133,20 @@ function resetGeneratedTargets(cwd: string, widgetName: string, targets: Generat
 function buildGenerateSummary(cwd: string, specPath: string, widgetName: string, generationTargets: GenerationTargets): string {
   const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
   const relativeSpecFile = normalizeSlashes(path.relative(cwd, specPath));
-  const servicePath = toProjectRelative(cwd, path.join(layout.frontendRoot, "services"));
-  const typePath = toProjectRelative(cwd, path.join(layout.frontendRoot, "types"));
   const widgetRootPath = toProjectRelative(cwd, layout.cppQtWidgetRoot);
   const nodePath = toProjectRelative(cwd, layout.nodeExpressRoot);
 
   const messageLines: string[] = [];
   messageLines.push(`AnQst spec ${relativeSpecFile} built.`);
   if (generationTargets.emitAngularService) {
-    messageLines.push(`    Services are available from ${servicePath}.`);
-    messageLines.push(`    Generated types are available from ${typePath}.`);
+    messageLines.push(`    Angular services are available from ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "services"))}.`);
+    messageLines.push(`    Angular generated types are available from ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "types"))}.`);
+  }
+  if (generationTargets.emitVanillaTS) {
+    messageLines.push(`    VanillaTS browser bundle is available from ${toProjectRelative(cwd, layout.vanillaTsFrontendRoot)}.`);
+  }
+  if (generationTargets.emitVanillaJS) {
+    messageLines.push(`    VanillaJS browser bundle is available from ${toProjectRelative(cwd, layout.vanillaJsFrontendRoot)}.`);
   }
   if (generationTargets.emitQWidget) {
     messageLines.push(`    Widget library available in ${widgetRootPath}.`);
@@ -142,7 +154,13 @@ function buildGenerateSummary(cwd: string, specPath: string, widgetName: string,
   if (generationTargets.emitNodeExpressWs) {
     messageLines.push(`    Node Express WS module available in ${nodePath}.`);
   }
-  if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
+  if (
+    !generationTargets.emitAngularService
+    && !generationTargets.emitVanillaTS
+    && !generationTargets.emitVanillaJS
+    && !generationTargets.emitQWidget
+    && !generationTargets.emitNodeExpressWs
+  ) {
     messageLines.push("    No outputs selected by AnQst.generate.");
   }
   return `\n${messageLines.join("\n")}\n`;
@@ -281,8 +299,8 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       installQtIntegrationCMake(cwd, parsed.widgetName);
     }
 
-    const hasAngularProject = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
-    if (hasAngularProject) {
+    const shouldRunAngularBuild = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
+    if (shouldRunAngularBuild) {
       const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
         cwd,
         stdio: "inherit",
@@ -295,8 +313,8 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
 
     if (generationTargets.emitQWidget) {
       const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
-      if (hasAngularProject && !embedded) {
-        throw new VerifyError("Unable to embed Angular output. Ensure ng build produced a dist bundle with index.html.");
+      if (shouldRunAngularBuild && !embedded) {
+        throw new VerifyError("Unable to embed browser output. Ensure the browser build produced a dist bundle with index.html.");
       }
     }
 
@@ -312,7 +330,13 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       }
     }
 
-    if (!generationTargets.emitAngularService && !generationTargets.emitQWidget && !generationTargets.emitNodeExpressWs) {
+    if (
+      !generationTargets.emitAngularService
+      && !generationTargets.emitVanillaTS
+      && !generationTargets.emitVanillaJS
+      && !generationTargets.emitQWidget
+      && !generationTargets.emitNodeExpressWs
+    ) {
       return {
         success: true,
         message: [
@@ -327,15 +351,25 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
     const detailLines: string[] = [];
     if (generationTargets.emitAngularService) {
       detailLines.push("    Target AngularService:");
-      detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "services"))}`);
-      detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.frontendRoot, "types"))}`);
+      detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "services"))}`);
+      detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "types"))}`);
+    }
+    if (generationTargets.emitVanillaTS) {
+      detailLines.push("    Target VanillaTS:");
+      detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaTsFrontendRoot)}`);
+      detailLines.push(`      - Browser global: window.AnQstGenerated.widgets.${parsed.widgetName}`);
+    }
+    if (generationTargets.emitVanillaJS) {
+      detailLines.push("    Target VanillaJS:");
+      detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaJsFrontendRoot)}`);
+      detailLines.push(`      - Browser global: window.AnQstGenerated.widgets.${parsed.widgetName}`);
     }
     if (generationTargets.emitQWidget) {
       detailLines.push("    Target QWidget:");
       detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
       detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
       detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
-      detailLines.push("      - Embedded web assets refreshed from Angular build");
+      detailLines.push("      - Embedded web assets refreshed from detected browser dist output");
     }
     if (generationTargets.emitNodeExpressWs) {
       detailLines.push("    Target node_express_ws:");
@@ -516,6 +550,8 @@ function toGenerationTargets(targets: string[]): GenerationTargets {
   return {
     emitQWidget: targets.includes("QWidget"),
     emitAngularService: targets.includes("AngularService"),
+    emitVanillaTS: targets.includes("VanillaTS"),
+    emitVanillaJS: targets.includes("VanillaJS"),
     emitNodeExpressWs: targets.includes("node_express_ws")
   };
 }
@@ -535,7 +571,9 @@ export function runClean(pathArg: string, force: boolean): CleanResult {
   const context = resolveAnQstSettings(targetRoot);
   const layout = resolveGeneratedLayoutPaths(targetRoot, context.settings.widgetName);
   const widgetDirs = [
-    normalizeSlashes(path.relative(targetRoot, layout.frontendRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.angularFrontendRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.vanillaTsFrontendRoot)),
+    normalizeSlashes(path.relative(targetRoot, layout.vanillaJsFrontendRoot)),
     normalizeSlashes(path.relative(targetRoot, layout.nodeExpressRoot)),
     normalizeSlashes(path.relative(targetRoot, layout.cppQtWidgetRoot)),
     normalizeSlashes(path.relative(targetRoot, layout.cppCmakeRoot)),

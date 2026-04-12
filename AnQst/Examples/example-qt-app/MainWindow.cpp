@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 
+#include "VanillaJsWidget.h"
+#include "VanillaTsWidget.h"
 
 #include <QApplication>
 #include <QDate>
@@ -11,13 +13,10 @@
 #include <QJsonObject>
 #include <QListWidgetItem>
 #include <QMessageBox>
-#include <QHash>
+#include <QMetaObject>
 #include <QSettings>
 #include <QSignalBlocker>
-#include <QSplitter>
 #include <QStatusBar>
-#include <QVBoxLayout>
-#include <memory>
 
 namespace {
 
@@ -139,7 +138,6 @@ CdEntryEditor::CdDraft draftFromSettingsJson(const QJsonObject &object) {
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
-      editorWidget(nullptr),
       selectedEntryIndex(-1),
       isDraftDirty(false),
       applyingHostSelection(false) {
@@ -148,29 +146,38 @@ MainWindow::MainWindow(QWidget *parent)
         setWindowTitle(windowTitle() + QStringLiteral("[*]"));
     }
 
-    editorWidget = new CdEntryEditorWidget(ui->widgetHost);
-    editorWidget->setReadOnlyMode(false);
-    editorWidget->setCurrentCollectionName(QStringLiteral("Qt Hosted Collection"));
-    editorWidget->saveInProgressSlot(false);
+    configureEditorWidget();
+    wireUi();
+    initializeEntries();
+}
 
-    editorWidget->handle.suggestCatalogNumber([](const QString &artist, const QString &albumTitle) {
+MainWindow::~MainWindow() {
+    delete ui;
+}
+
+void MainWindow::configureEditorWidget() {
+    ui->editorWidget->setReadOnlyMode(false);
+    ui->editorWidget->setCurrentCollectionName(QStringLiteral("Qt Hosted Collection"));
+    ui->editorWidget->saveInProgressSlot(false);
+
+    ui->editorWidget->handle.suggestCatalogNumber([](const QString &artist, const QString &albumTitle) {
         const QString a = artist.trimmed().left(4).toUpper();
         const QString b = albumTitle.trimmed().left(4).toUpper();
         return QStringLiteral("%1-%2").arg(a, b);
     });
 
-    editorWidget->handle.suggestGenres([](const QString &, const QString &) -> QList<CdEntryEditor::Genre> {
+    ui->editorWidget->handle.suggestGenres([](const QString &, const QString &) -> QList<CdEntryEditor::Genre> {
         return QList<CdEntryEditor::Genre>{CdEntryEditor::Genre::Other};
     });
 
-    editorWidget->handle.normalizeBarcode([](const QString &rawValue) {
+    ui->editorWidget->handle.normalizeBarcode([](const QString &rawValue) {
         QString normalized = rawValue;
         normalized.remove(' ');
         normalized.remove('-');
         return normalized;
     });
 
-    editorWidget->handle.validateDraft([](const CdEntryEditor::CdDraft &draft) {
+    ui->editorWidget->handle.validateDraft([](const CdEntryEditor::CdDraft &draft) {
         CdEntryEditor::ValidationResult result;
         result.valid = !draft.artist.trimmed().isEmpty() && !draft.albumTitle.trimmed().isEmpty();
         result.message = result.valid
@@ -182,7 +189,7 @@ MainWindow::MainWindow(QWidget *parent)
         return result;
     });
 
-    editorWidget->handle.saveRequested([this](const CdEntryEditor::CdDraft &draft) {
+    ui->editorWidget->handle.saveRequested([this](const CdEntryEditor::CdDraft &draft) {
         CdEntryEditor::SaveResult result;
         result.saved = false;
         result.cdId = 0;
@@ -193,7 +200,7 @@ MainWindow::MainWindow(QWidget *parent)
         return result;
     });
 
-    connect(editorWidget, &CdEntryEditorWidget::dirtyChanged, [this](const bool isDirty) {
+    connect(ui->editorWidget, &CdEntryEditorWidget::dirtyChanged, this, [this](const bool isDirty) {
         if (applyingHostSelection) {
             return;
         }
@@ -201,60 +208,37 @@ MainWindow::MainWindow(QWidget *parent)
         setWindowModified(isDirty);
     });
 
-    connect(editorWidget, &CdEntryEditorWidget::fieldTouched, [this](const QString &fieldName) {
+    connect(ui->editorWidget, &CdEntryEditorWidget::fieldTouched, this, [this](const QString &fieldName) {
         statusBar()->showMessage(QStringLiteral("Field changed: %1").arg(fieldName), 1200);
     });
-    connect(editorWidget, &CdEntryEditorWidget::diagnosticsForwarded, this, [this](const QVariantMap &payload) {
+    connect(ui->editorWidget, &CdEntryEditorWidget::diagnosticsForwarded, this, [this](const QVariantMap &payload) {
         handleWidgetDiagnostic(payload);
     });
-    editorWidget->setDraftHandler([this](const CdEntryEditor::CdDraft &) {});
-
-    auto *layout = qobject_cast<QVBoxLayout *>(ui->widgetHost->layout());
-    if (layout == nullptr) {
-        layout = new QVBoxLayout(ui->widgetHost);
-        layout->setContentsMargins(0, 0, 0, 0);
-    }
-    layout->addWidget(editorWidget);
-
-    wireUi();
-
-    loadEntries();
-    if (entries.isEmpty()) {
-        entries.push_back(makeDefaultDraft());
-        saveEntries();
-    }
-    refreshEntryList();
-    selectEntry(0);
-}
-
-MainWindow::~MainWindow() {
-    delete ui;
-}
-
-void MainWindow::showStatusMessage(const QString &message, const int timeoutMs) {
-    statusBar()->showMessage(message, timeoutMs);
-}
-
-void MainWindow::handleWidgetDiagnostic(const QVariantMap &payload) {
-    const QString severity = payload.value(QStringLiteral("severity")).toString();
-    const QString code = payload.value(QStringLiteral("code")).toString();
-    const QString message = payload.value(QStringLiteral("message")).toString();
-    const QString effectiveSeverity = severity.isEmpty() ? QStringLiteral("info") : severity;
-    const QString effectiveCode = code.isEmpty() ? QStringLiteral("UnknownDiagnostic") : code;
-    const QString effectiveMessage = message.isEmpty() ? QStringLiteral("No diagnostic message provided.") : message;
-    const QString formatted = QStringLiteral("%1: %2").arg(effectiveCode, effectiveMessage);
-    const int timeoutMs = effectiveSeverity == QStringLiteral("info") ? 2500 : 5000;
-
-    if (effectiveSeverity == QStringLiteral("fatal") || effectiveSeverity == QStringLiteral("error")) {
-        qWarning().noquote() << "CdEntryEditor diagnostic" << payload;
-    } else {
-        qInfo().noquote() << "CdEntryEditor diagnostic" << payload;
-    }
-
-    showStatusMessage(formatted, timeoutMs);
+    ui->editorWidget->setDraftHandler([this](const CdEntryEditor::CdDraft &) {});
 }
 
 void MainWindow::wireUi() {
+    connect(ui->vanillaTsWidget, &VanillaTsWidgetWidget::requestReset, this, [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
+            forwardResetToJsWidget();
+        }, Qt::QueuedConnection);
+    });
+
+    connect(ui->vanillaJsWidget, &VanillaJsWidgetWidget::newMagic, this, [this](const VanillaJsWidget::Magic &m) {
+        QMetaObject::invokeMethod(this, [this, m]() {
+            forwardMagicToTsWidget(m);
+        }, Qt::QueuedConnection);
+    });
+    connect(ui->vanillaJsWidget, &VanillaJsWidgetWidget::diagnosticsForwarded, this, [this](const QVariantMap &payload) {
+        handleWidgetDiagnostic(payload);
+    });
+    connect(ui->vanillaTsWidget, &VanillaTsWidgetWidget::diagnosticsForwarded, this, [this](const QVariantMap &payload) {
+        handleWidgetDiagnostic(payload);
+    });
+
+    ui->vanillaSplitter->setStretchFactor(0, 1);
+    ui->vanillaSplitter->setStretchFactor(1, 1);
+
     ui->mainSplitter->setStretchFactor(0, 4);
     ui->mainSplitter->setStretchFactor(1, 1);
     ui->mainSplitter->setSizes({1024, 256});
@@ -285,10 +269,67 @@ void MainWindow::wireUi() {
     connect(ui->btnDeleteEntry, &QToolButton::clicked, this, [this]() {
         deleteEntry();
     });
+}
 
+void MainWindow::initializeEntries() {
+    loadEntries();
+    if (entries.isEmpty()) {
+        entries.push_back(makeDefaultDraft());
+        saveEntries();
+    }
+    refreshEntryList();
+    selectEntry(0);
+}
 
+void MainWindow::forwardResetToJsWidget() {
+    try {
+        ui->vanillaJsWidget->slot_reset();
+    } catch (const std::exception &ex) {
+        showStatusMessage(QStringLiteral("Failed to forward reset request: %1").arg(QString::fromUtf8(ex.what())), 6000);
+        qWarning().noquote() << "VanillaJsWidget slot_reset failed:" << ex.what();
+    } catch (...) {
+        showStatusMessage(QStringLiteral("Failed to forward reset request."), 6000);
+        qWarning() << "VanillaJsWidget slot_reset failed with an unknown exception.";
+    }
+}
 
+void MainWindow::forwardMagicToTsWidget(const VanillaJsWidget::Magic &magic) {
+    VanillaTsWidget::Magic adapted{};
+    adapted.tick = magic.tick;
+    adapted.value = magic.value;
 
+    try {
+        ui->vanillaTsWidget->slot_onMagic(adapted);
+    } catch (const std::exception &ex) {
+        showStatusMessage(QStringLiteral("Failed to forward magic update: %1").arg(QString::fromUtf8(ex.what())), 6000);
+        qWarning().noquote() << "VanillaTsWidget slot_onMagic failed:" << ex.what();
+    } catch (...) {
+        showStatusMessage(QStringLiteral("Failed to forward magic update."), 6000);
+        qWarning() << "VanillaTsWidget slot_onMagic failed with an unknown exception.";
+    }
+}
+
+void MainWindow::showStatusMessage(const QString &message, const int timeoutMs) {
+    statusBar()->showMessage(message, timeoutMs);
+}
+
+void MainWindow::handleWidgetDiagnostic(const QVariantMap &payload) {
+    const QString severity = payload.value(QStringLiteral("severity")).toString();
+    const QString code = payload.value(QStringLiteral("code")).toString();
+    const QString message = payload.value(QStringLiteral("message")).toString();
+    const QString effectiveSeverity = severity.isEmpty() ? QStringLiteral("info") : severity;
+    const QString effectiveCode = code.isEmpty() ? QStringLiteral("UnknownDiagnostic") : code;
+    const QString effectiveMessage = message.isEmpty() ? QStringLiteral("No diagnostic message provided.") : message;
+    const QString formatted = QStringLiteral("%1: %2").arg(effectiveCode, effectiveMessage);
+    const int timeoutMs = effectiveSeverity == QStringLiteral("info") ? 2500 : 5000;
+
+    if (effectiveSeverity == QStringLiteral("fatal") || effectiveSeverity == QStringLiteral("error")) {
+        qWarning().noquote() << "CdEntryEditor diagnostic" << payload;
+    } else {
+        qInfo().noquote() << "CdEntryEditor diagnostic" << payload;
+    }
+
+    showStatusMessage(formatted, timeoutMs);
 }
 
 void MainWindow::loadEntries() {
@@ -321,7 +362,7 @@ void MainWindow::saveEntries() const {
 }
 
 bool MainWindow::commitCurrentDraft() {
-    return commitDraft(editorWidget->draft());
+    return commitDraft(ui->editorWidget->draft());
 }
 
 bool MainWindow::commitDraft(const CdEntryEditor::CdDraft &draft) {
@@ -329,14 +370,14 @@ bool MainWindow::commitDraft(const CdEntryEditor::CdDraft &draft) {
         return false;
     }
 
-    editorWidget->saveInProgressSlot(true);
-    editorWidget->setDraft(draft);
+    ui->editorWidget->saveInProgressSlot(true);
+    ui->editorWidget->setDraft(draft);
     entries[selectedEntryIndex] = draft;
     if (auto *item = ui->listEntries->item(selectedEntryIndex)) {
         item->setText(entryTitle(draft));
     }
     saveEntries();
-    editorWidget->saveInProgressSlot(false);
+    ui->editorWidget->saveInProgressSlot(false);
     isDraftDirty = false;
     setWindowModified(false);
     statusBar()->showMessage(QStringLiteral("Saved entry."), 1000);
@@ -378,7 +419,7 @@ void MainWindow::refreshEntryList() {
 bool MainWindow::presentEntryInEditor(const int index) {
     try {
         applyingHostSelection = true;
-        editorWidget->slot_showDraft(entries[index], 0);
+        ui->editorWidget->slot_showDraft(entries[index], 0);
         applyingHostSelection = false;
         return true;
     } catch (const std::exception &ex) {
@@ -424,7 +465,7 @@ void MainWindow::selectEntry(const int index) {
     isDraftDirty = false;
     setWindowModified(false);
 
-    editorWidget->setCurrentCollectionName(QStringLiteral("Qt Collection (%1 entries)").arg(entries.size()));
+    ui->editorWidget->setCurrentCollectionName(QStringLiteral("Qt Collection (%1 entries)").arg(entries.size()));
 }
 
 void MainWindow::addEntry() {

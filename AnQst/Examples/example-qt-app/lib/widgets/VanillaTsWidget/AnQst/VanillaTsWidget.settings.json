@@ -1,0 +1,10 @@
+{
+  "layoutVersion": 2,
+  "widgetName": "VanillaTsWidget",
+  "spec": "./AnQst/VanillaTsWidget.AnQst.d.ts",
+  "generate": [
+    "QWidget",
+    "VanillaTS"
+  ],
+  "widgetCategory": "AnQst Widgets"
+}

@@ -32,7 +32,7 @@ export interface ResolvedAnQstSettingsContext {
   settings: AnQstProjectSettings;
 }
 
-export const DEFAULT_ANQST_GENERATE_TARGETS = ["QWidget", "AngularService", "node_express_ws"] as const;
+export const DEFAULT_ANQST_GENERATE_TARGETS = ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"] as const;
 const ANQST_DSL_IMPORT_LINE = 'import type { AnQst } from "@dusted/anqst";';
 const ANQST_BUILD_HOOK = "npx anqst build";
 
@@ -203,7 +203,7 @@ function updateTsConfig(cwd: string, widgetName: string): void {
     : ensureObject(compilerOptions.paths, "Invalid tsconfig.json: expected object at 'compilerOptions.paths'.");
   compilerOptions.paths = pathsObject;
 
-  const generatedAliasPath = `AnQst/generated/frontend/${generatedFrontendDirName(widgetName)}/*`;
+  const generatedAliasPath = `AnQst/generated/frontend/${generatedFrontendDirName(widgetName, "AngularService")}/*`;
   const existingAlias = pathsObject["anqst-generated/*"];
   const aliasList = Array.isArray(existingAlias)
     ? existingAlias.filter((entry): entry is string => typeof entry === "string")
@@ -215,7 +215,7 @@ function updateTsConfig(cwd: string, widgetName: string): void {
 
   if (Array.isArray(tsConfig.include)) {
     const includeList = tsConfig.include.filter((entry): entry is string => typeof entry === "string");
-    const generatedTypesPattern = `AnQst/generated/frontend/${generatedFrontendDirName(widgetName)}/**/*.d.ts`;
+    const generatedTypesPattern = `AnQst/generated/frontend/${generatedFrontendDirName(widgetName, "AngularService")}/**/*.d.ts`;
     if (!includeList.includes(generatedTypesPattern)) {
       includeList.push(generatedTypesPattern);
     }

@@ -142,13 +142,13 @@ Validation must therefore distinguish between:
 
 ### 5.1 Implementation Principles for Artifacts
 
-**Self-contained outputs.** Each generated output target (TypeScript bundle, C++ library, Node bridge) is self-contained. It does not depend on a shared AnQst runtime library beyond the project's bridge base class. All codec functions, type declarations, and bridge wiring are emitted directly into the generated code.
+**Self-contained outputs.** Each generated output target (browser frontend bundle, C++ library, Node backend bridge) is self-contained. It does not depend on a shared AnQst runtime library beyond the project's bridge base class. All codec functions, type declarations, and bridge wiring are emitted directly into the generated code.
 
-**Angular DI integration.** Generated TypeScript services are injectable through Angular dependency injection. The generator emits DI tokens and provider registration. Application code uses `inject(ServiceToken)` and never interacts with bridge internals.
+**Browser frontend profiles.** Generated browser frontend targets preserve one spec-defined public service API while allowing target-specific integration profiles. Angular output uses Angular dependency injection and Angular-native reactive consumption. Vanilla browser output uses a browser-global factory surface suitable for direct `<script>` loading. In all cases, application code uses the generated public surface and never interacts with bridge internals.
 
 **Qt integration.** The generated C++ widget subclass includes `Q_OBJECT`, `Q_PROPERTY` declarations, signals, and slots. It integrates with the Qt meta-object system and is usable from Qt Designer. The generated CMake target handles MOC, autogen, and include directories.
 
-**Dual-transport support.** When a service extends `AnQst.AngularHTTPBaseServerClass`, the generated TypeScript supports both Qt WebChannel transport (for production) and WebSocket transport (for development with `ng serve` and browser dev tools). The same service API shape is used in both modes; only the transport differs.
+**Dual-transport support.** When a service extends `AnQst.AngularHTTPBaseServerClass`, the generated browser frontend supports both Qt WebChannel transport (for production) and WebSocket transport (for host-attached development mode). The same service API shape is used in both modes; only the transport differs. The DSL name is historical; the capability is browser dual-transport, not Angular exclusivity.
 
 **Naming conventions.** Generated widget class: `${WidgetName}Widget`. Umbrella header: `${WidgetName}.h`. Service classes preserve their spec names. These conventions are fixed and deterministic.
 
@@ -161,5 +161,7 @@ Validation must therefore distinguish between:
 **Globally consistent mapping.** Type mapping rules (TypeScript `string` to C++ `QString`, `number` to `double`, etc.) are globally consistent within one generator version. A type mapped one way in one service will be mapped the same way in every other service and every namespace-local declaration.
 
 **Deterministic diagnostics.** When the generator encounters an error — a type mapping directive in an invalid position, a type that cannot be generated for all supported backends, or any other condition that prevents correct generation — it fails with a detailed, deterministic diagnostic. The same input always produces the same diagnostic. Diagnostics include the source location and a plain-language explanation of the failure.
+
+**Universal spec validity.** What counts as a valid AnQst spec is dictated by `AnQst-Spec-DSL.d.ts` together with the current generator implementation. Project target selection does not relax or redefine validity. A generator is only valid if it can generate every possible valid AnQst spec.
 
 **No runtime compatibility checks.** Generated artifacts do not contain code to verify that the frontend and backend were built from the same invocation. This is consistent with the opaque wire contract: compatibility is ensured by convention (build together, deploy together), not by runtime detection.

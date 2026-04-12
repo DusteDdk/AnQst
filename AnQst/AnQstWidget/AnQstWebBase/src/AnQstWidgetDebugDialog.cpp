@@ -7,20 +7,26 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QLayout>
 #include <QLineEdit>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QTabWidget>
 #include <QTimer>
 
 namespace {
 
 constexpr int kUrlProbeDebounceMs = 400;
 constexpr int kStatusPayloadPreviewLength = 64;
+constexpr int kMaxJsConsoleMessages = 20000;
 
 } // namespace
 
@@ -31,7 +37,8 @@ AnQstWidgetDebugDialog::AnQstWidgetDebugDialog(const InitialState& initialState,
     , m_urlProbeDebounceTimer(new QTimer(this))
     , m_activeProbeReply(nullptr)
     , m_probeGeneration(0)
-    , m_isUrlProbeOk(false) {
+    , m_isUrlProbeOk(false)
+    , m_jsConsoleCommandHistoryIndex(0) {
     m_ui->setupUi(this);
 
     const QString widgetName = initialState.widgetName.trimmed().isEmpty()
@@ -43,6 +50,20 @@ AnQstWidgetDebugDialog::AnQstWidgetDebugDialog(const InitialState& initialState,
     m_ui->cbWidgetResource->setCurrentIndex(static_cast<int>(initialState.resourceProvider));
     m_ui->leURL->setText(initialState.resourceUrl);
     m_ui->leDirectory->setText(initialState.resourceDirectory);
+    m_jsConsoleHistory = initialState.jsConsoleHistory;
+    if (m_jsConsoleHistory.size() > kMaxJsConsoleMessages) {
+        m_jsConsoleHistory = m_jsConsoleHistory.mid(m_jsConsoleHistory.size() - kMaxJsConsoleMessages);
+    }
+    m_jsConsoleCommandHistory = initialState.jsConsoleCommandHistory;
+    if (m_jsConsoleCommandHistory.size() > kMaxJsConsoleMessages) {
+        m_jsConsoleCommandHistory =
+            m_jsConsoleCommandHistory.mid(m_jsConsoleCommandHistory.size() - kMaxJsConsoleMessages);
+    }
+    m_jsConsoleCommandHistoryIndex = m_jsConsoleCommandHistory.size();
+    m_ui->txtEditJSLog->setPlainText(m_jsConsoleHistory.join(QLatin1Char('\n')));
+    m_ui->txtEditJSLog->verticalScrollBar()->setValue(m_ui->txtEditJSLog->verticalScrollBar()->maximum());
+    m_ui->lineEditJSConsoleInput->setFocusPolicy(Qt::StrongFocus);
+    m_ui->lineEditJSConsoleInput->installEventFilter(this);
 
     m_urlProbeDebounceTimer->setSingleShot(true);
     m_urlProbeDebounceTimer->setInterval(kUrlProbeDebounceMs);
@@ -57,10 +78,12 @@ AnQstWidgetDebugDialog::AnQstWidgetDebugDialog(const InitialState& initialState,
     connect(m_ui->leDirectory, &QLineEdit::textChanged, this, &AnQstWidgetDebugDialog::onDirectoryInputChanged);
     connect(m_urlProbeDebounceTimer, &QTimer::timeout, this, &AnQstWidgetDebugDialog::onUrlProbeTimeout);
     connect(m_ui->btnBrowseDirectory, &QAbstractButton::clicked, this, &AnQstWidgetDebugDialog::onBrowseDirectoryRequested);
+    connect(m_ui->tabWidget, &QTabWidget::currentChanged, this, &AnQstWidgetDebugDialog::onTabChanged);
 
     updateDynamicVisibility();
     onUrlInputChanged();
     onDirectoryInputChanged();
+    focusJsConsoleInput();
 }
 
 AnQstWidgetDebugDialog::~AnQstWidgetDebugDialog() {
@@ -78,6 +101,22 @@ AnQstWidgetDebugDialog::ResultState AnQstWidgetDebugDialog::resultState() const 
     result.openBrowserChecked =
         (result.hostMode == HostMode::Browser) && m_ui->rbOpenBrowser->isChecked();
     return result;
+}
+
+void AnQstWidgetDebugDialog::appendJsConsoleLine(const QString& line) {
+    m_jsConsoleHistory.append(line);
+    bool rebuilt = false;
+    if (m_jsConsoleHistory.size() > kMaxJsConsoleMessages) {
+        m_jsConsoleHistory.removeFirst();
+        rebuilt = true;
+    }
+
+    if (rebuilt) {
+        m_ui->txtEditJSLog->setPlainText(m_jsConsoleHistory.join(QLatin1Char('\n')));
+    } else {
+        m_ui->txtEditJSLog->appendPlainText(line);
+    }
+    m_ui->txtEditJSLog->verticalScrollBar()->setValue(m_ui->txtEditJSLog->verticalScrollBar()->maximum());
 }
 
 void AnQstWidgetDebugDialog::onResourceProviderChanged() {
@@ -140,6 +179,26 @@ void AnQstWidgetDebugDialog::onDirectoryInputChanged() {
     updateValidationState();
 }
 
+void AnQstWidgetDebugDialog::onTabChanged(int index) {
+    if (m_ui->tabWidget->widget(index) == m_ui->tabJSConsole) {
+        focusJsConsoleInput();
+    }
+}
+
+void AnQstWidgetDebugDialog::onJsConsoleInputSubmitted() {
+    const QString source = m_ui->lineEditJSConsoleInput->text();
+    if (source.isEmpty()) {
+        focusJsConsoleInput();
+        return;
+    }
+
+    appendJsConsoleCommandHistoryEntry(source);
+    emit jsConsoleCommandSubmitted(source);
+    m_ui->lineEditJSConsoleInput->clear();
+    m_jsConsoleCommandHistoryIndex = m_jsConsoleCommandHistory.size();
+    focusJsConsoleInput();
+}
+
 void AnQstWidgetDebugDialog::setLayoutVisible(QLayout* layout, bool visible) {
     if (layout == nullptr) {
         return;
@@ -163,6 +222,25 @@ void AnQstWidgetDebugDialog::setLayoutVisible(QLayout* layout, bool visible) {
                 visible ? item->spacerItem()->sizeHint().height() : 0);
         }
     }
+}
+
+bool AnQstWidgetDebugDialog::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == m_ui->lineEditJSConsoleInput && event != nullptr && event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+            onJsConsoleInputSubmitted();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Up) {
+            showPreviousJsConsoleCommand();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Down) {
+            showNextJsConsoleCommand();
+            return true;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 void AnQstWidgetDebugDialog::updateDynamicVisibility() {
@@ -192,6 +270,46 @@ void AnQstWidgetDebugDialog::updateValidationState() {
 
 void AnQstWidgetDebugDialog::setUrlStatusMessage(const QString& message) {
     m_ui->lblURLStatusMsg->setText(message);
+}
+
+void AnQstWidgetDebugDialog::focusJsConsoleInput() {
+    if (m_ui->tabWidget->currentWidget() != m_ui->tabJSConsole) {
+        return;
+    }
+    m_ui->lineEditJSConsoleInput->setFocus(Qt::OtherFocusReason);
+}
+
+void AnQstWidgetDebugDialog::appendJsConsoleCommandHistoryEntry(const QString& source) {
+    if (source.isEmpty()) {
+        return;
+    }
+    m_jsConsoleCommandHistory.append(source);
+    if (m_jsConsoleCommandHistory.size() > kMaxJsConsoleMessages) {
+        m_jsConsoleCommandHistory.removeFirst();
+    }
+}
+
+void AnQstWidgetDebugDialog::showPreviousJsConsoleCommand() {
+    if (m_jsConsoleCommandHistory.isEmpty()) {
+        return;
+    }
+    if (m_jsConsoleCommandHistoryIndex > 0) {
+        --m_jsConsoleCommandHistoryIndex;
+    }
+    m_ui->lineEditJSConsoleInput->setText(m_jsConsoleCommandHistory.at(m_jsConsoleCommandHistoryIndex));
+}
+
+void AnQstWidgetDebugDialog::showNextJsConsoleCommand() {
+    if (m_jsConsoleCommandHistory.isEmpty()) {
+        return;
+    }
+    if (m_jsConsoleCommandHistoryIndex < m_jsConsoleCommandHistory.size() - 1) {
+        ++m_jsConsoleCommandHistoryIndex;
+        m_ui->lineEditJSConsoleInput->setText(m_jsConsoleCommandHistory.at(m_jsConsoleCommandHistoryIndex));
+        return;
+    }
+    m_jsConsoleCommandHistoryIndex = m_jsConsoleCommandHistory.size();
+    m_ui->lineEditJSConsoleInput->clear();
 }
 
 bool AnQstWidgetDebugDialog::isHttpProviderSelected() const {

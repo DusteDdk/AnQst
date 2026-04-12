@@ -15,17 +15,22 @@
 #include <QDropEvent>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMimeData>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QShortcut>
+#include <QTabWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <QWebEngineScriptCollection>
+#include <QWebEngineView>
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
@@ -259,6 +264,29 @@ TEST_CASE("bridge bootstrap script can be reinstalled explicitly", "[host][bridg
 
     REQUIRE(host.installBridgeBootstrapScript(QString(), true));
     CHECK(errorSpy.count() == 0);
+}
+
+TEST_CASE("text selection and scrollbar policies default to disabled", "[host][view][defaults]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+
+    static const QString kNoSelectScript = QStringLiteral("AnQstDisableTextSelection");
+    static const QString kScriptName = QStringLiteral("AnQstDisableScrollbars");
+    auto& scripts = view->page()->scripts();
+    CHECK_FALSE(scripts.findScript(kNoSelectScript).isNull());
+    CHECK_FALSE(scripts.findScript(kScriptName).isNull());
+
+    host.setTextSelectionEnabled(true);
+    CHECK(scripts.findScript(kNoSelectScript).isNull());
+    host.setTextSelectionEnabled(false);
+    CHECK_FALSE(scripts.findScript(kNoSelectScript).isNull());
+
+    host.setScrollbarsEnabled(true);
+    CHECK(scripts.findScript(kScriptName).isNull());
+    host.setScrollbarsEnabled(false);
+    CHECK_FALSE(scripts.findScript(kScriptName).isNull());
 }
 
 TEST_CASE("bridge bootstrap script failure emits structured error", "[host][bridge][bootstrap]") {
@@ -672,6 +700,73 @@ TEST_CASE("debug dialog preserves open-browser choice on accept", "[host][debug]
     CHECK(result.accepted);
     CHECK(result.hostMode == AnQstWidgetDebugDialog::HostMode::Browser);
     CHECK(result.openBrowserChecked);
+}
+
+TEST_CASE("debug dialog JS console seeds history, appends lines, and submits enter without closing", "[host][debug][console]") {
+    ensureApp();
+    AnQstWidgetDebugDialog::InitialState initial;
+    initial.widgetName = QStringLiteral("DemoWidget");
+    initial.jsConsoleHistory = QStringList{
+        QStringLiteral("[info] first"),
+        QStringLiteral("[error] second"),
+    };
+    initial.jsConsoleCommandHistory = QStringList{
+        QStringLiteral("console.log('line1')"),
+        QStringLiteral("console.log('line2')"),
+    };
+
+    AnQstWidgetDebugDialog dialog(initial);
+    auto* tabWidget = dialog.findChild<QTabWidget*>(QStringLiteral("tabWidget"));
+    auto* tabConsole = dialog.findChild<QWidget*>(QStringLiteral("tabJSConsole"));
+    auto* logView = dialog.findChild<QPlainTextEdit*>(QStringLiteral("txtEditJSLog"));
+    auto* input = dialog.findChild<QLineEdit*>(QStringLiteral("lineEditJSConsoleInput"));
+    REQUIRE(tabWidget != nullptr);
+    REQUIRE(tabConsole != nullptr);
+    REQUIRE(logView != nullptr);
+    REQUIRE(input != nullptr);
+
+    QSignalSpy submitSpy(&dialog, &AnQstWidgetDebugDialog::jsConsoleCommandSubmitted);
+
+    dialog.show();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+
+    REQUIRE(logView->toPlainText().contains(QStringLiteral("[info] first")));
+    REQUIRE(logView->toPlainText().contains(QStringLiteral("[error] second")));
+
+    tabWidget->setCurrentWidget(tabConsole);
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+
+    QKeyEvent upToLine2(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &upToLine2);
+    CHECK(input->text() == QStringLiteral("console.log('line2')"));
+
+    QKeyEvent upToLine1(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &upToLine1);
+    CHECK(input->text() == QStringLiteral("console.log('line1')"));
+
+    QKeyEvent downToLine2(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &downToLine2);
+    CHECK(input->text() == QStringLiteral("console.log('line2')"));
+
+    QKeyEvent downToBlank(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &downToBlank);
+    CHECK(input->text().isEmpty());
+
+    input->setText(QStringLiteral("console.log('hi')"));
+    QKeyEvent keyPress(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &keyPress);
+
+    REQUIRE(submitSpy.count() == 1);
+    CHECK(submitSpy.takeFirst().at(0).toString() == QStringLiteral("console.log('hi')"));
+    CHECK(dialog.result() == 0);
+    CHECK(input->text().isEmpty());
+
+    QKeyEvent upToSubmitted(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+    QCoreApplication::sendEvent(input, &upToSubmitted);
+    CHECK(input->text() == QStringLiteral("console.log('hi')"));
+
+    dialog.appendJsConsoleLine(QStringLiteral("[info] live"));
+    CHECK(logView->toPlainText().contains(QStringLiteral("[info] live")));
 }
 
 TEST_CASE("debug shortcut is bound to Shift+F12", "[host][debug][shortcut]") {

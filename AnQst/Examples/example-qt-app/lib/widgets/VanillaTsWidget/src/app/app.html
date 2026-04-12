@@ -1,0 +1,7 @@
+<section class="panel">
+  <h1>Vanilla TS widget (mirror)</h1>
+  <p>Tick: <strong>{{ tick() }}</strong></p>
+  <p>Value: <strong>{{ value() }}</strong></p>
+  <p class="hint">Values stay at −1 until the JS widget sends <code>onMagic</code> via the Qt host.</p>
+  <button type="button" class="reset" (click)="onRequestResetClick()">Request reset</button>
+</section>

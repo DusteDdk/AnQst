@@ -25,6 +25,24 @@ if(NOT EXISTS "${CDEDITOR_WIDGET_INTEGRATION_DIR}/CMakeLists.txt")
 endif()
 add_subdirectory("${CDEDITOR_WIDGET_INTEGRATION_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/cdentryeditor-integration")
 
+set(VANILLAJS_WIDGET_INTEGRATION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/VanillaJsWidget/AnQst/generated/backend/cpp/cmake")
+if(NOT EXISTS "${VANILLAJS_WIDGET_INTEGRATION_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "Missing ${VANILLAJS_WIDGET_INTEGRATION_DIR}/CMakeLists.txt. "
+        "Run 'npx anqst build' in lib/widgets/VanillaJsWidget (before VanillaTsWidget)."
+    )
+endif()
+add_subdirectory("${VANILLAJS_WIDGET_INTEGRATION_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/vanillajswidget-integration")
+
+set(VANILLATS_WIDGET_INTEGRATION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/VanillaTsWidget/AnQst/generated/backend/cpp/cmake")
+if(NOT EXISTS "${VANILLATS_WIDGET_INTEGRATION_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "Missing ${VANILLATS_WIDGET_INTEGRATION_DIR}/CMakeLists.txt. "
+        "Run lib/widgets/build-vanilla-widgets.sh or 'npx anqst build' in VanillaTsWidget after VanillaJsWidget."
+    )
+endif()
+add_subdirectory("${VANILLATS_WIDGET_INTEGRATION_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/vanillatswidget-integration")
+
 
 add_executable(example_qt_app
     main.cpp
@@ -39,11 +57,15 @@ target_include_directories(example_qt_app
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/CdEntryEditor/AnQst/generated/backend/cpp/qt/CdEntryEditor_widget
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/VanillaJsWidget/AnQst/generated/backend/cpp/qt/VanillaJsWidget_widget/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/widgets/VanillaTsWidget/AnQst/generated/backend/cpp/qt/VanillaTsWidget_widget/include
 )
 
 target_link_libraries(example_qt_app
     PRIVATE
         CdEntryEditorWidget
+        VanillaJsWidgetWidget
+        VanillaTsWidgetWidget
 )
 
 include(CTest)

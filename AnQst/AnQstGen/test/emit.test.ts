@@ -39,6 +39,7 @@ test("generateOutputs returns required tree", () => {
   const outputs = generateOutputs(parsed);
 
   assert.ok(outputs["frontend/CdWidget_Angular/package.json"]);
+  assert.match(outputs["frontend/CdWidget_Angular/package.json"], /"outputContractVersion"\s*:\s*2/);
   assert.ok(outputs["frontend/CdWidget_Angular/index.ts"]);
   assert.ok(outputs["frontend/CdWidget_Angular/services.ts"]);
   assert.ok(outputs["frontend/CdWidget_Angular/types.ts"]);
@@ -48,6 +49,12 @@ test("generateOutputs returns required tree", () => {
   assert.ok(outputs["frontend/CdWidget_Angular/types/index.d.ts"]);
   assert.ok(outputs["frontend/CdWidget_Angular/types/services.d.ts"]);
   assert.ok(outputs["frontend/CdWidget_Angular/types/types.d.ts"]);
+  assert.ok(outputs["frontend/CdWidget_VanillaTS/package.json"]);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/package.json"], /"outputContractVersion"\s*:\s*2/);
+  assert.ok(outputs["frontend/CdWidget_VanillaTS/index.js"]);
+  assert.ok(outputs["frontend/CdWidget_VanillaTS/index.d.ts"]);
+  assert.ok(outputs["frontend/CdWidget_VanillaJS/package.json"]);
+  assert.ok(outputs["frontend/CdWidget_VanillaJS/index.js"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"]);
   assert.ok(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"]);
@@ -68,6 +75,13 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodedValue\)/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => \{/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /AnQstGenerated/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /createFrontend/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /widgets\["CdWidget"\]/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface CdWidgetGlobal/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /createFrontend\(\): Promise<CdWidgetFrontend>;/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface Window \{\s*AnQstGenerated: AnQstGeneratedRoot;/);
+  assert.match(outputs["frontend/CdWidget_VanillaJS/index.js"], /AnQstGenerated/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /<AnQst_version>/);
@@ -216,8 +230,11 @@ declare namespace EditorWidget {
   assert.match(tsServicesDts, /draft\(\): Draft \| undefined;/);
   assert.match(tsServicesDts, /currentCollectionName\(\): string \| undefined;/);
 
-  assert.match(cppHeader, /using SaveRequestedHandler = std::function<SaveResult\(const Draft& draft\)>;/);
-  assert.match(cppHeader, /void slot_showDraft\(Draft draft, double selectedTrackIndex\);/);
+  assert.match(
+    cppHeader,
+    /using SaveRequestedHandler = std::function<EditorWidget::SaveResult\(const EditorWidget::Draft& draft\)>;/
+  );
+  assert.match(cppHeader, /void slot_showDraft\(EditorWidget::Draft draft, double selectedTrackIndex\);/);
   assert.match(cppSource, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\);/);
   assert.match(cppSource, /invokeArgs\.push_back\(encodeAnQstStructured_Draft\(draft\)\);/);
   assert.match(cppSource, /emitHostError\(\s*QStringLiteral\("SerializationError"\),/);
@@ -257,8 +274,11 @@ declare namespace DragDropWidget {
   assert.match(tsServices, /this\._cdDropped\.set\(\{ payload: decodeDragDropPayload_Draft\(payload\), x, y \}\);/);
   assert.match(tsServices, /this\._cdHovering\.set\(\{ payload: decodeDragDropPayload_Draft\(payload\), x, y \}\);/);
 
-  assert.match(cppHeader, /static QByteArray encodeDragDropPayload_Draft\(const Draft& payload\);/);
-  assert.match(cppHeader, /static std::optional<Draft> decodeDragDropPayload_Draft\(const QByteArray& rawPayload\);/);
+  assert.match(cppHeader, /static QByteArray encodeDragDropPayload_Draft\(const DragDropWidget::Draft& payload\);/);
+  assert.match(
+    cppHeader,
+    /static std::optional<DragDropWidget::Draft> decodeDragDropPayload_Draft\(const QByteArray& rawPayload\);/
+  );
 
   assert.match(cppSource, /const QVariant wire = encodeAnQstStructured_Draft\(payload\);/);
   assert.match(cppSource, /if \(wire\.type\(\) == QVariant::List\) \{/);
@@ -422,21 +442,41 @@ declare namespace DemoWidget {
   assert.equal((dtsIndex.match(/import type \{ User \} from "\.\.\/\.\.\/\.\.\/\.\.\/types\/domain";/g) ?? []).length, 1);
   assert.match(dtsServices, /save\(handler: \(payload: Payload\) => void \| Promise<void> \| Error\): void;/);
   assert.match(cppHeader, /public slots:/);
-  assert.match(cppHeader, /void slot_save\(Payload payload\);/);
+  assert.match(cppHeader, /void slot_save\(DemoWidget::Payload payload\);/);
 });
 
-test("generateOutputs can filter QWidget, AngularService, and node_express_ws outputs independently", () => {
+test("generateOutputs can filter QWidget, browser frontends, and node_express_ws outputs independently", () => {
   const specPath = path.join(fixtures, "ValidCdSpec.AnQst.d.ts");
   const parsed = parseSpecFile(specPath);
 
   const angularOnly = generateOutputs(parsed, { emitAngularService: true, emitQWidget: false, emitNodeExpressWs: false });
   assert.ok(angularOnly["frontend/CdWidget_Angular/index.ts"]);
+  assert.equal(angularOnly["frontend/CdWidget_VanillaTS/index.js"], undefined);
+  assert.equal(angularOnly["frontend/CdWidget_VanillaJS/index.js"], undefined);
   assert.equal(angularOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
   assert.equal(angularOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
+
+  const vanillaTsOnly = generateOutputs(parsed, { emitAngularService: false, emitVanillaTS: true, emitQWidget: false, emitNodeExpressWs: false });
+  assert.ok(vanillaTsOnly["frontend/CdWidget_VanillaTS/index.js"]);
+  assert.ok(vanillaTsOnly["frontend/CdWidget_VanillaTS/index.d.ts"]);
+  assert.equal(vanillaTsOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(vanillaTsOnly["frontend/CdWidget_VanillaJS/index.js"], undefined);
+  assert.equal(vanillaTsOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
+  assert.equal(vanillaTsOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
+
+  const vanillaJsOnly = generateOutputs(parsed, { emitAngularService: false, emitVanillaJS: true, emitQWidget: false, emitNodeExpressWs: false });
+  assert.ok(vanillaJsOnly["frontend/CdWidget_VanillaJS/index.js"]);
+  assert.equal(vanillaJsOnly["frontend/CdWidget_VanillaJS/index.d.ts"], undefined);
+  assert.equal(vanillaJsOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(vanillaJsOnly["frontend/CdWidget_VanillaTS/index.js"], undefined);
+  assert.equal(vanillaJsOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
+  assert.equal(vanillaJsOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
 
   const qwidgetOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
   assert.ok(qwidgetOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"]);
   assert.equal(qwidgetOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(qwidgetOnly["frontend/CdWidget_VanillaTS/index.js"], undefined);
+  assert.equal(qwidgetOnly["frontend/CdWidget_VanillaJS/index.js"], undefined);
   assert.equal(qwidgetOnly["backend/node/express/CdWidget_anQst/index.ts"], undefined);
 
   const nodeOnly = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: true });
@@ -448,6 +488,8 @@ test("generateOutputs can filter QWidget, AngularService, and node_express_ws ou
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /result: encodeAnQstStructured_.*\(result\)/);
   assert.match(nodeOnly["backend/node/express/CdWidget_anQst/index.ts"], /const decodedValue = decodeAnQstStructured_/);
   assert.equal(nodeOnly["frontend/CdWidget_Angular/index.ts"], undefined);
+  assert.equal(nodeOnly["frontend/CdWidget_VanillaTS/index.js"], undefined);
+  assert.equal(nodeOnly["frontend/CdWidget_VanillaJS/index.js"], undefined);
   assert.equal(nodeOnly["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], undefined);
 
   const none = generateOutputs(parsed, { emitAngularService: false, emitQWidget: false, emitNodeExpressWs: false });
@@ -514,6 +556,128 @@ declare namespace CdEntryEditor {
   assert.match(cppFile, /qRegisterMetaType<CdEntryEditor::CdDraft>\("CdEntryEditor::CdDraft"\);/);
   assert.match(cppFile, /\[Timeout\] CdEntryService\.replaceTracks: The webapp inside the widget did not anwser within %1 ms\./);
   assert.match(cppFile, /\[RequestFailed\]: %1/);
+});
+
+test("browser frontend services omit empty set and onSlot namespaces", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-frontend-namespaces-"));
+  const specPath = path.join(tempRoot, "NsFrontendWidget.AnQst.d.ts");
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+
+declare namespace NsFrontendWidget {
+  interface SBoth extends AnQst.Service {
+    draft: AnQst.Input<string>;
+    go(): AnQst.Slot<void>;
+  }
+  interface SSetOnly extends AnQst.Service {
+    draft: AnQst.Input<string>;
+  }
+  interface SSlotOnly extends AnQst.Service {
+    go(): AnQst.Slot<void>;
+  }
+  interface SNeither extends AnQst.Service {
+    ping(): AnQst.Call<void>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+
+  function angularServiceBlock(src: string, className: string): string {
+    const needle = `export class ${className}`;
+    const start = src.indexOf(needle);
+    assert.notEqual(start, -1);
+    const next = src.indexOf("\nexport class ", start + needle.length);
+    const end = next === -1 ? src.length : next;
+    return src.slice(start, end);
+  }
+
+  function dtsServiceBlock(src: string, className: string): string {
+    const needle = `export declare class ${className}`;
+    const start = src.indexOf(needle);
+    assert.notEqual(start, -1);
+    const next = src.indexOf("\nexport declare class ", start + needle.length);
+    const end = next === -1 ? src.length : next;
+    return src.slice(start, end);
+  }
+
+  function vanillaClassBlock(src: string, className: string): string {
+    const needle = `class ${className}`;
+    const start = src.indexOf(needle);
+    assert.notEqual(start, -1);
+    const next = src.indexOf(`\nclass `, start + needle.length);
+    const end = next === -1 ? src.length : next;
+    return src.slice(start, end);
+  }
+
+  const outAngular = generateOutputs(parsed, {
+    emitAngularService: true,
+    emitQWidget: false,
+    emitNodeExpressWs: false,
+    emitVanillaTS: false,
+    emitVanillaJS: false
+  });
+  const angularSvc = outAngular["frontend/NsFrontendWidget_Angular/services.ts"];
+  const angularDts = outAngular["frontend/NsFrontendWidget_Angular/types/services.d.ts"];
+
+  assert.match(angularSvc, /export class SBoth/);
+  assert.match(angularServiceBlock(angularSvc, "SBoth"), /readonly set = \{/);
+  assert.match(angularServiceBlock(angularSvc, "SBoth"), /readonly onSlot = \{/);
+
+  assert.match(angularServiceBlock(angularSvc, "SSetOnly"), /readonly set = \{/);
+  assert.doesNotMatch(angularServiceBlock(angularSvc, "SSetOnly"), /readonly onSlot/);
+
+  assert.match(angularServiceBlock(angularSvc, "SSlotOnly"), /readonly onSlot = \{/);
+  assert.doesNotMatch(angularServiceBlock(angularSvc, "SSlotOnly"), /readonly set/);
+
+  assert.match(angularServiceBlock(angularSvc, "SNeither"), /async ping\(/);
+  assert.doesNotMatch(angularServiceBlock(angularSvc, "SNeither"), /readonly set/);
+  assert.doesNotMatch(angularServiceBlock(angularSvc, "SNeither"), /readonly onSlot/);
+
+  assert.match(angularDts, /export interface SBothSet\b/);
+  assert.match(angularDts, /export interface SBothOnSlot\b/);
+  assert.match(angularDts, /export interface SSetOnlySet\b/);
+  assert.doesNotMatch(angularDts, /export interface SSetOnlyOnSlot\b/);
+  assert.match(angularDts, /export interface SSlotOnlyOnSlot\b/);
+  assert.doesNotMatch(angularDts, /export interface SSlotOnlySet\b/);
+  assert.doesNotMatch(angularDts, /export interface SNeitherSet\b/);
+  assert.doesNotMatch(angularDts, /export interface SNeitherOnSlot\b/);
+
+  assert.match(dtsServiceBlock(angularDts, "SSetOnly"), /readonly set: SSetOnlySet;/);
+  assert.doesNotMatch(dtsServiceBlock(angularDts, "SSetOnly"), /readonly onSlot/);
+  assert.match(dtsServiceBlock(angularDts, "SSlotOnly"), /readonly onSlot: SSlotOnlyOnSlot;/);
+  assert.doesNotMatch(dtsServiceBlock(angularDts, "SSlotOnly"), /readonly set/);
+  assert.doesNotMatch(dtsServiceBlock(angularDts, "SNeither"), /readonly set/);
+  assert.doesNotMatch(dtsServiceBlock(angularDts, "SNeither"), /readonly onSlot/);
+
+  const outVanilla = generateOutputs(parsed, {
+    emitAngularService: false,
+    emitVanillaTS: true,
+    emitVanillaJS: false,
+    emitQWidget: false,
+    emitNodeExpressWs: false
+  });
+  const vanillaJs = outVanilla["frontend/NsFrontendWidget_VanillaTS/index.js"];
+  const vanillaDts = outVanilla["frontend/NsFrontendWidget_VanillaTS/index.d.ts"];
+  assert.match(outVanilla["frontend/NsFrontendWidget_VanillaTS/package.json"], /"outputContractVersion"\s*:\s*2/);
+
+  // Transpiled bundle uses constructor assignments (this.set / this.onSlot), not class-field `readonly`.
+  assert.match(vanillaClassBlock(vanillaJs, "SBoth"), /this\.set = \{/);
+  assert.match(vanillaClassBlock(vanillaJs, "SBoth"), /this\.onSlot = \{/);
+  assert.match(vanillaClassBlock(vanillaJs, "SSetOnly"), /this\.set = \{/);
+  assert.doesNotMatch(vanillaClassBlock(vanillaJs, "SSetOnly"), /this\.onSlot = \{/);
+  assert.match(vanillaClassBlock(vanillaJs, "SSlotOnly"), /this\.onSlot = \{/);
+  assert.doesNotMatch(vanillaClassBlock(vanillaJs, "SSlotOnly"), /this\.set = \{/);
+  assert.doesNotMatch(vanillaClassBlock(vanillaJs, "SNeither"), /this\.set = \{/);
+  assert.doesNotMatch(vanillaClassBlock(vanillaJs, "SNeither"), /this\.onSlot = \{/);
+
+  assert.doesNotMatch(vanillaDts, /interface SNeitherSet\b/);
+  assert.doesNotMatch(vanillaDts, /interface SNeitherOnSlot\b/);
+  assert.doesNotMatch(vanillaDts, /interface SSetOnlyOnSlot\b/);
+  assert.doesNotMatch(vanillaDts, /interface SSlotOnlySet\b/);
 });
 
 test("installQtIntegrationCMake emits a pure wrapper over the generated widget tree", () => {

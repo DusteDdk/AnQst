@@ -174,6 +174,27 @@ static QString formatJavaScriptConsoleDetail(
     return joinDetailLines(lines);
 }
 
+static QString formatJavaScriptConsoleLogLine(
+    QWebEnginePage::JavaScriptConsoleMessageLevel level,
+    const QString& message,
+    int lineNumber,
+    const QString& sourceId) {
+    QStringList parts;
+    parts.append(QStringLiteral("[%1]").arg(javaScriptConsoleLevelToString(level)));
+    if (!sourceId.trimmed().isEmpty() && lineNumber > 0) {
+        parts.append(QStringLiteral("%1:%2").arg(sourceId).arg(lineNumber));
+    } else if (!sourceId.trimmed().isEmpty()) {
+        parts.append(sourceId);
+    } else if (lineNumber > 0) {
+        parts.append(QStringLiteral("line: %1").arg(lineNumber));
+    }
+    const QString messageText = normalizedJavaScriptConsoleMessage(message).trimmed();
+    if (!messageText.isEmpty()) {
+        parts.append(messageText);
+    }
+    return parts.join(QStringLiteral(" "));
+}
+
 static QString formatCertificateErrorDetail(const QWebEngineCertificateError& certificateError) {
     QStringList lines;
     lines.append(QStringLiteral("TLS certificate error while loading a request."));
@@ -215,6 +236,12 @@ protected:
         const QString& message,
         int lineNumber,
         const QString& sourceID) override {
+        if (parent() != nullptr) {
+            QMetaObject::invokeMethod(
+                parent(),
+                "handleJavaScriptConsoleLine",
+                Q_ARG(QString, formatJavaScriptConsoleLogLine(level, message, lineNumber, sourceID)));
+        }
         if (shouldEmitJavaScriptConsoleLevel(level) && parent() != nullptr) {
             QMetaObject::invokeMethod(
                 parent(),
@@ -276,9 +303,11 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_bridgeBootstrapInstalled(false)
     , m_developmentModeEnabled(false)
     , m_developmentModeAllowLan(false)
-    , m_textSelectionEnabled(true)
+    , m_textSelectionEnabled(false)
+    , m_scrollbarsEnabled(false)
     , m_debugState()
     , m_remoteNavigationBlocked(true)
+    , m_activeDebugDialog(nullptr)
     , m_hoverThrottleTimer(new QTimer(this))
     , m_dragDropFilterInstalled(false)
 {
@@ -309,6 +338,8 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     page->setWebChannel(m_webChannel);
     setRemoteNavigationBlocked(true);
     installBridgeBootstrapScript();
+    applyTextSelectionPolicy();
+    applyScrollbarPolicy();
     m_debugState.provider = AnQstWidgetResourceProvider::Qrc;
     m_debugState.host = AnQstAngularAppHost::Application;
     m_debugState.resourceUrl = QStringLiteral("http://localhost:4200/");
@@ -899,7 +930,18 @@ void AnQstWebHostBase::setTextSelectionEnabled(bool enabled) {
         return;
     }
     m_textSelectionEnabled = enabled;
+    applyTextSelectionPolicy();
+}
 
+void AnQstWebHostBase::setScrollbarsEnabled(bool enabled) {
+    if (m_scrollbarsEnabled == enabled) {
+        return;
+    }
+    m_scrollbarsEnabled = enabled;
+    applyScrollbarPolicy();
+}
+
+void AnQstWebHostBase::applyTextSelectionPolicy() {
     static const QString kScriptName = QStringLiteral("AnQstDisableTextSelection");
     static const QString kDisableJs = QStringLiteral(
         "(function(){"
@@ -921,7 +963,43 @@ void AnQstWebHostBase::setTextSelectionEnabled(bool enabled) {
         scripts.remove(existing);
     }
 
-    if (!enabled) {
+    if (!m_textSelectionEnabled) {
+        QWebEngineScript script;
+        script.setName(kScriptName);
+        script.setInjectionPoint(QWebEngineScript::DocumentReady);
+        script.setWorldId(QWebEngineScript::MainWorld);
+        script.setRunsOnSubFrames(false);
+        script.setSourceCode(kDisableJs);
+        scripts.insert(script);
+        m_view->page()->runJavaScript(kDisableJs);
+    } else {
+        m_view->page()->runJavaScript(kEnableJs);
+    }
+}
+
+void AnQstWebHostBase::applyScrollbarPolicy() {
+    static const QString kScriptName = QStringLiteral("AnQstDisableScrollbars");
+    static const QString kDisableJs = QStringLiteral(
+        "(function(){"
+        "if(!document.getElementById('anqst-no-scrollbars')){"
+        "var s=document.createElement('style');"
+        "s.id='anqst-no-scrollbars';"
+        "s.textContent='html,body{overflow:hidden!important;}::-webkit-scrollbar{width:0!important;height:0!important;}';"
+        "document.head.appendChild(s);"
+        "}"
+        "})();"
+    );
+    static const QString kEnableJs = QStringLiteral(
+        "(function(){var el=document.getElementById('anqst-no-scrollbars');if(el)el.parentNode.removeChild(el);})();"
+    );
+
+    auto& scripts = m_view->page()->scripts();
+    const QWebEngineScript existing = scripts.findScript(kScriptName);
+    if (!existing.isNull()) {
+        scripts.remove(existing);
+    }
+
+    if (!m_scrollbarsEnabled) {
         QWebEngineScript script;
         script.setName(kScriptName);
         script.setInjectionPoint(QWebEngineScript::DocumentReady);
@@ -944,13 +1022,21 @@ bool AnQstWebHostBase::remoteNavigationBlocked() const {
     return m_remoteNavigationBlocked;
 }
 
-void AnQstWebHostBase::handleDebugShortcut() {
-    const DebugState previousState = currentDebugState();
-    const DebugDialogResult dialogResult = runDebugDialog(previousState);
-    if (!dialogResult.accepted) {
+void AnQstWebHostBase::handleJavaScriptConsoleLine(const QString& line) {
+    appendJsConsoleLine(line);
+}
+
+void AnQstWebHostBase::executeDebugJavaScript(const QString& source) {
+    if (source.isEmpty()) {
         return;
     }
-    applyDebugStateChange(previousState, dialogResult);
+    appendJsConsoleCommandHistoryEntry(source);
+    appendJsConsoleLine(QStringLiteral("> %1").arg(source));
+    m_view->page()->runJavaScript(source);
+}
+
+void AnQstWebHostBase::handleDebugShortcut() {
+    openDebugDialogModeless(currentDebugState());
 }
 
 void AnQstWebHostBase::handleReattachRequested() {
@@ -989,8 +1075,12 @@ AnQstWebHostBase::DebugDialogResult AnQstWebHostBase::runDebugDialog(const Debug
     }
     dialogState.resourceUrl = initialState.resourceUrl;
     dialogState.resourceDirectory = initialState.resourceDir;
+    dialogState.jsConsoleHistory = m_jsConsoleLines;
+    dialogState.jsConsoleCommandHistory = m_jsConsoleCommandHistory;
 
     AnQstWidgetDebugDialog dialog(dialogState, this);
+    connect(this, &AnQstWebHostBase::jsConsoleLineAppended, &dialog, &AnQstWidgetDebugDialog::appendJsConsoleLine);
+    connect(&dialog, &AnQstWidgetDebugDialog::jsConsoleCommandSubmitted, this, &AnQstWebHostBase::executeDebugJavaScript);
     const int dialogCode = dialog.exec();
     const AnQstWidgetDebugDialog::ResultState dialogResult = dialog.resultState();
 
@@ -1014,6 +1104,82 @@ AnQstWebHostBase::DebugDialogResult AnQstWebHostBase::runDebugDialog(const Debug
     result.nextState.resourceDir = dialogResult.resourceDirectory.trimmed();
     result.openBrowser = dialogResult.openBrowserChecked;
     return result;
+}
+
+void AnQstWebHostBase::openDebugDialogModeless(const DebugState& initialState) {
+    if (m_activeDebugDialog != nullptr) {
+        m_activeDebugDialog->show();
+        m_activeDebugDialog->raise();
+        m_activeDebugDialog->activateWindow();
+        return;
+    }
+
+    AnQstWidgetDebugDialog::InitialState dialogState;
+    dialogState.widgetName = debugWidgetName();
+    dialogState.hostMode = initialState.host == AnQstAngularAppHost::Application
+        ? AnQstWidgetDebugDialog::HostMode::Application
+        : AnQstWidgetDebugDialog::HostMode::Browser;
+    switch (initialState.provider) {
+    case AnQstWidgetResourceProvider::Qrc:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Qrc;
+        break;
+    case AnQstWidgetResourceProvider::Dir:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Dir;
+        break;
+    case AnQstWidgetResourceProvider::Http:
+        dialogState.resourceProvider = AnQstWidgetDebugDialog::ResourceProvider::Http;
+        break;
+    }
+    dialogState.resourceUrl = initialState.resourceUrl;
+    dialogState.resourceDirectory = initialState.resourceDir;
+    dialogState.jsConsoleHistory = m_jsConsoleLines;
+    dialogState.jsConsoleCommandHistory = m_jsConsoleCommandHistory;
+
+    auto* dialog = new AnQstWidgetDebugDialog(dialogState, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+    dialog->setModal(false);
+    dialog->setWindowModality(Qt::NonModal);
+    m_activeDebugDialog = dialog;
+
+    connect(this, &AnQstWebHostBase::jsConsoleLineAppended, dialog, &AnQstWidgetDebugDialog::appendJsConsoleLine);
+    connect(dialog, &AnQstWidgetDebugDialog::jsConsoleCommandSubmitted, this, &AnQstWebHostBase::executeDebugJavaScript);
+    connect(dialog, &QDialog::finished, this, [this, dialog, initialState](int dialogCode) {
+        if (dialogCode == QDialog::Accepted) {
+            const AnQstWidgetDebugDialog::ResultState dialogResult = dialog->resultState();
+            DebugDialogResult result;
+            result.accepted = dialogResult.accepted;
+            result.nextState.host = dialogResult.hostMode == AnQstWidgetDebugDialog::HostMode::Application
+                ? AnQstAngularAppHost::Application
+                : AnQstAngularAppHost::Browser;
+            switch (dialogResult.resourceProvider) {
+            case AnQstWidgetDebugDialog::ResourceProvider::Qrc:
+                result.nextState.provider = AnQstWidgetResourceProvider::Qrc;
+                break;
+            case AnQstWidgetDebugDialog::ResourceProvider::Dir:
+                result.nextState.provider = AnQstWidgetResourceProvider::Dir;
+                break;
+            case AnQstWidgetDebugDialog::ResourceProvider::Http:
+                result.nextState.provider = AnQstWidgetResourceProvider::Http;
+                break;
+            }
+            result.nextState.resourceUrl = dialogResult.resourceUrl.trimmed();
+            result.nextState.resourceDir = dialogResult.resourceDirectory.trimmed();
+            result.openBrowser = dialogResult.openBrowserChecked;
+            applyDebugStateChange(initialState, result);
+        }
+        if (m_activeDebugDialog == dialog) {
+            m_activeDebugDialog = nullptr;
+        }
+    });
+    connect(dialog, &QObject::destroyed, this, [this, dialog]() {
+        if (m_activeDebugDialog == dialog) {
+            m_activeDebugDialog = nullptr;
+        }
+    });
+
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
 }
 
 bool AnQstWebHostBase::applyDebugStateChange(const DebugState& previousState, const DebugDialogResult& dialogResult) {
@@ -1348,6 +1514,27 @@ QString AnQstWebHostBase::debugWidgetName() const {
         return objectName().trimmed();
     }
     return QString::fromUtf8(metaObject()->className());
+}
+
+void AnQstWebHostBase::appendJsConsoleLine(const QString& line) {
+    if (line.isEmpty()) {
+        return;
+    }
+    m_jsConsoleLines.append(line);
+    if (m_jsConsoleLines.size() > 20000) {
+        m_jsConsoleLines.removeFirst();
+    }
+    emit jsConsoleLineAppended(line);
+}
+
+void AnQstWebHostBase::appendJsConsoleCommandHistoryEntry(const QString& source) {
+    if (source.isEmpty()) {
+        return;
+    }
+    m_jsConsoleCommandHistory.append(source);
+    if (m_jsConsoleCommandHistory.size() > 20000) {
+        m_jsConsoleCommandHistory.removeFirst();
+    }
 }
 
 void AnQstWebHostBase::applyDebugBorderHint() {

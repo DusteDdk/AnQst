@@ -9,7 +9,7 @@ import { ANQST_LAYOUT_VERSION } from "../src/layout";
 import { getProgramDiagnostics } from "../src/program";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
-const defaultGenerateTargets = ["QWidget", "AngularService", "node_express_ws"];
+const defaultGenerateTargets = ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"];
 const anqstGenRoot = path.resolve(__dirname, "../..");
 const activeStampPath = path.join(anqstGenRoot, ".anqstgen-version-active.json");
 
@@ -345,6 +345,9 @@ test("build command emits outputs only under AnQst/generated", () => {
     assert.equal(code, 0);
 
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular", "index.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.js")));
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.d.ts")));
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS", "index.js")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget", "CdWidget.cpp")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst", "index.ts")));
@@ -413,6 +416,36 @@ test("build target selection works for AngularService only", () => {
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular", "index.ts")));
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
+  });
+});
+
+test("build target selection works for VanillaTS only", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["VanillaTS"] });
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.js")));
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.d.ts")));
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
+  });
+});
+
+test("build target selection works for VanillaJS only", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["VanillaJS"] });
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS", "index.js")));
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS", "index.d.ts")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
   });
@@ -486,6 +519,8 @@ test("build with empty generate list emits nothing", () => {
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS")), false);
+    assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
   });

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QStringList>
 #include <QUrl>
 
 class QDialogButtonBox;
@@ -34,6 +35,8 @@ public:
         ResourceProvider resourceProvider = ResourceProvider::Qrc;
         QString resourceUrl;
         QString resourceDirectory;
+        QStringList jsConsoleHistory;
+        QStringList jsConsoleCommandHistory;
     };
 
     struct ResultState {
@@ -49,6 +52,10 @@ public:
     ~AnQstWidgetDebugDialog() override;
 
     ResultState resultState() const;
+    void appendJsConsoleLine(const QString& line);
+
+signals:
+    void jsConsoleCommandSubmitted(const QString& source);
 
 private slots:
     void onResourceProviderChanged();
@@ -57,13 +64,20 @@ private slots:
     void onUrlProbeTimeout();
     void onBrowseDirectoryRequested();
     void onDirectoryInputChanged();
+    void onTabChanged(int index);
+    void onJsConsoleInputSubmitted();
 
 private:
     static void setLayoutVisible(QLayout* layout, bool visible);
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
     void updateDynamicVisibility();
     void updateValidationState();
     void setUrlStatusMessage(const QString& message);
+    void focusJsConsoleInput();
+    void appendJsConsoleCommandHistoryEntry(const QString& source);
+    void showPreviousJsConsoleCommand();
+    void showNextJsConsoleCommand();
     bool isHttpProviderSelected() const;
     bool isDirProviderSelected() const;
     QString normalizedDirectoryRoot(const QString& input) const;
@@ -79,4 +93,7 @@ private:
     QNetworkReply* m_activeProbeReply;
     quint64 m_probeGeneration;
     bool m_isUrlProbeOk;
+    QStringList m_jsConsoleHistory;
+    QStringList m_jsConsoleCommandHistory;
+    int m_jsConsoleCommandHistoryIndex;
 };

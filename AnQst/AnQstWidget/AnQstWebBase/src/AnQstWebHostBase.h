@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QPoint>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <QVariantMap>
 #include <QVariantList>
@@ -13,6 +14,7 @@
 
 class AnQstBridgeProxy;
 class AnQstHostBridgeFacade;
+class AnQstWidgetDebugDialog;
 class AngularHttpBaseServer;
 class LocalWebView;
 class QLabel;
@@ -66,6 +68,7 @@ public:
 
     void setContextMenuEnabled(bool enabled);
     void setTextSelectionEnabled(bool enabled);
+    void setScrollbarsEnabled(bool enabled);
     void setRemoteNavigationBlocked(bool blocked);
     bool remoteNavigationBlocked() const;
 
@@ -104,12 +107,15 @@ signals:
     void anQstBridge_dropReceived(const QString& service, const QString& member, const QVariant& payload, double x, double y);
     void anQstBridge_hoverUpdated(const QString& service, const QString& member, const QVariant& payload, double x, double y);
     void anQstBridge_hoverLeft(const QString& service, const QString& member);
+    void jsConsoleLineAppended(const QString& line);
 
 private slots:
     void handleLoadFinished(bool ok);
     void handleNavigationPolicyError(const QUrl& blockedUrl);
     void handleNetworkPolicyError(const QUrl& blockedUrl);
     void handleWebEngineDiagnostic(const QString& channel, const QString& detail);
+    void handleJavaScriptConsoleLine(const QString& line);
+    void executeDebugJavaScript(const QString& source);
     void handleDebugShortcut();
     void handleReattachRequested();
 
@@ -138,6 +144,7 @@ private:
 
     DebugState currentDebugState() const;
     DebugDialogResult runDebugDialog(const DebugState& initialState);
+    void openDebugDialogModeless(const DebugState& initialState);
     bool applyDebugStateChange(const DebugState& previousState, const DebugDialogResult& dialogResult);
     bool applyApplicationHostState(const DebugState& previousState, const DebugState& nextState);
     bool applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser);
@@ -151,6 +158,8 @@ private:
     QString normalizedDirectoryRoot(const QString& directoryInput) const;
     QString browserUrl() const;
     QString debugWidgetName() const;
+    void appendJsConsoleLine(const QString& line);
+    void appendJsConsoleCommandHistoryEntry(const QString& source);
     void applyDebugBorderHint();
     void emitWebEngineError(const QString& channel, const QString& detail);
     bool isBlockedScheme(const QUrl& url) const;
@@ -159,6 +168,8 @@ private:
     bool shouldEmitReady() const;
     void emitOutputSnapshotIfReady();
     QString loadDefaultBridgeBootstrapScript() const;
+    void applyTextSelectionPolicy();
+    void applyScrollbarPolicy();
 
     struct DragTargetBinding {
         QString service;
@@ -190,9 +201,13 @@ private:
     bool m_developmentModeEnabled;
     bool m_developmentModeAllowLan;
     bool m_textSelectionEnabled;
+    bool m_scrollbarsEnabled;
     QString m_developmentModeUrl;
     DebugState m_debugState;
     bool m_remoteNavigationBlocked;
+    QStringList m_jsConsoleLines;
+    QStringList m_jsConsoleCommandHistory;
+    AnQstWidgetDebugDialog* m_activeDebugDialog;
 
     QHash<QString, DragTargetBinding> m_dropTargets;
     QHash<QString, DragTargetBinding> m_hoverTargets;

@@ -3,6 +3,7 @@ import path from "node:path";
 export const ANQST_ROOT_DIRNAME = "AnQst";
 export const ANQST_GENERATED_DIRNAME = "generated";
 export const ANQST_LAYOUT_VERSION = 2;
+export type FrontendTargetName = "AngularService" | "VanillaTS" | "VanillaJS";
 
 export function normalizeSlashes(inputPath: string): string {
   return inputPath.split(path.sep).join("/");
@@ -32,8 +33,10 @@ export function anqstSettingsRelativePath(widgetName: string): string {
   return `./${ANQST_ROOT_DIRNAME}/${anqstSettingsFileName(widgetName)}`;
 }
 
-export function generatedFrontendDirName(widgetName: string): string {
-  return `${widgetName}_Angular`;
+export function generatedFrontendDirName(widgetName: string, target: FrontendTargetName): string {
+  if (target === "AngularService") return `${widgetName}_Angular`;
+  if (target === "VanillaTS") return `${widgetName}_VanillaTS`;
+  return `${widgetName}_VanillaJS`;
 }
 
 export function generatedNodeExpressDirName(widgetName: string): string {
@@ -46,7 +49,9 @@ export function generatedQtWidgetDirName(widgetName: string): string {
 
 export interface GeneratedLayoutPaths {
   generatedRoot: string;
-  frontendRoot: string;
+  angularFrontendRoot: string;
+  vanillaTsFrontendRoot: string;
+  vanillaJsFrontendRoot: string;
   nodeExpressRoot: string;
   cppCmakeRoot: string;
   cppQtWidgetRoot: string;
@@ -62,7 +67,9 @@ export function resolveGeneratedLayoutPaths(cwd: string, widgetName: string): Ge
 
   return {
     generatedRoot,
-    frontendRoot: path.join(generatedRoot, "frontend", generatedFrontendDirName(widgetName)),
+    angularFrontendRoot: path.join(generatedRoot, "frontend", generatedFrontendDirName(widgetName, "AngularService")),
+    vanillaTsFrontendRoot: path.join(generatedRoot, "frontend", generatedFrontendDirName(widgetName, "VanillaTS")),
+    vanillaJsFrontendRoot: path.join(generatedRoot, "frontend", generatedFrontendDirName(widgetName, "VanillaJS")),
     nodeExpressRoot: path.join(generatedRoot, "backend", "node", "express", generatedNodeExpressDirName(widgetName)),
     cppCmakeRoot: path.join(generatedRoot, "backend", "cpp", "cmake"),
     cppQtWidgetRoot,

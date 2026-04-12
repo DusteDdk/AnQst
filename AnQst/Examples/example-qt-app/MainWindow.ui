@@ -33,7 +33,7 @@
           <property name="childrenCollapsible">
            <bool>false</bool>
           </property>
-          <widget class="QWidget" name="widgetHost" native="true"/>
+          <widget class="CdEntryEditorWidget" name="editorWidget"/>
           <widget class="QWidget" name="leftPanel">
            <layout class="QVBoxLayout" name="leftPanelLayout">
             <item>
@@ -82,6 +82,25 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="tab_vanilla_bridge">
+       <attribute name="title">
+        <string>Vanilla bridge</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="vanillaBridgeLayout">
+        <item>
+         <widget class="QSplitter" name="vanillaSplitter">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="VanillaJsWidgetWidget" name="vanillaJsWidget"/>
+          <widget class="VanillaTsWidgetWidget" name="vanillaTsWidget"/>
+         </widget>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>
@@ -90,9 +109,24 @@
  </widget>
  <customwidgets>
   <customwidget>
+   <class>CdEntryEditorWidget</class>
+   <extends>QWidget</extends>
+   <header>CdEntryEditorWidget.h</header>
+  </customwidget>
+  <customwidget>
    <class>DraggableCdListWidget</class>
    <extends>QListWidget</extends>
    <header>DraggableCdListWidget.h</header>
+  </customwidget>
+  <customwidget>
+   <class>VanillaJsWidgetWidget</class>
+   <extends>QWidget</extends>
+   <header>VanillaJsWidgetWidget.h</header>
+  </customwidget>
+  <customwidget>
+   <class>VanillaTsWidgetWidget</class>
+   <extends>QWidget</extends>
+   <header>VanillaTsWidgetWidget.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

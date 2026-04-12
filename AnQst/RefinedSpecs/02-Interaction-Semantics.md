@@ -4,7 +4,7 @@
 
 This document defines runtime interaction contracts between:
 
-- Angular widget runtime (generated TypeScript APIs),
+- Browser widget runtime (generated TypeScript or JavaScript APIs),
 - Bridge layer,
 - Generated Qt widget class.
 
@@ -32,7 +32,7 @@ Normative keywords: **MUST**, **MUST NOT**, **SHOULD**, **MAY**.
 
 ## 3.2 Slot handlers (widget side)
 
-- Widget side registers via generated `onSlot.method(handler)` API.
+- Widget side registers via generated `onSlot.method(handler)` API when the service declares `Slot` members (the `onSlot` namespace is not emitted when there are no slots).
 - Exactly one active handler per slot method.
 - Re-registering MUST replace active handler atomically.
 

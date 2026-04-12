@@ -43,7 +43,7 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
   "layoutVersion": 2,
   "widgetName": "<WidgetName>",
   "spec": "./AnQst/<WidgetName>.AnQst.d.ts",
-  "generate": ["QWidget", "AngularService", "node_express_ws"],
+  "generate": ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"],
   "widgetCategory": "AnQst Widgets"
 }
 ```
@@ -63,6 +63,16 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
   - Updates `tsconfig.json` (when present):
     - `compilerOptions.paths["anqst-generated/*"] = ["AnQst/generated/frontend/<WidgetName>_Angular/*"]`
 
+Available generate targets:
+
+- Browser frontend targets:
+  - `AngularService`
+  - `VanillaTS`
+  - `VanillaJS`
+- Backend targets:
+  - `QWidget`
+  - `node_express_ws`
+
 - `anqst test`
   - Loads settings from `package.json.AnQst`.
   - Verifies the configured spec.
@@ -72,9 +82,11 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
   - Verifies spec and regenerates selected targets.
   - Writes only under `./AnQst/generated`.
   - Removes selected target roots before regeneration (no stale generated files).
-  - If `QWidget` is enabled and `angular.json` exists:
-    - runs production Angular build
+  - If `QWidget` is enabled and a browser build output is present under project `dist/`:
     - embeds built web assets into generated Qt widget `webapp/`.
+  - If `QWidget` is enabled and `angular.json` exists:
+    - `anqst build` may invoke a production Angular build before embedding.
+  - Browser bundle discovery is frontend-profile-neutral: Angular and Vanilla browser outputs are both expected to produce a dist tree containing `index.html`.
   - Generated Qt integration CMake consumes the existing `./AnQst/generated` widget tree and fails fast if the required generated files are missing.
   - Downstream CMake no longer invokes `npm`, `npx`, or `anqst`; run `anqst build` first, then build C++ against the generated tree.
   - If `--designerplugin` is enabled:
@@ -106,6 +118,8 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
     generated/
       frontend/
         <WidgetName>_Angular/
+        <WidgetName>_VanillaTS/
+        <WidgetName>_VanillaJS/
       backend/
         node/
           express/
@@ -143,10 +157,37 @@ npx @dusted/anqst test
 npx @dusted/anqst build
 ```
 
+## Vanilla browser usage
+
+Minimal browser-global usage for `VanillaJS`:
+
+```html
+<script src="./AnQst/generated/frontend/BurgerConstructor_VanillaJS/index.js"></script>
+<script>
+  (async () => {
+    const frontend = await window.AnQstGenerated.widgets.BurgerConstructor.createFrontend();
+    const ok = await frontend.services.BurgerService.validateDraft({ name: "Classic" });
+    console.log(ok);
+  })();
+</script>
+```
+
+TypeScript authors use the same runtime shape with typings from `VanillaTS`:
+
+```ts
+/// <reference path="./AnQst/generated/frontend/BurgerConstructor_VanillaTS/index.d.ts" />
+
+async function boot() {
+  const frontend = await window.AnQstGenerated.widgets.BurgerConstructor.createFrontend();
+  const ok = await frontend.services.BurgerService.validateDraft({ name: "Classic" });
+  console.log(frontend.diagnostics.state(), ok);
+}
+```
+
 ## Two-stage workflow
 
 ```bash
-# Stage 1: Node/Angular/generation environment
+# Stage 1: browser/backend/generation environment
 npx @dusted/anqst build
 
 # Stage 2: pure Qt/CMake environment, consuming the generated tree
