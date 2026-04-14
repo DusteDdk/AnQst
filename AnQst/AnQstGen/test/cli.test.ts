@@ -428,12 +428,51 @@ test("build target selection works for VanillaTS only", () => {
     configureInstilledProject(projectDir, { generate: ["VanillaTS"] });
     const code = runCommand("build", undefined);
     assert.equal(code, 0);
+    assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.js")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS", "index.d.ts")));
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_Angular")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaJS")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
+  });
+});
+
+test("build fails for QWidget plus VanillaTS when dist/browser is missing", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget", "VanillaTS"] });
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 1);
+    } finally {
+      console.error = originalError;
+    }
+    assert.ok(errors.some((line) => line.includes("Unable to embed VanillaTS browser output")));
+  });
+});
+
+test("build packages existing dist/browser when VanillaTS is the first frontend", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget", "VanillaTS"] });
+    fs.mkdirSync(path.join(projectDir, "dist", "browser"), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, "dist", "browser", "index.html"), "<!doctype html><base href=\"/\"><script defer src=\"./main.js\"></script>", "utf8");
+    fs.writeFileSync(path.join(projectDir, "dist", "browser", "main.js"), "console.log('vanilla-ts');", "utf8");
+
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+
+    const embeddedRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget", "webapp");
+    const embeddedIndex = fs.readFileSync(path.join(embeddedRoot, "index.html"), "utf8");
+    const qrc = fs.readFileSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget", "CdWidget.qrc"), "utf8");
+
+    assert.match(embeddedIndex, /<base href="\.\/">/);
+    assert.match(qrc, /webapp\/index\.html/);
+    assert.match(qrc, /webapp\/main\.js/);
   });
 });
 
@@ -448,6 +487,56 @@ test("build target selection works for VanillaJS only", () => {
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "frontend", "CdWidget_VanillaTS")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "AnQst", "generated", "backend", "node", "express", "CdWidget_anQst")), false);
+  });
+});
+
+test("build packages VanillaJS browser app and embeds it when VanillaJS is the first frontend", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget", "VanillaJS", "VanillaTS"] });
+    fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, "src", "index.html"),
+      `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <base href="/">
+  <script src="main.js"></script>
+</head>
+<body>
+  <div id="status"></div>
+</body>
+</html>
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      path.join(projectDir, "src", "main.js"),
+      `async function main(window, document, AnQstGenerated) {
+  document.getElementById("status").textContent = typeof AnQstGenerated.CdWidget.createFrontend;
+}
+`,
+      "utf8"
+    );
+
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+
+    const distRoot = path.join(projectDir, "dist", "browser");
+    const distMain = fs.readFileSync(path.join(distRoot, "main.js"), "utf8");
+    const distIndex = fs.readFileSync(path.join(distRoot, "index.html"), "utf8");
+    const embeddedRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget", "webapp");
+    const embeddedIndex = fs.readFileSync(path.join(embeddedRoot, "index.html"), "utf8");
+    const qrc = fs.readFileSync(path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget", "CdWidget.qrc"), "utf8");
+
+    assert.match(distMain, /root\["CdWidget"\]\s*=\s*\{/);
+    assert.match(distMain, /class CdDraft/);
+    assert.match(distMain, /void main\(window, document, window\.AnQstGenerated\);/);
+    assert.match(distIndex, /<script defer src="\.\/main\.js"><\/script>/);
+    assert.doesNotMatch(distIndex, /<script src="main\.js"><\/script>/);
+    assert.match(embeddedIndex, /<base href="\.\/">/);
+    assert.match(qrc, /webapp\/index\.html/);
+    assert.match(qrc, /webapp\/main\.js/);
   });
 });
 

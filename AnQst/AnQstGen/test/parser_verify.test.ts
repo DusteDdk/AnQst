@@ -182,3 +182,58 @@ declare namespace Widget {
   assert.match(verification.message, /\[warn\].+foo/);
   assert.match(verification.message, /\[warn\].+bar/);
 });
+
+test("parser imports only the reachable declaration graph for named imported types", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-parser-import-graph-"));
+  const specPath = path.join(tempRoot, "Widget.AnQst.d.ts");
+  fs.mkdirSync(path.join(tempRoot, "types"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tempRoot, "types", "domain.d.ts"),
+    `export interface A {
+  b: B;
+}
+
+export interface B {
+  c: C;
+}
+
+export type C = string;
+
+export interface Unrelated {
+  ignored: boolean;
+}
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+import type { A } from "./types/domain";
+
+declare namespace Widget {
+  interface B {
+    localOnly: string;
+  }
+
+  interface Payload {
+    value: A;
+  }
+
+  interface WidgetService extends AnQst.Service {
+    save(payload: Payload): AnQst.Slot<void>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  assert.deepEqual(
+    [...parsed.importedTypeDecls.keys()],
+    ["A", "AnQstImported_B", "AnQstImported_C"]
+  );
+  assert.match(parsed.importedTypeDecls.get("A")?.nodeText ?? "", /b: AnQstImported_B;/);
+  assert.match(parsed.importedTypeDecls.get("AnQstImported_B")?.nodeText ?? "", /c: AnQstImported_C;/);
+  assert.doesNotMatch(parsed.importedTypeDecls.get("A")?.nodeText ?? "", /\bUnrelated\b/);
+  assert.equal(parsed.importedTypeDecls.has("Unrelated"), false);
+});

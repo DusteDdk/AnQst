@@ -138,7 +138,9 @@ function resolveRefsOrThrow(spec: ParsedSpecModel, refs: string[], ctxLoc: TypeD
 function collectReachableTypeNames(spec: ParsedSpecModel): Set<string> {
   const allDecls = new Map<string, TypeDeclModel>();
   for (const d of spec.namespaceTypeDecls) allDecls.set(d.name, d);
-  for (const [name, d] of spec.importedTypeDecls) allDecls.set(name, d);
+  for (const [name, d] of spec.importedTypeDecls) {
+    if (!allDecls.has(name)) allDecls.set(name, d);
+  }
 
   const queue: string[] = [];
   const seen = new Set<string>();

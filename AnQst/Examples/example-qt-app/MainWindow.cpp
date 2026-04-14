@@ -224,7 +224,7 @@ void MainWindow::wireUi() {
         }, Qt::QueuedConnection);
     });
 
-    connect(ui->vanillaJsWidget, &VanillaJsWidgetWidget::newMagic, this, [this](const VanillaJsWidget::Magic &m) {
+    connect(ui->vanillaJsWidget, &VanillaJsWidgetWidget::spreadMagic, this, [this](const VanillaJsWidget::Magic &m) {
         QMetaObject::invokeMethod(this, [this, m]() {
             forwardMagicToTsWidget(m);
         }, Qt::QueuedConnection);

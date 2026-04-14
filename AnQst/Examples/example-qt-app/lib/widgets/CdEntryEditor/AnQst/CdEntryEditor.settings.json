@@ -4,10 +4,7 @@
   "spec": "./AnQst/CdEntryEditor.AnQst.d.ts",
   "generate": [
     "QWidget",
-    "AngularService",
-    "VanillaTS",
-    "VanillaJS",
-    "node_express_ws"
+    "AngularService"
   ],
   "widgetCategory": "AnQst Widgets"
 }

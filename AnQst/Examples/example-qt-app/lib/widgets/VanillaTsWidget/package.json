@@ -2,36 +2,18 @@
   "name": "vanilla-ts-widget",
   "version": "0.0.0",
   "scripts": {
-    "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "npx anqst test && ng test",
-    "postinstall": "npx anqst build",
-    "prebuild": "npx anqst build",
-    "prestart": "npx anqst build"
+    "anqst:generate": "npx anqst generate ./AnQst/VanillaTsWidget.AnQst.d.ts",
+    "frontend:build": "npm run anqst:generate && node build-frontend.mjs",
+    "build": "npm run frontend:build && npx anqst build",
+    "typecheck": "npm run anqst:generate && tsc --noEmit -p tsconfig.json",
+    "watch": "npm run anqst:generate && node build-frontend.mjs --watch"
   },
   "private": true,
   "packageManager": "npm@10.9.2",
-  "dependencies": {
-    "@angular/common": "^21.2.0",
-    "@angular/compiler": "^21.2.0",
-    "@angular/core": "^21.2.0",
-    "@angular/forms": "^21.2.0",
-    "@angular/platform-browser": "^21.2.0",
-    "@angular/router": "^21.2.0",
-    "@dusted/anqst": "file:../../../../../AnQstGen",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
-  },
   "devDependencies": {
-    "@angular/build": "^21.2.0",
-    "@angular/cli": "^21.2.0",
-    "@angular/compiler-cli": "^21.2.0",
-    "jsdom": "^28.0.0",
-    "prettier": "^3.8.1",
-    "typescript": "~5.9.2",
-    "vitest": "^4.0.8"
+    "@dusted/anqst": "file:../../../../../AnQstGen",
+    "esbuild": "^0.25.9",
+    "typescript": "~5.9.2"
   },
   "AnQst": "./AnQst/VanillaTsWidget.settings.json"
 }

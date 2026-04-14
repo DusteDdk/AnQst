@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { formatVerifyError, VerifyError } from "./errors";
 import { isDebugEnabled } from "./debug-dump";
 import {
+  buildVanillaJsBrowserBundle,
   generateOutputs,
   installEmbeddedWebBundle,
   installQtDesignerPluginCMake,
@@ -20,6 +21,7 @@ import {
   runInstill
 } from "./project";
 import {
+  type FrontendTargetName,
   normalizeSlashes,
   resolveGeneratedLayoutPaths,
   toProjectRelative
@@ -67,6 +69,15 @@ class CliUsageError extends Error {
 
 interface BuildCommandArgs {
   designerPlugin: boolean;
+}
+
+function firstBrowserFrontendTarget(targets: readonly string[]): FrontendTargetName | null {
+  for (const target of targets) {
+    if (target === "AngularService" || target === "VanillaTS" || target === "VanillaJS") {
+      return target;
+    }
+  }
+  return null;
 }
 
 const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
@@ -281,7 +292,9 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
   try {
     const specPath = resolveAnQstSpecPath(cwd);
     const configuredWidgetName = resolveAnQstWidgetName(cwd);
+    const configuredTargets = resolveAnQstGenerateTargets(cwd);
     const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
+    const preferredFrontendTarget = firstBrowserFrontendTarget(configuredTargets);
     const parsed = parseSpecFile(specPath);
     verifySpec(parsed);
 
@@ -299,7 +312,9 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       installQtIntegrationCMake(cwd, parsed.widgetName);
     }
 
-    const shouldRunAngularBuild = generationTargets.emitQWidget && fs.existsSync(path.join(cwd, "angular.json"));
+    const shouldRunAngularBuild = generationTargets.emitQWidget
+      && preferredFrontendTarget === "AngularService"
+      && fs.existsSync(path.join(cwd, "angular.json"));
     if (shouldRunAngularBuild) {
       const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
         cwd,
@@ -311,8 +326,24 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       }
     }
 
+    let embeddedAssetsRefreshed = false;
     if (generationTargets.emitQWidget) {
+      if (preferredFrontendTarget === "VanillaJS") {
+        try {
+          buildVanillaJsBrowserBundle(cwd, parsed.widgetName);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new VerifyError(`VanillaJS browser packaging failed: ${message}`);
+        }
+      }
       const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
+      embeddedAssetsRefreshed = embedded;
+      if (preferredFrontendTarget === "VanillaJS" && !embedded) {
+        throw new VerifyError("Unable to embed VanillaJS browser output. Ensure src/index.html and src/main.js produced a browser bundle.");
+      }
+      if (preferredFrontendTarget === "VanillaTS" && !embedded) {
+        throw new VerifyError("Unable to embed VanillaTS browser output. Ensure the widget frontend build produced dist/browser with index.html.");
+      }
       if (shouldRunAngularBuild && !embedded) {
         throw new VerifyError("Unable to embed browser output. Ensure the browser build produced a dist bundle with index.html.");
       }
@@ -357,19 +388,21 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
     if (generationTargets.emitVanillaTS) {
       detailLines.push("    Target VanillaTS:");
       detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaTsFrontendRoot)}`);
-      detailLines.push(`      - Browser global: window.AnQstGenerated.widgets.${parsed.widgetName}`);
+      detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
     }
     if (generationTargets.emitVanillaJS) {
       detailLines.push("    Target VanillaJS:");
       detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaJsFrontendRoot)}`);
-      detailLines.push(`      - Browser global: window.AnQstGenerated.widgets.${parsed.widgetName}`);
+      detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
     }
     if (generationTargets.emitQWidget) {
       detailLines.push("    Target QWidget:");
       detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
       detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
       detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
-      detailLines.push("      - Embedded web assets refreshed from detected browser dist output");
+      if (embeddedAssetsRefreshed) {
+        detailLines.push("      - Embedded web assets refreshed from detected browser dist output");
+      }
     }
     if (generationTargets.emitNodeExpressWs) {
       detailLines.push("    Target node_express_ws:");

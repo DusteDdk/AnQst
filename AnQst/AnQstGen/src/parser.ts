@@ -31,6 +31,24 @@ function qNameToText(name: ts.EntityName): string {
   return `${qNameToText(name.left)}.${name.right.text}`;
 }
 
+function textToEntityName(text: string): ts.EntityName {
+  const parts = text.split(".");
+  let current: ts.EntityName = ts.factory.createIdentifier(parts[0] ?? text);
+  for (const part of parts.slice(1)) {
+    current = ts.factory.createQualifiedName(current, ts.factory.createIdentifier(part));
+  }
+  return current;
+}
+
+function textToExpressionName(text: string): ts.Expression {
+  const parts = text.split(".");
+  let current: ts.Expression = ts.factory.createIdentifier(parts[0] ?? text);
+  for (const part of parts.slice(1)) {
+    current = ts.factory.createPropertyAccessExpression(current, ts.factory.createIdentifier(part));
+  }
+  return current;
+}
+
 function collectReferencedTypeNames(node: ts.Node): string[] {
   const refs = new Set<string>();
   const visit = (n: ts.Node): void => {
@@ -38,6 +56,8 @@ function collectReferencedTypeNames(node: ts.Node): string[] {
       refs.add(qNameToText(n.typeName));
     } else if (ts.isExpressionWithTypeArguments(n) && ts.isIdentifier(n.expression)) {
       refs.add(n.expression.text);
+    } else if (ts.isTypeQueryNode(n)) {
+      refs.add(qNameToText(n.exprName));
     }
     ts.forEachChild(n, visit);
   };
@@ -363,7 +383,142 @@ function requiresLocalImportResolution(moduleName: string): boolean {
   return moduleName.includes("/");
 }
 
-function parseImportedTypeDecls(specFilePath: string, source: ts.SourceFile): {
+function collectTopLevelTypeDecls(
+  source: ts.SourceFile
+): Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration> {
+  const out = new Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>();
+  for (const stmt of source.statements) {
+    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) && stmt.name) {
+      out.set(stmt.name.text, stmt);
+    }
+  }
+  return out;
+}
+
+function collectReachableImportedTypeNames(
+  topLevelDecls: ReadonlyMap<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
+  rootNames: Iterable<string>
+): string[] {
+  const queue = [...rootNames];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const node = topLevelDecls.get(current);
+    if (!node) continue;
+    ordered.push(current);
+    const decl = {
+      referencedTypeNames: collectReferencedTypeNames(node)
+    };
+    for (const ref of decl.referencedTypeNames) {
+      if (topLevelDecls.has(ref) && !seen.has(ref)) {
+        queue.push(ref);
+      }
+    }
+  }
+  return ordered;
+}
+
+function allocateSyntheticImportedTypeName(sourceName: string, usedNames: Set<string>): string {
+  const cleaned = sourceName
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const base = `AnQstImported_${cleaned || "Type"}`;
+  let candidate = base;
+  let i = 2;
+  while (usedNames.has(candidate)) {
+    candidate = `${base}_${i}`;
+    i += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function rewriteImportedTypeDecl(
+  importedSource: ts.SourceFile,
+  node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration,
+  finalName: string,
+  nameMap: ReadonlyMap<string, string>
+): TypeDeclModel {
+  const renamed = ts.isInterfaceDeclaration(node)
+    ? ts.factory.updateInterfaceDeclaration(
+      node,
+      node.modifiers,
+      ts.factory.createIdentifier(finalName),
+      node.typeParameters,
+      node.heritageClauses,
+      node.members
+    )
+    : ts.factory.updateTypeAliasDeclaration(
+      node,
+      node.modifiers,
+      ts.factory.createIdentifier(finalName),
+      node.typeParameters,
+      node.type
+    );
+  const transformed = ts.transform(renamed, [(context): ts.Transformer<ts.InterfaceDeclaration | ts.TypeAliasDeclaration> => {
+    const visitor: ts.Visitor = (child) => {
+      if (ts.isTypeReferenceNode(child)) {
+        const mapped = nameMap.get(qNameToText(child.typeName));
+        if (mapped) {
+          return ts.factory.updateTypeReferenceNode(child, textToEntityName(mapped), child.typeArguments);
+        }
+      } else if (ts.isExpressionWithTypeArguments(child)) {
+      const exprText = ts.isIdentifier(child.expression) || ts.isPropertyAccessExpression(child.expression)
+        ? child.expression.getText(importedSource)
+        : null;
+      const mapped = exprText ? nameMap.get(exprText) : null;
+      if (mapped) {
+        return ts.factory.updateExpressionWithTypeArguments(child, textToExpressionName(mapped), child.typeArguments);
+      }
+    } else if (ts.isTypeQueryNode(child)) {
+      const mapped = nameMap.get(qNameToText(child.exprName));
+      if (mapped) {
+        return ts.factory.updateTypeQueryNode(child, textToEntityName(mapped), child.typeArguments);
+      }
+    }
+    return ts.visitEachChild(child, visitor, context);
+  };
+    return (root) => ts.visitNode(root, visitor) as ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+  }]);
+  const rewritten = transformed.transformed[0] as ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+  transformed.dispose();
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const rewrittenSource = ts.createSourceFile("__anqst_imported_decl.ts", "", ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const nodeText = printer.printNode(ts.EmitHint.Unspecified, rewritten, rewrittenSource);
+  return {
+    name: finalName,
+    kind: ts.isInterfaceDeclaration(rewritten) ? "interface" : "type",
+    nodeText,
+    referencedTypeNames: collectReferencedTypeNames(rewritten),
+    loc: locFromNode(importedSource, node)
+  };
+}
+
+function createImportedAliasDecl(aliasName: string, targetName: string, loc: SourceLoc): TypeDeclModel {
+  const nodeText = `type ${aliasName} = ${targetName};`;
+  const source = ts.createSourceFile("__anqst_import_alias.ts", nodeText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const stmt = source.statements.find(ts.isTypeAliasDeclaration);
+  if (!stmt) {
+    throw new Error(`Unable to synthesize imported alias declaration for ${aliasName}.`);
+  }
+  return {
+    name: aliasName,
+    kind: "type",
+    nodeText,
+    referencedTypeNames: collectReferencedTypeNames(stmt),
+    loc
+  };
+}
+
+function parseImportedTypeDecls(
+  specFilePath: string,
+  source: ts.SourceFile,
+  reservedTypeNames: ReadonlySet<string> = new Set<string>()
+): {
   importedTypeDecls: Map<string, TypeDeclModel>;
   importedTypeSymbols: Set<string>;
   specImports: SpecImportModel[];
@@ -371,6 +526,7 @@ function parseImportedTypeDecls(specFilePath: string, source: ts.SourceFile): {
   const importedTypeDecls = new Map<string, TypeDeclModel>();
   const importedTypeSymbols = new Set<string>();
   const specImports: SpecImportModel[] = [];
+  const usedImportedNames = new Set<string>(reservedTypeNames);
 
   for (const stmt of source.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
@@ -417,10 +573,37 @@ function parseImportedTypeDecls(specFilePath: string, source: ts.SourceFile): {
 
     const text = fs.readFileSync(resolved, "utf8");
     const importedSource = ts.createSourceFile(resolved, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    for (const importedStmt of importedSource.statements) {
-      if (ts.isInterfaceDeclaration(importedStmt) || ts.isTypeAliasDeclaration(importedStmt)) {
-        const decl = parseTypeDecl(importedSource, importedStmt);
-        importedTypeDecls.set(decl.name, decl);
+    const topLevelDecls = collectTopLevelTypeDecls(importedSource);
+    const directAliasesBySourceName = new Map<string, string[]>();
+    for (const namedImport of importModel.namedImports) {
+      if (!topLevelDecls.has(namedImport.importedName)) continue;
+      const aliases = directAliasesBySourceName.get(namedImport.importedName) ?? [];
+      aliases.push(namedImport.localName);
+      directAliasesBySourceName.set(namedImport.importedName, aliases);
+    }
+
+    const reachableSourceNames = collectReachableImportedTypeNames(topLevelDecls, directAliasesBySourceName.keys());
+    if (reachableSourceNames.length === 0) continue;
+
+    const canonicalNameBySourceName = new Map<string, string>();
+    for (const sourceName of reachableSourceNames) {
+      const directAliases = directAliasesBySourceName.get(sourceName);
+      if (directAliases && directAliases.length > 0) {
+        canonicalNameBySourceName.set(sourceName, directAliases[0]);
+        usedImportedNames.add(directAliases[0]);
+      } else {
+        canonicalNameBySourceName.set(sourceName, allocateSyntheticImportedTypeName(sourceName, usedImportedNames));
+      }
+    }
+
+    for (const sourceName of reachableSourceNames) {
+      const node = topLevelDecls.get(sourceName);
+      const finalName = canonicalNameBySourceName.get(sourceName);
+      if (!node || !finalName) continue;
+      importedTypeDecls.set(finalName, rewriteImportedTypeDecl(importedSource, node, finalName, canonicalNameBySourceName));
+      const directAliases = directAliasesBySourceName.get(sourceName) ?? [];
+      for (const alias of directAliases.slice(1)) {
+        importedTypeDecls.set(alias, createImportedAliasDecl(alias, finalName, locFromNode(importedSource, node)));
       }
     }
   }
@@ -476,7 +659,7 @@ function parseSpecFileAst(specFilePath: string): ParsedSpecModel {
     }
   }
 
-  const importInfo = parseImportedTypeDecls(specFilePath, source);
+  const importInfo = parseImportedTypeDecls(specFilePath, source, new Set(namespaceTypeDecls.map((decl) => decl.name)));
 
   return {
     filePath: specFilePath,

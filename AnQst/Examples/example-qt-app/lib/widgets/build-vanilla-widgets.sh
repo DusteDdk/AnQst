@@ -7,5 +7,5 @@ npm install
 npx anqst build
 cd "${SCRIPT_DIR}/VanillaTsWidget"
 npm install
-npx anqst build
+npm run build
 echo "Vanilla JS + TS widgets built (in dependency order)."

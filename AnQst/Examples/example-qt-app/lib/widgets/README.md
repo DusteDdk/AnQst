@@ -8,9 +8,9 @@
   ./build-vanilla-widgets.sh
   ```
 
-  or `npm install` / `npx anqst build` in each folder in that order.
+  or `npm install` / `npx anqst build` in `VanillaJsWidget`, then `npm install` / `npm run build` in `VanillaTsWidget`.
 
-- **Shared `Magic` type:** `VanillaTsWidget` imports `Magic` from `VanillaJsWidget/AnQst/Magic.shared.d.ts` (a tiny hand-maintained mirror of the JS widget spec). Importing the full generated `VanillaTS/index.d.ts` from another spec is not supported: the parser would pull in the whole frontend model and break C++ type emission.
+- **Shared `Magic` type:** `VanillaTsWidget` imports `Magic` from the generated `VanillaJsWidget_VanillaTS/index.d.ts` artifact. Build `VanillaJsWidget` first so that generated type is available before `VanillaTsWidget` runs `anqst generate` / its local TS bundle step.
 
 - **Qt host:** `Examples/example-qt-app` links both generated widget libraries and forwards both bridge directions through small queued host adapters: `requestReset` → `slot_reset`, and `newMagic` → `slot_onMagic` with a `tick` / `value` copy into the TS widget’s C++ struct type.
 

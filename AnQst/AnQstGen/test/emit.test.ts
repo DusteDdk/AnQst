@@ -51,6 +51,7 @@ test("generateOutputs returns required tree", () => {
   assert.ok(outputs["frontend/CdWidget_Angular/types/types.d.ts"]);
   assert.ok(outputs["frontend/CdWidget_VanillaTS/package.json"]);
   assert.match(outputs["frontend/CdWidget_VanillaTS/package.json"], /"outputContractVersion"\s*:\s*2/);
+  assert.ok(outputs["frontend/CdWidget_VanillaTS/index.ts"]);
   assert.ok(outputs["frontend/CdWidget_VanillaTS/index.js"]);
   assert.ok(outputs["frontend/CdWidget_VanillaTS/index.d.ts"]);
   assert.ok(outputs["frontend/CdWidget_VanillaJS/package.json"]);
@@ -75,13 +76,23 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /setInput\("CdService", "draft", encodedValue\)/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /onOutput\("CdService", "readOnlyMode", \(value\) => \{/);
   assert.match(outputs["frontend/CdWidget_Angular/services.ts"], /this\._readOnlyMode\.set\(decodeAnQstStructured_.*\(value\)\)/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.ts"], /export \{ .*createFrontend.* \};/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.ts"], /root\["CdWidget"\]\s*=\s*\{/);
   assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /AnQstGenerated/);
   assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /createFrontend/);
-  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /widgets\["CdWidget"\]/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /root\["CdWidget"\]\s*=\s*\{/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.js"], /class CdDraft/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface CdDraft/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /declare const CdDraft/);
   assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface CdWidgetGlobal/);
   assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /createFrontend\(\): Promise<CdWidgetFrontend>;/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /CdService: CdService;/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /CdDraft: typeof CdDraft;/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /export \{ .*createFrontend.* \};/);
+  assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface AnQstGeneratedRoot \{\s*CdWidget: CdWidgetGlobal;/);
   assert.match(outputs["frontend/CdWidget_VanillaTS/index.d.ts"], /interface Window \{\s*AnQstGenerated: AnQstGeneratedRoot;/);
   assert.match(outputs["frontend/CdWidget_VanillaJS/index.js"], /AnQstGenerated/);
+  assert.match(outputs["frontend/CdWidget_VanillaJS/index.js"], /root\["CdWidget"\]\s*=\s*\{/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /<AnQst_version>/);
@@ -443,6 +454,57 @@ declare namespace DemoWidget {
   assert.match(dtsServices, /save\(handler: \(payload: Payload\) => void \| Promise<void> \| Error\): void;/);
   assert.match(cppHeader, /public slots:/);
   assert.match(cppHeader, /void slot_save\(DemoWidget::Payload payload\);/);
+});
+
+test("generateOutputs keeps backend imports narrowed to the reachable imported type closure", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-import-closure-"));
+  const specPath = path.join(tempRoot, "MirrorWidget.AnQst.d.ts");
+  fs.mkdirSync(path.join(tempRoot, "generated"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tempRoot, "generated", "frontend-types.d.ts"),
+    `export {};
+interface Magic {
+  tick: number;
+  value: number;
+}
+
+interface FrontendBridge {
+  diagnostics: BridgeDiagnostics;
+  Magic: typeof Magic;
+}
+
+interface UnrelatedFrontend {
+  active: boolean;
+}
+
+type BridgeDiagnostics = "ok" | "failed";
+
+export type { Magic, FrontendBridge, UnrelatedFrontend, BridgeDiagnostics };
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    specPath,
+    `import { AnQst } from "AnQst-Spec-DSL";
+import type { Magic } from "./generated/frontend-types";
+
+declare namespace MirrorWidget {
+  interface MirrorService extends AnQst.Service {
+    onMagic(magic: Magic): AnQst.Slot<void>;
+  }
+}
+`,
+    "utf8"
+  );
+
+  const parsed = parseSpecFile(specPath);
+  const outputs = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
+  const cppTypes = outputs["backend/cpp/qt/MirrorWidget_widget/include/MirrorWidgetTypes.h"];
+
+  assert.match(cppTypes, /struct Magic \{/);
+  assert.doesNotMatch(cppTypes, /\bFrontendBridge\b/);
+  assert.doesNotMatch(cppTypes, /\bUnrelatedFrontend\b/);
+  assert.doesNotMatch(cppTypes, /\bBridgeDiagnostics\b/);
 });
 
 test("generateOutputs can filter QWidget, browser frontends, and node_express_ws outputs independently", () => {

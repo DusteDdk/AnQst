@@ -2,11 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>VanillaTsWidget</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="./main.js"></script>
 </head>
 <body>
-  <app-root></app-root>
+  <main class="mirror-widget">
+    <section class="mirror-panel">
+      <p class="eyebrow">VanillaTS Bridge</p>
+      <h1>Magic Mirror</h1>
+      <p id="stateDisplay" class="status">Waiting for VanillaJsWidget...</p>
+      <div class="metrics">
+        <div class="metric">
+          <span class="label">Tick</span>
+          <strong id="tickDisplay">-1</strong>
+        </div>
+        <div class="metric">
+          <span class="label">Magic</span>
+          <strong id="valueDisplay">-1</strong>
+        </div>
+      </div>
+      <button id="requestReset" type="button">Request Reset</button>
+    </section>
+  </main>
 </body>
 </html>

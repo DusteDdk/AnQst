@@ -1,37 +1,20 @@
 {
-  "compileOnSave": false,
   "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
     "strict": true,
-    "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "experimentalDecorators": true,
-    "importHelpers": true,
-    "target": "ES2022",
-    "module": "preserve",
-    "baseUrl": ".",
-    "paths": {
-      "anqst-generated/*": [
-        "AnQst/generated/frontend/VanillaTsWidget_Angular/*"
-      ]
-    }
+    "noEmit": true,
+    "skipLibCheck": true
   },
-  "angularCompilerOptions": {
-    "enableI18nLegacyMessageIdFormat": false,
-    "strictInjectionParameters": true,
-    "strictInputAccessModifiers": true,
-    "strictTemplates": true
-  },
-  "files": [],
-  "references": [
-    {
-      "path": "./tsconfig.app.json"
-    },
-    {
-      "path": "./tsconfig.spec.json"
-    }
+  "include": [
+    "src/**/*.ts",
+    "AnQst/generated/frontend/VanillaTsWidget_VanillaTS/index.ts",
+    "AnQst/generated/frontend/VanillaTsWidget_VanillaTS/index.d.ts",
+    "../VanillaJsWidget/AnQst/generated/frontend/VanillaJsWidget_VanillaTS/index.d.ts"
   ]
 }

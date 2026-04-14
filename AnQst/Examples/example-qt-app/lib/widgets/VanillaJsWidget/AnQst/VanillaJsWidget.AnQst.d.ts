@@ -4,7 +4,7 @@ import type { Magic } from "./Magic.d.ts";
 declare namespace VanillaJsWidget {
 
   interface MagicTickerService extends AnQst.Service {
-    newMagic(magic: Magic): AnQst.Emitter;
+    spreadMagic(magic: Magic): AnQst.Emitter;
     reset(): AnQst.Slot<void>;
   }
 }

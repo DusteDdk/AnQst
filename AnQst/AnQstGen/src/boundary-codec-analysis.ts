@@ -148,7 +148,9 @@ export class BoundaryTransportAnalyzer {
   private collectDecls(): TypeDeclModel[] {
     const out = new Map<string, TypeDeclModel>();
     for (const decl of this.spec.namespaceTypeDecls) out.set(decl.name, decl);
-    for (const decl of this.spec.importedTypeDecls.values()) out.set(decl.name, decl);
+    for (const decl of this.spec.importedTypeDecls.values()) {
+      if (!out.has(decl.name)) out.set(decl.name, decl);
+    }
     return [...out.values()];
   }
 

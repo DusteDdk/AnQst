@@ -4,8 +4,8 @@
   "spec": "./AnQst/VanillaJsWidget.AnQst.d.ts",
   "generate": [
     "QWidget",
-    "VanillaTS",
-    "VanillaJS"
+    "VanillaJS",
+    "VanillaTS"
   ],
   "widgetCategory": "AnQst Widgets"
 }

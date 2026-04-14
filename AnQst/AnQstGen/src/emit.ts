@@ -449,7 +449,9 @@ function designerPlaceholderCppExpression(cppType: string, memberName: string): 
 function collectStructDecls(spec: ParsedSpecModel): TypeDeclModel[] {
   const out = new Map<string, TypeDeclModel>();
   for (const d of spec.namespaceTypeDecls) out.set(d.name, d);
-  for (const d of spec.importedTypeDecls.values()) out.set(d.name, d);
+  for (const d of spec.importedTypeDecls.values()) {
+    if (!out.has(d.name)) out.set(d.name, d);
+  }
   return [...out.values()];
 }
 
@@ -570,14 +572,22 @@ function normalizeImportPathForGenerated(specFilePath: string, generatedFileRelP
   return `./${normalized}`;
 }
 
-function renderRequiredTypeImports(spec: ParsedSpecModel, generatedFileRelPath: string): string {
+function renderRequiredTypeImports(
+  spec: ParsedSpecModel,
+  generatedFileRelPath: string,
+  omitSymbols: ReadonlySet<string> = new Set<string>()
+): string {
   const requiredSymbols = collectRequiredImportedSymbols(spec);
   if (requiredSymbols.size === 0) return "";
 
   const importLines: string[] = [];
   for (const imp of spec.specImports) {
-    const defaultImport = imp.defaultImport && requiredSymbols.has(imp.defaultImport) ? imp.defaultImport : null;
-    const named = imp.namedImports.filter((n) => requiredSymbols.has(n.localName));
+    const defaultImport = imp.defaultImport
+      && requiredSymbols.has(imp.defaultImport)
+      && !omitSymbols.has(imp.defaultImport)
+      ? imp.defaultImport
+      : null;
+    const named = imp.namedImports.filter((n) => requiredSymbols.has(n.localName) && !omitSymbols.has(n.localName));
     if (!defaultImport && named.length === 0) continue;
 
     const moduleSpecifier = normalizeImportPathForGenerated(spec.filePath, generatedFileRelPath, imp.moduleSpecifier);
@@ -3436,20 +3446,146 @@ ${constructorLines.join("\n")}${formatTsServiceSetAndOnSlotObjectLiterals(setMem
 `;
 }
 
-function renderVanillaBrowserTs(spec: ParsedSpecModel, codecCatalog: BoundaryCodecCatalog): string {
+interface VanillaValueClassFieldModel {
+  name: string;
+  typeText: string;
+  optional: boolean;
+}
+
+interface VanillaValueClassModel {
+  name: string;
+  fields: VanillaValueClassFieldModel[];
+}
+
+function collectVanillaValueClasses(spec: ParsedSpecModel): VanillaValueClassModel[] {
+  const classes: VanillaValueClassModel[] = [];
+  const requiredImportedSymbols = collectRequiredImportedSymbols(spec);
+  const candidateDecls = [
+    ...spec.namespaceTypeDecls,
+    ...[...spec.importedTypeDecls.values()].filter((decl) => requiredImportedSymbols.has(decl.name))
+  ];
+  for (const decl of candidateDecls) {
+    if (decl.kind !== "interface") continue;
+    const node = parseTypeDeclNode(decl.nodeText);
+    if (!node || !ts.isInterfaceDeclaration(node)) continue;
+    const fields: VanillaValueClassFieldModel[] = [];
+    let supported = true;
+    for (const member of node.members) {
+      if (!ts.isPropertySignature(member) || !member.type || !member.name || !ts.isIdentifier(member.name)) {
+        supported = false;
+        break;
+      }
+      fields.push({
+        name: member.name.text,
+        typeText: member.type.getText(),
+        optional: !!member.questionToken
+      });
+    }
+    if (supported) {
+      classes.push({
+        name: decl.name,
+        fields
+      });
+    }
+  }
+  return classes;
+}
+
+function renderVanillaValueClassConstructorArgs(fields: readonly VanillaValueClassFieldModel[]): string {
+  let lastRequiredIndex = -1;
+  for (let i = 0; i < fields.length; i += 1) {
+    if (!fields[i].optional) {
+      lastRequiredIndex = i;
+    }
+  }
+  return fields.map((field, index) => {
+    const tsType = mapTypeTextToTs(field.typeText);
+    if (!field.optional) {
+      return `${field.name}: ${tsType}`;
+    }
+    if (index > lastRequiredIndex) {
+      return `${field.name}?: ${tsType}`;
+    }
+    return `${field.name}: ${tsType} | undefined`;
+  }).join(", ");
+}
+
+function renderVanillaValueClassTs(model: VanillaValueClassModel): string {
+  const fieldLines = model.fields.map((field) => {
+    const tsType = mapTypeTextToTs(field.typeText);
+    return field.optional
+      ? `  ${field.name}?: ${tsType};`
+      : `  ${field.name}: ${tsType};`;
+  });
+  const constructorArgs = renderVanillaValueClassConstructorArgs(model.fields);
+  const constructorBody = model.fields.map((field) => `    this.${field.name} = ${field.name};`);
+  const constructorLines = [
+    `  constructor(${constructorArgs}) {`,
+    ...constructorBody,
+    "  }"
+  ];
+  return `class ${model.name} {
+${fieldLines.join("\n")}
+
+${constructorLines.join("\n")}
+}`;
+}
+
+function renderVanillaValueClassDts(model: VanillaValueClassModel): string {
+  const fieldLines = model.fields.map((field) => {
+    const tsType = mapTypeTextToTs(field.typeText);
+    return field.optional
+      ? `  ${field.name}?: ${tsType};`
+      : `  ${field.name}: ${tsType};`;
+  });
+  const constructorArgs = renderVanillaValueClassConstructorArgs(model.fields);
+  return `interface ${model.name} {
+${fieldLines.join("\n")}
+}
+
+declare const ${model.name}: {
+  new (${constructorArgs}): ${model.name};
+  prototype: ${model.name};
+};`;
+}
+
+function renderVanillaBrowserTs(spec: ParsedSpecModel, codecCatalog: BoundaryCodecCatalog, emitExports = false): string {
   const localTypeDecls = renderTypeDeclarations(spec).trim();
   const localTypesBlock = localTypeDecls.length > 0 ? `${localTypeDecls}\n\n` : "";
+  const valueClasses = collectVanillaValueClasses(spec);
+  const valueClassDecls = valueClasses.map((model) => renderVanillaValueClassTs(model)).join("\n\n");
+  const valueClassBlock = valueClassDecls.length > 0 ? `${valueClassDecls}\n\n` : "";
   const dragDropHelperBlock = renderTsDragDropPayloadHelpers(spec, codecCatalog).trim();
   const dragDropHelpers = dragDropHelperBlock.length > 0 ? `\n// Drag/drop payload helpers\n${dragDropHelperBlock}\n` : "";
   const serviceClasses = spec.services.map((s) => renderVanillaServiceTs(spec, s.name, codecCatalog)).join("\n");
-  const frontendServices = spec.services.length > 0
-    ? spec.services.map((s) => `  ${s.name}: ${s.name};`).join("\n")
-    : "";
-  const frontendServiceFactories = spec.services.length > 0
-    ? spec.services.map((s) => `      ${s.name}: new ${s.name}(bridge)`).join(",\n")
+  const frontendShapeLines = [
+    "  diagnostics: AnQstBridgeDiagnostics;",
+    ...spec.services.map((s) => `  ${s.name}: ${s.name};`),
+    ...valueClasses.map((model) => `  ${model.name}: typeof ${model.name};`)
+  ];
+  const frontendFactoryLines = [
+    "    diagnostics: new AnQstBridgeDiagnostics(bridge)",
+    ...spec.services.map((s) => `    ${s.name}: new ${s.name}(bridge)`),
+    ...valueClasses.map((model) => `    ${model.name}`)
+  ];
+  const exportedRuntimeSymbols = [
+    "AnQstBridgeDiagnostics",
+    ...spec.services.map((s) => s.name),
+    ...valueClasses.map((model) => model.name),
+    "createFrontend"
+  ];
+  const exportedTypeSymbols = [
+    "AnQstBridgeDiagnostic",
+    "AnQstBridgeState",
+    `${spec.widgetName}Frontend`,
+    `${spec.widgetName}Global`,
+    "AnQstGeneratedRoot"
+  ];
+  const exportsBlock = emitExports
+    ? `\nexport { ${exportedRuntimeSymbols.join(", ")} };\nexport type { ${exportedTypeSymbols.join(", ")} };\n`
     : "";
 
-  return `${localTypesBlock}// Boundary codec plan helpers
+  return `${localTypesBlock}${valueClassBlock}// Boundary codec plan helpers
 ${renderTsBoundaryCodecHelpers(codecCatalog)}
 ${dragDropHelpers}
 
@@ -4267,34 +4403,25 @@ class AnQstBridgeDiagnostics {
 }
 
 ${serviceClasses}
-interface ${spec.widgetName}FrontendServices {
-${frontendServices}
-}
-
 interface ${spec.widgetName}Frontend {
-  diagnostics: AnQstBridgeDiagnostics;
-  services: ${spec.widgetName}FrontendServices;
+${frontendShapeLines.join("\n")}
 }
 
 async function createFrontend(): Promise<${spec.widgetName}Frontend> {
   const bridge = new AnQstBridgeRuntime();
   await bridge.ready();
   return {
-    diagnostics: new AnQstBridgeDiagnostics(bridge),
-    services: {
-${frontendServiceFactories}
-    }
+${frontendFactoryLines.join(",\n")}
   };
 }
 
-(function bootstrapAnQstGenerated(global: typeof globalThis & { AnQstGenerated?: { widgets?: Record<string, unknown> } }) {
+(function bootstrapAnQstGenerated(global: typeof globalThis & { AnQstGenerated?: Record<string, unknown> }) {
   const root = global.AnQstGenerated ?? (global.AnQstGenerated = {});
-  const widgets = root.widgets ?? (root.widgets = {});
-  widgets["${spec.widgetName}"] = {
+  root["${spec.widgetName}"] = {
     createFrontend
   };
-})(window as typeof globalThis & { AnQstGenerated?: { widgets?: Record<string, unknown> } });
-`;
+})(window as typeof globalThis & { AnQstGenerated?: Record<string, unknown> });
+${exportsBlock}`;
 }
 
 function renderVanillaServiceDts(spec: ParsedSpecModel, serviceName: string): string {
@@ -4360,19 +4487,38 @@ ${declareBodyLines.join("\n")}
 }
 
 function renderVanillaIndexDts(spec: ParsedSpecModel): string {
+  const valueClasses = collectVanillaValueClasses(spec);
+  const valueClassNames = new Set(valueClasses.map((model) => model.name));
   const externalTypeImports = renderRequiredTypeImports(
     spec,
-    `frontend/${generatedFrontendDirName(spec.widgetName, "VanillaTS")}/index.d.ts`
+    `frontend/${generatedFrontendDirName(spec.widgetName, "VanillaTS")}/index.d.ts`,
+    valueClassNames
   ).trim();
   // Export widget namespace types so other packages can `import type { ... }` from this declaration file
   // (e.g. a second widget spec that reuses structs generated for the first widget).
   const localTypeDecls = renderTypeDeclarations(spec, true).trim();
+  const valueClassDecls = valueClasses.map((model) => renderVanillaValueClassDts(model)).join("\n\n");
   const serviceDecls = spec.services.map((s) => renderVanillaServiceDts(spec, s.name)).join("\n\n");
-  const servicesShape = spec.services.length > 0
-    ? spec.services.map((s) => `  ${s.name}: ${s.name};`).join("\n")
-    : "";
-  const sections = [externalTypeImports, localTypeDecls].filter((s) => s.length > 0);
+  const frontendShapeLines = [
+    "  diagnostics: AnQstBridgeDiagnostics;",
+    ...spec.services.map((s) => `  ${s.name}: ${s.name};`),
+    ...valueClasses.map((model) => `  ${model.name}: typeof ${model.name};`)
+  ];
+  const sections = [externalTypeImports, localTypeDecls, valueClassDecls].filter((s) => s.length > 0);
   const prelude = sections.length > 0 ? `${sections.join("\n\n")}\n\n` : "";
+  const exportedRuntimeSymbols = [
+    "AnQstBridgeDiagnostics",
+    ...spec.services.map((s) => s.name),
+    ...valueClasses.map((model) => model.name),
+    "createFrontend"
+  ];
+  const exportedTypeSymbols = [
+    "AnQstBridgeDiagnostic",
+    "AnQstBridgeState",
+    `${spec.widgetName}Frontend`,
+    `${spec.widgetName}Global`,
+    "AnQstGeneratedRoot"
+  ];
   return `export {};
 ${prelude}type AnQstBridgeSeverity = "info" | "warn" | "error" | "fatal";
 
@@ -4405,25 +4551,18 @@ declare class AnQstBridgeDiagnostics {
 
 ${serviceDecls}
 
-interface ${spec.widgetName}FrontendServices {
-${servicesShape}
+interface ${spec.widgetName}Frontend {
+${frontendShapeLines.join("\n")}
 }
 
-interface ${spec.widgetName}Frontend {
-  diagnostics: AnQstBridgeDiagnostics;
-  services: ${spec.widgetName}FrontendServices;
-}
+declare function createFrontend(): Promise<${spec.widgetName}Frontend>;
 
 interface ${spec.widgetName}Global {
   createFrontend(): Promise<${spec.widgetName}Frontend>;
 }
 
-interface AnQstGeneratedWidgets {
-  ${spec.widgetName}: ${spec.widgetName}Global;
-}
-
 interface AnQstGeneratedRoot {
-  widgets: AnQstGeneratedWidgets;
+  ${spec.widgetName}: ${spec.widgetName}Global;
 }
 
 declare global {
@@ -4433,6 +4572,9 @@ declare global {
 
   var AnQstGenerated: AnQstGeneratedRoot;
 }
+
+export { ${exportedRuntimeSymbols.join(", ")} };
+export type { ${exportedTypeSymbols.join(", ")} };
 `;
 }
 
@@ -5338,10 +5480,12 @@ export function generateOutputs(
     outputs[`${angularFrontendDir}/types/types.d.ts`] = renderTypeTypesDts(spec);
   }
   if (normalizedOptions.emitVanillaTS || normalizedOptions.emitVanillaJS) {
-    const vanillaBrowserTs = renderVanillaBrowserTs(spec, codecCatalog);
-    const vanillaBrowserJs = transpileBrowserTsToJs(vanillaBrowserTs);
+    const vanillaBrowserTs = renderVanillaBrowserTs(spec, codecCatalog, true);
+    const vanillaBrowserScriptTs = renderVanillaBrowserTs(spec, codecCatalog, false);
+    const vanillaBrowserJs = transpileBrowserTsToJs(vanillaBrowserScriptTs);
     if (normalizedOptions.emitVanillaTS) {
       outputs[`${vanillaTsFrontendDir}/package.json`] = renderVanillaPackage(spec, "VanillaTS");
+      outputs[`${vanillaTsFrontendDir}/index.ts`] = vanillaBrowserTs;
       outputs[`${vanillaTsFrontendDir}/index.js`] = vanillaBrowserJs;
       outputs[`${vanillaTsFrontendDir}/index.d.ts`] = renderVanillaIndexDts(spec);
     }
@@ -5374,6 +5518,71 @@ export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): voi
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, withBuildStamp(relPath, content), "utf8");
   }
+}
+
+function normalizeVanillaJsIndexHtml(html: string): string {
+  let normalized = html.replace(
+    /<script\b[^>]*src=["'](?:\.\/)?main\.js["'][^>]*>\s*<\/script>\s*/gi,
+    ""
+  );
+  const bundleScriptTag = '  <script defer src="./main.js"></script>\n';
+  if (/<\/head>/i.test(normalized)) {
+    normalized = normalized.replace(/<\/head>/i, `${bundleScriptTag}</head>`);
+  } else if (/<\/body>/i.test(normalized)) {
+    normalized = normalized.replace(/<\/body>/i, `${bundleScriptTag}</body>`);
+  } else {
+    normalized = `${normalized}\n${bundleScriptTag}`;
+  }
+  return normalized;
+}
+
+export function buildVanillaJsBrowserBundle(cwd: string, widgetName: string): string {
+  const srcRoot = path.join(cwd, "src");
+  const srcIndexPath = path.join(srcRoot, "index.html");
+  const srcMainPath = path.join(srcRoot, "main.js");
+  const generatedRuntimePath = path.join(
+    resolveGeneratedLayoutPaths(cwd, widgetName).vanillaJsFrontendRoot,
+    "index.js"
+  );
+
+  if (!fs.existsSync(srcIndexPath)) {
+    throw new Error("VanillaJS build requires src/index.html.");
+  }
+  if (!fs.existsSync(srcMainPath)) {
+    throw new Error("VanillaJS build requires src/main.js.");
+  }
+  if (!fs.existsSync(generatedRuntimePath)) {
+    throw new Error("VanillaJS generated runtime is missing. Run generation before packaging the browser bundle.");
+  }
+
+  const distWebRoot = path.join(cwd, "dist", "browser");
+  fs.rmSync(distWebRoot, { recursive: true, force: true });
+  fs.mkdirSync(distWebRoot, { recursive: true });
+  copyDirectoryRecursive(srcRoot, distWebRoot);
+
+  const generatedRuntime = fs.readFileSync(generatedRuntimePath, "utf8").trimEnd();
+  const appMain = fs.readFileSync(srcMainPath, "utf8").trim();
+  const bundleSource = `${generatedRuntime}
+
+${appMain}
+
+void main(window, document, window.AnQstGenerated);
+`;
+  fs.writeFileSync(
+    path.join(distWebRoot, "main.js"),
+    withBuildStamp("dist/browser/main.js", bundleSource),
+    "utf8"
+  );
+
+  const sourceIndexHtml = fs.readFileSync(srcIndexPath, "utf8");
+  const normalizedIndexHtml = normalizeVanillaJsIndexHtml(sourceIndexHtml);
+  fs.writeFileSync(
+    path.join(distWebRoot, "index.html"),
+    withBuildStamp("dist/browser/index.html", normalizedIndexHtml),
+    "utf8"
+  );
+
+  return distWebRoot;
 }
 
 function listFilesRecursively(rootDir: string): string[] {
