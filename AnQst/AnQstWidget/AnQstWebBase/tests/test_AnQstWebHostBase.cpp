@@ -535,6 +535,32 @@ TEST_CASE("Output value emits through bridge signal when host is ready", "[host]
     CHECK(args.at(2).toString() == QStringLiteral("state-1"));
 }
 
+TEST_CASE("Output snapshot replays when ready host finishes loading again", "[host][behavior][output]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    DummyBridge bridge;
+    QSignalSpy outputSpy(&host, &AnQstWebHostBase::anQstBridge_outputUpdated);
+
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    REQUIRE(host.setContentRoot(dir.path()));
+    REQUIRE(host.setBridgeObject(&bridge));
+    QMetaObject::invokeMethod(&host, "handleLoadFinished", Q_ARG(bool, true));
+
+    host.setOutputValue(QStringLiteral("DemoBehaviorService"), QStringLiteral("outputParentState"), QStringLiteral("state-1"));
+    REQUIRE(waitForSignal(outputSpy, 4000));
+    outputSpy.clear();
+
+    QMetaObject::invokeMethod(&host, "handleLoadFinished", Q_ARG(bool, true));
+    REQUIRE(waitForSignal(outputSpy, 4000));
+
+    const auto args = outputSpy.takeFirst();
+    REQUIRE(args.count() == 3);
+    CHECK(args.at(0).toString() == QStringLiteral("DemoBehaviorService"));
+    CHECK(args.at(1).toString() == QStringLiteral("outputParentState"));
+    CHECK(args.at(2).toString() == QStringLiteral("state-1"));
+}
+
 TEST_CASE("resolveAssetPath blocks non-local schemes and emits policy error", "[host][policy]") {
     ensureApp();
     AnQstWebHostBase host;

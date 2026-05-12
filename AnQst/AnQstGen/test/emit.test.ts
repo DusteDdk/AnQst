@@ -106,6 +106,9 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodeAnQstStructured_boolean\(result\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /typedValue = decodeAnQstStructured_CdDraft\(value\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodedValue = encodeAnQstStructured_boolean\(value\);/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /bool m_readOnlyModePublished\{false\};/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /if \(m_readOnlyModePublished && m_readOnlyMode == value\) return;/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /m_readOnlyModePublished = true;/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodedValue\);/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);

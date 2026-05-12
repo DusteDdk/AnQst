@@ -783,7 +783,11 @@ bool AnQstWebHostBase::shouldEmitReady() const {
 }
 
 void AnQstWebHostBase::emitOutputSnapshotIfReady() {
+    const bool wasDispatchEnabled = m_bridgeFacade->dispatchEnabled();
     m_bridgeFacade->setDispatchEnabled(shouldEmitReady());
+    if (shouldEmitReady() && wasDispatchEnabled) {
+        m_bridgeFacade->emitOutputSnapshot();
+    }
 }
 
 QString AnQstWebHostBase::loadDefaultBridgeBootstrapScript() const {

@@ -1319,6 +1319,7 @@ function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext, cpp
           fields.push(`${memberPascal}Handler m_${member.name}Handler;`);
         } else {
           publicSlots.push(`void ${member.name}Slot(const ${cppType}& value);`);
+          fields.push(`bool m_${member.name}Published{false};`);
         }
       } else if (member.kind === "DropTarget" && member.payloadTypeText) {
         const cppType = qType(cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]));
@@ -1911,7 +1912,11 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         lines.push("}");
         lines.push("");
         lines.push(`void ${widgetClassName}::set${cap}(const ${cppType}& value) {`);
-        lines.push(`    if (m_${member.name} == value) return;`);
+        if (member.kind === "Output") {
+          lines.push(`    if (m_${member.name}Published && m_${member.name} == value) return;`);
+        } else {
+          lines.push(`    if (m_${member.name} == value) return;`);
+        }
         if (member.kind === "Output") {
           lines.push(`    QVariant encodedValue;`);
           lines.push(`    try {`);
@@ -1945,6 +1950,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         }
         lines.push(`    m_${member.name} = value;`);
         if (member.kind === "Output") {
+          lines.push(`    m_${member.name}Published = true;`);
           lines.push(`    setOutputValue(QStringLiteral("${service.name}"), QStringLiteral("${member.name}"), encodedValue);`);
         }
         lines.push(`    emit ${member.name}Changed(value);`);

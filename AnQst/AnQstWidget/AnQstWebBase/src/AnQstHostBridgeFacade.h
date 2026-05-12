@@ -33,6 +33,7 @@ public:
 
     void setDispatchEnabled(bool enabled);
     bool dispatchEnabled() const;
+    void emitOutputSnapshot();
 
     void emitDrop(const QString& service, const QString& member, const QVariant& payload, double x, double y);
     void emitHover(const QString& service, const QString& member, const QVariant& payload, double x, double y);
@@ -78,7 +79,6 @@ private:
     QString makeSlotKey(const QString& service, const QString& member) const;
     void dispatchQueuedSlotInvocations(const QString& slotKey);
     void emitQueuedSlotOverflowError(const QString& slotKey);
-    void emitOutputSnapshot();
 
     bool m_dispatchEnabled;
     quint64 m_slotRequestCounter;
