@@ -80,6 +80,21 @@ QVariantMap firstPayload(QSignalSpy& spy) {
     return args.at(0).toMap();
 }
 
+QByteArray readSocketUntil(QTcpSocket& socket, const QByteArray& needle, int timeoutMs = 3000) {
+    QByteArray data;
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        socket.waitForReadyRead(50);
+        data += socket.readAll();
+        if (data.contains(needle)) {
+            break;
+        }
+    }
+    return data;
+}
+
 bool spyHasWebEngineError(
     const QSignalSpy& spy,
     const QString& channel,
@@ -446,7 +461,14 @@ TEST_CASE("facade input handler failures emit diagnostics without throwing", "[h
 TEST_CASE("Slot queueing dispatches when handler is registered", "[host][behavior][slot]") {
     ensureApp();
     AnQstWebHostBase host;
+    DummyBridge bridge;
     host.setSlotInvocationTimeoutMs(2000);
+
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    REQUIRE(host.setContentRoot(dir.path()));
+    REQUIRE(host.setBridgeObject(&bridge));
+    QMetaObject::invokeMethod(&host, "handleLoadFinished", Q_ARG(bool, true));
 
     QObject::connect(&host, &AnQstWebHostBase::anQstBridge_slotInvocationRequested, &host, [&](const QString& requestId, const QString&, const QString&, const QVariantList& args) {
         const QString payload = args.isEmpty() ? QStringLiteral("none") : args.at(0).toString();
@@ -559,6 +581,70 @@ TEST_CASE("Output snapshot replays when ready host finishes loading again", "[ho
     CHECK(args.at(0).toString() == QStringLiteral("DemoBehaviorService"));
     CHECK(args.at(1).toString() == QStringLiteral("outputParentState"));
     CHECK(args.at(2).toString() == QStringLiteral("state-1"));
+}
+
+TEST_CASE("Output snapshot replays to development WebSocket client on handshake", "[host][behavior][output]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    AngularHttpBaseServer server;
+
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    REQUIRE(server.configureContent(AngularHttpBaseServer::ContentRootMode::Filesystem, dir.path(), QStringLiteral("index.html")));
+    server.setFacade(&facade);
+    REQUIRE(server.start(false, 43900));
+
+    facade.setOutputValue(QStringLiteral("DemoBehaviorService"), QStringLiteral("outputParentState"), QStringLiteral("state-1"));
+
+    QTcpSocket client;
+    client.connectToHost(QHostAddress::LocalHost, server.wsPort());
+    REQUIRE(client.waitForConnected(2000));
+    client.write(
+        "GET /anqst-bridge HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n");
+    client.flush();
+
+    const QByteArray data = readSocketUntil(client, "state-1");
+    CHECK(data.contains("101 Switching Protocols"));
+    CHECK(data.contains("outputUpdated"));
+    CHECK(data.contains("DemoBehaviorService"));
+    CHECK(data.contains("outputParentState"));
+    CHECK(data.contains("state-1"));
+
+    server.stop();
+}
+
+TEST_CASE("Slot invocation queues across bridge readiness loss", "[host][behavior][slot]") {
+    ensureApp();
+    AnQstHostBridgeFacade facade;
+    facade.setSlotInvocationTimeoutMs(1000);
+    QSignalSpy slotSpy(&facade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested);
+
+    facade.setDispatchEnabled(true);
+    facade.registerSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"));
+    facade.setDispatchEnabled(false);
+
+    QTimer::singleShot(20, [&facade]() {
+        facade.registerSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"));
+        facade.setDispatchEnabled(true);
+    });
+    QObject::connect(&facade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested, &facade, [&facade](const QString& requestId) {
+        facade.resolveSlot(requestId, true, QStringLiteral("ok"), QString());
+    });
+
+    QVariant result;
+    QString error;
+    const bool ok = facade.invokeSlot(QStringLiteral("DemoBehaviorService"), QStringLiteral("slotPrompt"), {}, &result, &error);
+
+    CHECK(ok);
+    CHECK(result.toString() == QStringLiteral("ok"));
+    CHECK(error.isEmpty());
+    CHECK(slotSpy.count() == 1);
 }
 
 TEST_CASE("resolveAssetPath blocks non-local schemes and emits policy error", "[host][policy]") {

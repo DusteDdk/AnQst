@@ -538,10 +538,12 @@ bool AnQstWebHostBase::loadEntryPoint(const QString& entryPoint) {
 
     m_entryPoint = entryPoint;
     m_entryPointLoaded = false;
+    emitOutputSnapshotIfReady();
     if (!m_developmentModeEnabled) {
         m_view->setUrl(targetUrl);
     } else {
         m_entryPointLoaded = true;
+        emitOutputSnapshotIfReady();
     }
     return true;
 }
@@ -1473,6 +1475,7 @@ void AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
     m_reattachButton->setVisible(false);
     m_view->setVisible(true);
     m_entryPointLoaded = false;
+    emitOutputSnapshotIfReady();
     m_view->setUrl(targetUrl);
 }
 

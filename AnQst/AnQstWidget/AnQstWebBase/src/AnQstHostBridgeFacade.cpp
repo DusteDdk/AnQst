@@ -39,7 +39,7 @@ bool AnQstHostBridgeFacade::invokeSlot(const QString& service, const QString& me
     m_slotInvocationResponses.insert(requestId, SlotInvocationResponse{});
 
     PendingSlotInvocation pending{requestId, service, member, args};
-    if (m_registeredSlots.value(key, false)) {
+    if (m_dispatchEnabled && m_registeredSlots.value(key, false)) {
         emit bridgeSlotInvocationRequested(requestId, service, member, args);
     } else {
         auto& queue = m_queuedSlotInvocations[key];
@@ -128,8 +128,15 @@ int AnQstHostBridgeFacade::slotInvocationTimeoutMs() const {
 void AnQstHostBridgeFacade::setDispatchEnabled(bool enabled) {
     const bool changed = (m_dispatchEnabled != enabled);
     m_dispatchEnabled = enabled;
+    if (!m_dispatchEnabled) {
+        m_registeredSlots.clear();
+    }
     if (m_dispatchEnabled && changed) {
         emitOutputSnapshot();
+        const auto registeredSlots = m_registeredSlots.keys();
+        for (const QString& slotKey : registeredSlots) {
+            dispatchQueuedSlotInvocations(slotKey);
+        }
     }
 }
 
@@ -140,7 +147,9 @@ bool AnQstHostBridgeFacade::dispatchEnabled() const {
 void AnQstHostBridgeFacade::registerSlot(const QString& service, const QString& member) {
     const QString key = makeSlotKey(service, member);
     m_registeredSlots.insert(key, true);
-    dispatchQueuedSlotInvocations(key);
+    if (m_dispatchEnabled) {
+        dispatchQueuedSlotInvocations(key);
+    }
 }
 
 QVariant AnQstHostBridgeFacade::call(const QString& service, const QString& member, const QVariantList& args) {

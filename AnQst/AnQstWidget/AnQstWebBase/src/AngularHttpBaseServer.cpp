@@ -765,6 +765,9 @@ void AngularHttpBaseServer::wireClient(QTcpSocket* socket) {
             m_client = nullptr;
             m_wsReadBuffer.clear();
             m_wsHandshakeComplete = false;
+            if (m_facade != nullptr) {
+                m_facade->setDispatchEnabled(false);
+            }
         }
         emit clientDetached();
     });
@@ -780,9 +783,16 @@ void AngularHttpBaseServer::handleWebSocketSocketData() {
             return;
         }
         m_wsHandshakeComplete = true;
+        const bool wasDispatchEnabled = m_facade != nullptr && m_facade->dispatchEnabled();
+        if (m_facade != nullptr) {
+            m_facade->setDispatchEnabled(true);
+        }
         sendJsonToClient({
             {QStringLiteral("type"), QStringLiteral("hostReady")},
         });
+        if (m_facade != nullptr && wasDispatchEnabled) {
+            m_facade->emitOutputSnapshot();
+        }
     }
 
     QString message;
@@ -918,6 +928,9 @@ void AngularHttpBaseServer::detachCurrentClient() {
     m_client = nullptr;
     m_wsReadBuffer.clear();
     m_wsHandshakeComplete = false;
+    if (m_facade != nullptr) {
+        m_facade->setDispatchEnabled(false);
+    }
     emit clientDetached();
 }
 
