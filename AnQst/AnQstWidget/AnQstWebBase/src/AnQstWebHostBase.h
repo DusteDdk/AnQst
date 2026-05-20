@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AnQstWebBaseAbi.h"
+
 #include <QDateTime>
 #include <QHash>
 #include <QObject>
@@ -12,16 +14,19 @@
 #include <QWidget>
 #include <functional>
 
-class AnQstBridgeProxy;
-class AnQstHostBridgeFacade;
-class AnQstWidgetDebugDialog;
-class AngularHttpBaseServer;
-class LocalWebView;
 class QLabel;
 class QMimeData;
 class QPushButton;
 class QTimer;
 class QWebChannel;
+
+namespace ANQST_WEBBASE_NAMESPACE {
+
+class AnQstBridgeProxy;
+class AnQstHostBridgeFacade;
+class AnQstWidgetDebugDialog;
+class AngularHttpBaseServer;
+class LocalWebView;
 
 class AnQstWebHostBase : public QWidget {
     Q_OBJECT
@@ -218,3 +223,5 @@ private:
     QString m_cachedHoverMember;
     bool m_dragDropFilterInstalled;
 };
+
+} // namespace ANQST_WEBBASE_NAMESPACE

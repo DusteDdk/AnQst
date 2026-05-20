@@ -4,6 +4,8 @@
 #include <QStringList>
 #include <QUrl>
 
+#include "AnQstWebBaseAbi.h"
+
 class QDialogButtonBox;
 class QLayout;
 class QNetworkAccessManager;
@@ -13,6 +15,8 @@ class QTimer;
 namespace Ui {
 class AnQstWidgetBaseClassDialog;
 }
+
+namespace ANQST_WEBBASE_NAMESPACE {
 
 class AnQstWidgetDebugDialog final : public QDialog {
     Q_OBJECT
@@ -97,3 +101,5 @@ private:
     QStringList m_jsConsoleCommandHistory;
     int m_jsConsoleCommandHistoryIndex;
 };
+
+} // namespace ANQST_WEBBASE_NAMESPACE

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AnQstWebBaseAbi.h"
+
 #include <QDateTime>
 #include <QHash>
 #include <QMap>
@@ -10,6 +12,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
+
+namespace ANQST_WEBBASE_NAMESPACE {
 
 class AnQstHostBridgeFacade : public QObject {
     Q_OBJECT
@@ -91,3 +95,5 @@ private:
     QHash<QString, QVariant> m_outputValues;
     int m_slotInvocationTimeoutMs;
 };
+
+} // namespace ANQST_WEBBASE_NAMESPACE

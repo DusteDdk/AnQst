@@ -26,7 +26,9 @@ Makefile
 # AnQstGen/generated artifacts
 AnQst/**/generated_output/
 AnQst/**/anqst-generated/
+AnQst/AnQstGen/AnQstWebBase/
 AnQst/AnQstGen/.anqstgen-version*
+AnQst/AnQstGen/*.tgz
 
 # Angular
 **/.angular

@@ -190,6 +190,8 @@ function emitCppProgram(mainBody: string): string {
 #include <vector>
 #include "AnQstBase93.h"
 
+using namespace ANQST_WEBBASE_NAMESPACE;
+
 inline int base93AlphabetIndex(char c) {
   const unsigned char uc = static_cast<unsigned char>(c);
   return static_cast<int>(uc) - 32 - (uc > 34) - (uc > 92);

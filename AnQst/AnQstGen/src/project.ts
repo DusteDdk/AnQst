@@ -25,6 +25,7 @@ export interface AnQstProjectSettings {
   spec: string;
   generate?: string[];
   widgetCategory?: string;
+  useSharedBaseWidget?: boolean;
 }
 
 export interface ResolvedAnQstSettingsContext {
@@ -130,6 +131,13 @@ function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProj
     }
   }
 
+  const useSharedBaseWidget = settingsObject.useSharedBaseWidget;
+  if (useSharedBaseWidget !== undefined && typeof useSharedBaseWidget !== "boolean") {
+    throw new VerifyError(
+      `Invalid AnQst settings file '${normalizeSlashes(path.relative(cwd, settingsPath))}': expected boolean 'useSharedBaseWidget'.`
+    );
+  }
+
   const resolvedSpecPath = path.resolve(cwd, spec.trim());
   const anqstRoot = anqstRootDir(cwd);
   if (!isSubPath(anqstRoot, resolvedSpecPath)) {
@@ -143,7 +151,8 @@ function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProj
     widgetName: widgetName.trim(),
     spec: spec.trim(),
     generate: Array.isArray(generate) ? [...generate] : undefined,
-    widgetCategory: typeof widgetCategory === "string" ? widgetCategory.trim() : undefined
+    widgetCategory: typeof widgetCategory === "string" ? widgetCategory.trim() : undefined,
+    useSharedBaseWidget: typeof useSharedBaseWidget === "boolean" ? useSharedBaseWidget : undefined
   };
 }
 
@@ -277,6 +286,11 @@ export function resolveAnQstGenerateTargets(cwd: string): string[] {
 export function resolveAnQstWidgetCategory(cwd: string): string | undefined {
   const { settings } = resolveAnQstSettings(cwd);
   return settings.widgetCategory;
+}
+
+export function resolveAnQstUseSharedBaseWidget(cwd: string): boolean {
+  const { settings } = resolveAnQstSettings(cwd);
+  return settings.useSharedBaseWidget ?? true;
 }
 
 export function resolveAnQstWidgetName(cwd: string): string {

@@ -4,6 +4,8 @@
 
 #include <cstddef>
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 namespace {
 constexpr char kBase93Alphabet[] =
     " !#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
@@ -85,3 +87,5 @@ std::vector<std::uint8_t> anqstBase93Decode(const QString& encoded) {
     }
     return output;
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE

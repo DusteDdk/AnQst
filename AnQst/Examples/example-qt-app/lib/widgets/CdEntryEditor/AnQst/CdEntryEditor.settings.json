@@ -2,6 +2,7 @@
   "layoutVersion": 2,
   "widgetName": "CdEntryEditor",
   "spec": "./AnQst/CdEntryEditor.AnQst.d.ts",
+  "useSharedBaseWidget": false,
   "generate": [
     "QWidget",
     "AngularService"

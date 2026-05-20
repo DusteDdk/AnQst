@@ -96,7 +96,7 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /<AnQst_version>/);
-  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public AnQstWebHostBase/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::AnQstWebHostBase/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class handle/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /handle handle;/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /void validate\(const ValidateHandler& handler\) const;/);
@@ -112,6 +112,27 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodedValue\);/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
+});
+
+test("generateOutputs switches QWidget CMake between shared and vendored WebBase", () => {
+  const specPath = path.join(fixtures, "ValidCdSpec.AnQst.d.ts");
+  const parsed = parseSpecFile(specPath);
+
+  const shared = generateOutputs(parsed, { emitAngularService: false, emitQWidget: true, emitNodeExpressWs: false });
+  const vendored = generateOutputs(parsed, {
+    emitAngularService: false,
+    emitQWidget: true,
+    emitNodeExpressWs: false,
+    useSharedBaseWidget: false
+  });
+  const sharedCmake = shared["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
+  const vendoredCmake = vendored["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
+
+  assert.match(sharedCmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+  assert.doesNotMatch(sharedCmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
+  assert.match(vendoredCmake, /set\(ANQST_GENERATED_WEBBASE_DIR "\$\{CMAKE_CURRENT_SOURCE_DIR\}\/AnQstWebBase"\)/);
+  assert.match(vendoredCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
+  assert.match(vendoredCmake, /anqstwebhost(?:_local_\d+|_[a-f0-9]{64})/);
 });
 
 test("generateOutputs wires structured codecs through TS, C++, and node boundaries", () => {
@@ -175,8 +196,8 @@ declare namespace StructuredWidget {
   assert.match(cppWidget, /inline QVariant encodeAnQstStructured_Draft/);
   assert.match(cppWidget, /inline Result decodeAnQstStructured_Result/);
   assert.match(cppWidget, /#include "AnQstBase93\.h"/);
-  assert.match(cppWidget, /anqstBase93Encode\(/);
-  assert.match(cppWidget, /anqstBase93Decode\(/);
+  assert.match(cppWidget, /anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::anqstBase93Encode\(/);
+  assert.match(cppWidget, /anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::anqstBase93Decode\(/);
   assert.doesNotMatch(cppWidget, /inline int base93AlphabetIndex/);
   assert.doesNotMatch(cppWidget, /inline std::string base93Encode/);
   assert.match(cppWidget, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\)/);
@@ -761,6 +782,19 @@ test("installQtIntegrationCMake emits a pure wrapper over the generated widget t
   assert.doesNotMatch(cmake, /add_custom_command\(/);
   assert.doesNotMatch(cmake, /add_custom_target\(DemoWidgetWidget_anqst_codegen/);
   assert.doesNotMatch(cmake, /add_library\(DemoWidgetWidget/);
+});
+
+test("installQtIntegrationCMake can include vendored WebBase from generated widget tree", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-integration-webbase-"));
+  installQtIntegrationCMake(tempRoot, "DemoWidget", { useSharedBaseWidget: false });
+
+  const cmakePath = path.join(tempRoot, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt");
+  const cmake = fs.readFileSync(cmakePath, "utf8");
+
+  assert.match(cmake, /AnQstWebBase\/CMakeLists\.txt/);
+  assert.match(cmake, /set\(ANQST_GENERATED_WEBBASE_DIR "\$\{ANQST_GENERATED_WIDGET_DIR\}\/AnQstWebBase"\)/);
+  assert.match(cmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
+  assert.doesNotMatch(cmake, /must exist before including generated AnQst CMake/);
 });
 
 test("installQtDesignerPluginCMake emits category override and favicon icon assets", () => {

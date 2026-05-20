@@ -22,6 +22,8 @@
 #include <QTabWidget>
 #include <QTimer>
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 namespace {
 
 constexpr int kUrlProbeDebounceMs = 400;
@@ -419,3 +421,5 @@ void AnQstWidgetDebugDialog::completeProbeAsInvalid(const QString& message) {
     setUrlStatusMessage(message);
     updateValidationState();
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE

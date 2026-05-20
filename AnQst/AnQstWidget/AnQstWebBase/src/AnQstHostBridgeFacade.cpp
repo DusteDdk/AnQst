@@ -3,6 +3,8 @@
 #include <QEventLoop>
 #include <QTimer>
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 AnQstHostBridgeFacade::AnQstHostBridgeFacade(QObject* parent)
     : QObject(parent)
     , m_dispatchEnabled(false)
@@ -339,3 +341,5 @@ void AnQstHostBridgeFacade::emitOutputSnapshot() {
         emit bridgeOutputUpdated(service, member, it.value());
     }
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE

@@ -32,6 +32,7 @@
     "anqst": "dist/src/bin/anqst.js"
   },
   "files": [
+    "AnQstWebBase/**",
     "dist/src",
     "index.d.ts",
     "spec/AnQst-Spec-DSL.d.ts",

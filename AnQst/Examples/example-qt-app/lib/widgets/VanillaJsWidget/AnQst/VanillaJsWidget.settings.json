@@ -2,6 +2,7 @@
   "layoutVersion": 2,
   "widgetName": "VanillaJsWidget",
   "spec": "./AnQst/VanillaJsWidget.AnQst.d.ts",
+  "useSharedBaseWidget": true,
   "generate": [
     "QWidget",
     "VanillaJS",

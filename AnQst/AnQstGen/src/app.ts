@@ -9,6 +9,7 @@ import {
   installEmbeddedWebBundle,
   installQtDesignerPluginCMake,
   installQtIntegrationCMake,
+  installVendoredAnQstWebBase,
   writeGeneratedOutputs
 } from "./emit";
 import {
@@ -16,6 +17,7 @@ import {
   resolveAnQstGenerateTargets,
   resolveAnQstSettings,
   resolveAnQstSpecPath,
+  resolveAnQstUseSharedBaseWidget,
   resolveAnQstWidgetCategory,
   resolveAnQstWidgetName,
   runInstill
@@ -28,6 +30,13 @@ import {
 } from "./layout";
 import { parseSpecFile } from "./parser";
 import { verifySpec } from "./verify";
+import {
+  ANQST_WEBBASE_DIR_NAME,
+  copyAnQstWebBaseTree,
+  resolveAnQstGenRoot,
+  resolveAnQstWebBaseSourceDir
+} from "./webbase";
+import { anqstWebBaseTargetName } from "./abi-hash";
 
 export interface VerifyResult {
   success: true;
@@ -69,6 +78,7 @@ class CliUsageError extends Error {
 
 interface BuildCommandArgs {
   designerPlugin: boolean;
+  useSharedBaseWidgetOverride?: boolean;
 }
 
 function firstBrowserFrontendTarget(targets: readonly string[]): FrontendTargetName | null {
@@ -93,13 +103,16 @@ function renderHelp(): string {
     "Commands:",
     "  instill <WidgetName>       Initialize AnQst in current npm project",
     "  test                        Verify AnQst spec from package settings",
-    "  build [--designerplugin[=true|false]]   Generate artifacts from package settings",
+    "  build [--designerplugin[=true|false]] [--noShared|--useShared]   Generate artifacts from package settings",
     "  generate <specFile>         Generate artifacts from explicit spec file",
     "  verify <specFile>           Verify explicit spec file only",
     "  clean <path> [-f|--force]   Remove generated artifacts under path",
     "",
     "Options:",
+    "  --writeSharedBaseWidget   Write bundled AnQstWebBase to ./AnQstWebBase and exit",
     "  --designerplugin            Build Qt Designer plugin (build command only, QWidget target required)",
+    "  --noShared                  Vendor AnQstWebBase for this build, overriding settings",
+    "  --useShared                 Require shared AnQstWebBase for this build, overriding settings",
     "  -h, --help                  Show this help output",
     "  -v, --version               Print CLI version"
   ].join("\n");
@@ -107,7 +120,7 @@ function renderHelp(): string {
 
 function usageFor(command: string): string {
   if (command === "instill") return "Usage: anqst instill <WidgetName>";
-  if (command === "build") return "Usage: anqst build [--designerplugin[=true|false]]";
+  if (command === "build") return "Usage: anqst build [--designerplugin[=true|false]] [--noShared|--useShared]";
   if (command === "verify") return "Usage: anqst verify <specFile>";
   if (command === "generate") return "Usage: anqst generate <specFile>";
   if (command === "clean") return "Usage: anqst clean <path> [-f|--force]";
@@ -195,10 +208,10 @@ export function runGenerate(specArg: string): VerifyResult {
   const generationTargets = resolveGenerationTargetsFromCwd(cwd);
 
   resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
-  const outputs = generateOutputs(parsed, generationTargets);
+  const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget: true });
   writeGeneratedOutputs(cwd, outputs);
   if (generationTargets.emitQWidget) {
-    installQtIntegrationCMake(cwd, parsed.widgetName);
+    installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget: true });
   }
 
   return {
@@ -216,10 +229,6 @@ export function runTest(cwd: string): VerifyResult {
     success: true,
     message: verification.message
   };
-}
-
-function resolveAnQstGenRoot(): string {
-  return path.resolve(__dirname, "..", "..");
 }
 
 function readActiveBuildStamp(): string {
@@ -241,13 +250,36 @@ function readActiveBuildStamp(): string {
   return "unknown_build_0";
 }
 
-function runDesignerPluginBuild(cwd: string, widgetName: string): void {
+function writeSharedBaseWidgetFromPackage(cwd: string): number {
+  const targetDir = path.join(cwd, ANQST_WEBBASE_DIR_NAME);
+  if (fs.existsSync(targetDir)) {
+    console.error("Refusing to overwrite existing AnQstWebBase, delete it and run again.");
+    return 1;
+  }
+
+  try {
+    copyAnQstWebBaseTree(resolveAnQstWebBaseSourceDir(), targetDir);
+  } catch (error) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to write AnQstWebBase to ${cwd}: ${reason}`);
+    return 1;
+  }
+
+  console.log(`AnQstWebBase written to ${normalizeSlashes(targetDir)}`);
+  return 0;
+}
+
+function runDesignerPluginBuild(cwd: string, widgetName: string, useSharedBaseWidget: boolean): void {
   const layout = resolveGeneratedLayoutPaths(cwd, widgetName);
   const pluginSourceDir = layout.designerPluginRoot;
   const pluginBuildDir = layout.designerPluginBuildRoot;
-  const webBaseDir = process.env.ANQST_WEBBASE_DIR?.trim();
-  if (!webBaseDir) {
-    throw new VerifyError("Missing ANQST_WEBBASE_DIR environment variable for --designerplugin build.");
+  const webBaseDir = process.env.ANQST_WEBBASE_DIR?.trim()
+    || (useSharedBaseWidget
+      ? resolveAnQstWebBaseSourceDir()
+      : path.join(layout.cppQtWidgetRoot, ANQST_WEBBASE_DIR_NAME));
+  if (!fs.existsSync(path.join(webBaseDir, "CMakeLists.txt"))) {
+    throw new VerifyError(`Unable to locate AnQstWebBase sources for --designerplugin build at '${normalizeSlashes(webBaseDir)}'.`);
   }
 
   const configureArgs = [
@@ -286,13 +318,14 @@ function runDesignerPluginBuild(cwd: string, widgetName: string): void {
   }
 }
 
-export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
+export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidgetOverride?: boolean): VerifyResult {
   const buildVersion = readActiveBuildStamp();
   process.env.ANQST_BUILD_STAMP = buildVersion;
   try {
     const specPath = resolveAnQstSpecPath(cwd);
     const configuredWidgetName = resolveAnQstWidgetName(cwd);
     const configuredTargets = resolveAnQstGenerateTargets(cwd);
+    const useSharedBaseWidget = useSharedBaseWidgetOverride ?? resolveAnQstUseSharedBaseWidget(cwd);
     const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
     const preferredFrontendTarget = firstBrowserFrontendTarget(configuredTargets);
     const parsed = parseSpecFile(specPath);
@@ -306,10 +339,13 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
 
     resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
 
-    const outputs = generateOutputs(parsed, generationTargets);
+    const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget });
     writeGeneratedOutputs(cwd, outputs);
     if (generationTargets.emitQWidget) {
-      installQtIntegrationCMake(cwd, parsed.widgetName);
+      if (!useSharedBaseWidget) {
+        installVendoredAnQstWebBase(cwd, parsed.widgetName);
+      }
+      installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget });
     }
 
     const shouldRunAngularBuild = generationTargets.emitQWidget
@@ -355,8 +391,8 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
         console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
       } else {
         const widgetCategory = resolveAnQstWidgetCategory(cwd);
-        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory });
-        runDesignerPluginBuild(cwd, parsed.widgetName);
+        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory, useSharedBaseWidget });
+        runDesignerPluginBuild(cwd, parsed.widgetName, useSharedBaseWidget);
         designerPluginBuilt = true;
       }
     }
@@ -396,7 +432,14 @@ export function runBuild(cwd: string, designerPlugin = false): VerifyResult {
       detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
     }
     if (generationTargets.emitQWidget) {
+      const widgetClassName = `${parsed.widgetName}Widget`;
       detailLines.push("    Target QWidget:");
+      detailLines.push(`      - QWidget name: ${widgetClassName}`);
+      detailLines.push(
+        `      - AnQstWebBase module: ${useSharedBaseWidget
+          ? `External ${anqstWebBaseTargetName()}, see anqst --help for more info`
+          : `Embedded in ${widgetClassName}`}`
+      );
       detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
       detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
       detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
@@ -455,6 +498,7 @@ function parseSpecCommandArg(commandName: string, specArg: string | undefined, e
 function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[]): BuildCommandArgs {
   const allArgs = [specArg, ...extraArgs].filter((arg): arg is string => typeof arg === "string" && arg.length > 0);
   let designerPlugin = false;
+  let useSharedBaseWidgetOverride: boolean | undefined;
   const positional: string[] = [];
 
   for (let i = 0; i < allArgs.length; i += 1) {
@@ -474,6 +518,14 @@ function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[])
       designerPlugin = value.toLowerCase() === "true";
       continue;
     }
+    if (arg === "--noShared") {
+      useSharedBaseWidgetOverride = false;
+      continue;
+    }
+    if (arg === "--useShared") {
+      useSharedBaseWidgetOverride = true;
+      continue;
+    }
     if (arg.startsWith("-")) {
       throw new CliUsageError(`Unknown build flag '${arg}'. ${usageFor("build")}`);
     }
@@ -483,7 +535,7 @@ function parseBuildCommandArgs(specArg: string | undefined, extraArgs: string[])
   if (positional.length > 0) {
     throw new CliUsageError(`Unexpected extra argument '${positional[0]}'. ${usageFor("build")}`);
   }
-  return { designerPlugin };
+  return { designerPlugin, useSharedBaseWidgetOverride };
 }
 
 function parseCleanCommandArgs(specArg: string | undefined, extraArgs: string[]): CleanCommandArgs {
@@ -660,6 +712,13 @@ export function runCommand(command: string | undefined, specArg: string | undefi
       console.error(renderHelp());
       return 1;
     }
+    if (command === "--writeSharedBaseWidget") {
+      if (specArg || extraArgs.length > 0) {
+        console.error("Usage: anqst --writeSharedBaseWidget");
+        return 1;
+      }
+      return writeSharedBaseWidgetFromPackage(process.cwd());
+    }
     if (command === "-h" || command === "--help" || command === "help") {
       console.log(renderHelp());
       return 0;
@@ -688,7 +747,7 @@ export function runCommand(command: string | undefined, specArg: string | undefi
     }
     if (normalizedCommand === "build") {
       const parsedArgs = parseBuildCommandArgs(specArg, extraArgs);
-      const res = runBuild(process.cwd(), parsedArgs.designerPlugin);
+      const res = runBuild(process.cwd(), parsedArgs.designerPlugin, parsedArgs.useSharedBaseWidgetOverride);
       console.log(res.message);
       return 0;
     }

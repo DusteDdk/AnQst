@@ -15,6 +15,8 @@
 #include <QTimer>
 #include <QUrl>
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 namespace {
 QByteArray statusReason(int statusCode) {
     switch (statusCode) {
@@ -959,3 +961,5 @@ void AngularHttpBaseServer::sendJsonToClient(const QVariantMap& payload) {
     frame.append(body);
     m_client->write(frame);
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE

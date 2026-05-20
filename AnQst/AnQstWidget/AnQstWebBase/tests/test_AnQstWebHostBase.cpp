@@ -45,6 +45,8 @@
 #error "Catch2 headers are not available."
 #endif
 
+using namespace ANQST_WEBBASE_NAMESPACE;
+
 namespace {
 
 class DummyBridge final : public QObject {

@@ -1,4 +1,5 @@
 import { emitBase93Decoder, emitBase93Encoder } from "./base93";
+import { anqstWebBaseNamespaceName } from "./abi-hash";
 import {
   sanitizeIdentifier,
   stripAnQstType,
@@ -14,6 +15,14 @@ import {
 
 function indent(level: number): string {
   return "  ".repeat(level);
+}
+
+function cppBase93EncodeFunction(): string {
+  return `${anqstWebBaseNamespaceName()}::anqstBase93Encode`;
+}
+
+function cppBase93DecodeFunction(): string {
+  return `${anqstWebBaseNamespaceName()}::anqstBase93Decode`;
 }
 
 class TsEmitterContext {
@@ -355,11 +364,11 @@ function emitCppInlineScalarRead(
 }
 
 function cppInlineBinaryEncodeExpr(valueExpr: string): string {
-  return `anqstBase93Encode(std::vector<std::uint8_t>(${valueExpr}.begin(), ${valueExpr}.end()))`;
+  return `${cppBase93EncodeFunction()}(std::vector<std::uint8_t>(${valueExpr}.begin(), ${valueExpr}.end()))`;
 }
 
 function cppInlineBinaryDecodeExpr(encodedExpr: string): string {
-  return `([&]() { const auto __bytes = anqstBase93Decode(${encodedExpr}); return QByteArray(reinterpret_cast<const char*>(__bytes.data()), static_cast<int>(__bytes.size())); })()`;
+  return `([&]() { const auto __bytes = ${cppBase93DecodeFunction()}(${encodedExpr}); return QByteArray(reinterpret_cast<const char*>(__bytes.data()), static_cast<int>(__bytes.size())); })()`;
 }
 
 function binaryEncodeHelperName(binary: BinaryLeafKind): string {
@@ -1453,11 +1462,11 @@ function renderCppFastPathCodec(
       return `inline QVariant ${encoderName}(const ${cppType}& value) {
     std::vector<std::uint8_t> bytes;
 ${encodeLines.join("\n")}
-    return anqstBase93Encode(bytes);
+    return ${cppBase93EncodeFunction()}(bytes);
 }
 
 inline ${cppType} ${decoderName}(const QVariant& wire) {
-    const std::vector<std::uint8_t> blob = anqstBase93Decode(wire.toString());
+    const std::vector<std::uint8_t> blob = ${cppBase93DecodeFunction()}(wire.toString());
     std::size_t dataOffset = 0;
 ${decodeBody.join("\n")}
     const ${cppType} result = ${decodeExpr};
@@ -1509,8 +1518,8 @@ inline ${cppType} ${decoderName}(const QVariant& wire) {
       } else {
         emitCppInlineScalarWrite(plan.root.representation.scalarKind, `static_cast<std::${plan.root.representation.scalarKind}_t>(code)`, encodeLines, encodeCtx, 1);
       }
-      encodeLines.push(`    return anqstBase93Encode(bytes);`);
-      const decodeLines: string[] = ["    const std::vector<std::uint8_t> blob = anqstBase93Decode(wire.toString());", "    std::size_t dataOffset = 0;"];
+      encodeLines.push(`    return ${cppBase93EncodeFunction()}(bytes);`);
+      const decodeLines: string[] = [`    const std::vector<std::uint8_t> blob = ${cppBase93DecodeFunction()}(wire.toString());`, "    std::size_t dataOffset = 0;"];
       const decodeBody: string[] = [];
       const expr = emitCppDecodeNode(plan.root, decodeBody, new CppEmitterContext(), 1, mapCppType);
       return `inline QVariant ${encoderName}(const ${cppType}& value) {
@@ -1615,7 +1624,7 @@ ${encodeLines.join("\n")}
 
 inline ${cppType} ${decoderName}(const QVariant& wire) {
     const QVariantList items = anqstNormalizeWireItems(wire);
-    const std::vector<std::uint8_t> blob = ${plan.requirements.hasBlob ? `(items.isEmpty() ? std::vector<std::uint8_t>{} : anqstBase93Decode(items.value(0).toString()))` : "std::vector<std::uint8_t>{}"};
+    const std::vector<std::uint8_t> blob = ${plan.requirements.hasBlob ? `(items.isEmpty() ? std::vector<std::uint8_t>{} : ${cppBase93DecodeFunction()}(items.value(0).toString()))` : "std::vector<std::uint8_t>{}"};
     std::size_t itemIndex = ${plan.requirements.hasBlob ? 1 : 0};
     std::size_t dataOffset = 0;
 ${decodeLines.join("\n")}
@@ -1698,7 +1707,7 @@ function renderCppRuntimeSupport(
   } else {
     lines.push("    QVariantList out;");
     lines.push("    out.reserve(static_cast<qsizetype>(items.size() + 1));");
-    lines.push("    out.push_back(anqstBase93Encode(bytes));");
+    lines.push(`    out.push_back(${cppBase93EncodeFunction()}(bytes));`);
     lines.push("    for (const auto& item : items) out.push_back(item);");
     lines.push("    return out;");
     lines.push("}");
@@ -1792,11 +1801,11 @@ function renderCppRuntimeSupport(
 
   if (support.needsBinaryHelpers) {
     lines.push("inline QString anqstEncodeBinary(const QByteArray& value) {");
-    lines.push("    return anqstBase93Encode(std::vector<std::uint8_t>(value.begin(), value.end()));");
+    lines.push(`    return ${cppBase93EncodeFunction()}(std::vector<std::uint8_t>(value.begin(), value.end()));`);
     lines.push("}");
     lines.push("");
     lines.push("inline QByteArray anqstDecodeBinary(const QString& encoded) {");
-    lines.push("    const auto bytes = anqstBase93Decode(encoded);");
+    lines.push(`    const auto bytes = ${cppBase93DecodeFunction()}(encoded);`);
     lines.push("    return QByteArray(reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()));");
     lines.push("}");
   }

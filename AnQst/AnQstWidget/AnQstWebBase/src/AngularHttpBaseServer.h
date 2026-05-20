@@ -11,6 +11,8 @@
 class QTcpServer;
 class QTcpSocket;
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 class AngularHttpBaseServer : public QObject {
     Q_OBJECT
 
@@ -91,3 +93,5 @@ private:
     QUrl m_proxyBaseUrl;
     QHash<QTcpSocket*, QTcpSocket*> m_proxyPeers;
 };
+
+} // namespace ANQST_WEBBASE_NAMESPACE

@@ -1,9 +1,13 @@
 #pragma once
 
+#include "AnQstWebBaseAbi.h"
+
 #include <QObject>
 #include <QString>
 #include <QVariant>
 #include <QVariantList>
+
+namespace ANQST_WEBBASE_NAMESPACE {
 
 class AnQstHostBridgeFacade;
 
@@ -33,3 +37,5 @@ signals:
 private:
     AnQstHostBridgeFacade* m_facade;
 };
+
+} // namespace ANQST_WEBBASE_NAMESPACE

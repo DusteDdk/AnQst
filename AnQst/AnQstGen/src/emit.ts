@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { PNG } from "pngjs";
+import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "./abi-hash";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
 import {
   anqstGeneratedRootDir,
@@ -10,6 +11,7 @@ import {
   generatedQtWidgetDirName,
   resolveGeneratedLayoutPaths
 } from "./layout";
+import { ANQST_WEBBASE_DIR_NAME, installAnQstWebBaseTree } from "./webbase";
 import {
   buildBoundaryCodecCatalog,
   getBoundaryParameterSite,
@@ -1260,6 +1262,7 @@ function renderWidgetUmbrellaHeader(spec: ParsedSpecModel): string {
 
 function renderWidgetHeader(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodecCatalog: BoundaryCodecCatalog): string {
   const widgetClassName = `${spec.widgetName}Widget`;
+  const webBaseNamespace = anqstWebBaseNamespaceName();
   const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
   const callbackAliases: string[] = [];
   const publicMethods: string[] = [];
@@ -1350,7 +1353,7 @@ namespace ${spec.widgetName} {
 
 using namespace ${spec.widgetName};
 
-class ${widgetClassName} : public AnQstWebHostBase {
+class ${widgetClassName} : public ${webBaseNamespace}::AnQstWebHostBase {
     Q_OBJECT
 ${properties.map((p) => `    ${p}`).join("\n")}
 
@@ -1419,6 +1422,8 @@ ${fields.map((f) => `    ${f}`).join("\n")}
 
 function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodecCatalog: BoundaryCodecCatalog): string {
   const widgetClassName = `${spec.widgetName}Widget`;
+  const webBaseNamespace = anqstWebBaseNamespaceName();
+  const webBaseClassName = `${webBaseNamespace}::AnQstWebHostBase`;
   const dragDropPayloadHelpers = collectDragDropPayloadHelpers(spec, cppTypes, cppCodecCatalog);
   const cppCodecHelpers = renderCppBoundaryCodecHelpers(
     cppCodecCatalog,
@@ -1554,7 +1559,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
       lines.push("");
     }
   }
-  lines.push(`${widgetClassName}::${widgetClassName}(QWidget* parent) : AnQstWebHostBase(parent), handle(this) {`);
+  lines.push(`${widgetClassName}::${widgetClassName}(QWidget* parent) : ${webBaseClassName}(parent), handle(this) {`);
   lines.push(`    static const bool kResourcesInitialized = []() {`);
   lines.push(`        ::qInitResources_${spec.widgetName}();`);
   lines.push(`        return true;`);
@@ -1581,7 +1586,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
         const typeName = member.payloadTypeText.replace(/\s/g, "");
-        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
+        lines.push(`    QObject::connect(this, &${webBaseClassName}::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         if (payloadSite) {
           lines.push(`            if (payload.type() != QVariant::String) {`);
@@ -1623,7 +1628,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         const cppType = cppTypes.mapTypeText(member.payloadTypeText, [service.name, member.name, "Payload"]);
         const payloadSite = getBoundaryPayloadSite(cppCodecCatalog, service.name, member.name);
         const typeName = member.payloadTypeText.replace(/\s/g, "");
-        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
+        lines.push(`    QObject::connect(this, &${webBaseClassName}::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         if (payloadSite) {
           lines.push(`            if (payload.type() != QVariant::String) {`);
@@ -1661,7 +1666,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         }
         lines.push(`        }`);
         lines.push(`    });`);
-        lines.push(`    QObject::connect(this, &AnQstWebHostBase::anQstBridge_hoverLeft, this, [this](const QString& service, const QString& member) {`);
+        lines.push(`    QObject::connect(this, &${webBaseClassName}::anQstBridge_hoverLeft, this, [this](const QString& service, const QString& member) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         lines.push(`            emit ${member.name}Left();`);
         lines.push(`        }`);
@@ -1669,7 +1674,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
       }
     }
   }
-  lines.push(`    QObject::connect(this, &AnQstWebHostBase::onHostError, this, &${widgetClassName}::diagnosticsForwarded);`);
+  lines.push(`    QObject::connect(this, &${webBaseClassName}::onHostError, this, &${widgetClassName}::diagnosticsForwarded);`);
   lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
   lines.push(`    const bool bridgeOk = setBridgeObject(this, QString::fromUtf8(kBootstrapBridgeObject));`);
   lines.push(`    const bool loadOk = rootOk && bridgeOk && loadEntryPoint(QString::fromUtf8(kBootstrapEntryPoint));`);
@@ -1681,7 +1686,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
   lines.push(`${widgetClassName}::~${widgetClassName}() = default;`);
   lines.push("");
   lines.push(`bool ${widgetClassName}::enableDebug() {`);
-  lines.push(`    return AnQstWebHostBase::enableDebug();`);
+  lines.push(`    return ${webBaseClassName}::enableDebug();`);
   lines.push("}");
   lines.push("");
   lines.push(`QString ${widgetClassName}::makeBindingKey(const QString& service, const QString& member) {`);
@@ -1967,19 +1972,40 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
   }
 
   lines.push(`void ${widgetClassName}::connectNotify(const QMetaMethod& signal) {`);
-  lines.push(`    AnQstWebHostBase::connectNotify(signal);`);
+  lines.push(`    ${webBaseClassName}::connectNotify(signal);`);
   lines.push(`    Q_UNUSED(signal);`);
   lines.push(`}`);
   lines.push("");
   lines.push(`void ${widgetClassName}::disconnectNotify(const QMetaMethod& signal) {`);
-  lines.push(`    AnQstWebHostBase::disconnectNotify(signal);`);
+  lines.push(`    ${webBaseClassName}::disconnectNotify(signal);`);
   lines.push(`    Q_UNUSED(signal);`);
   lines.push(`}`);
   lines.push("");
   return lines.join("\n");
 }
 
-function renderCMake(spec: ParsedSpecModel): string {
+function renderWebBaseTargetCMake(widgetName: string, useSharedBaseWidget: boolean): string {
+  const webBaseTarget = anqstWebBaseTargetName();
+  if (useSharedBaseWidget) {
+    return `if(NOT TARGET ${webBaseTarget})
+    message(FATAL_ERROR "Target '${webBaseTarget}' is required before adding generated widget library ${widgetName}Widget.")
+endif()`;
+  }
+
+  return `set(ANQST_GENERATED_WEBBASE_DIR "\${CMAKE_CURRENT_SOURCE_DIR}/${ANQST_WEBBASE_DIR_NAME}")
+if(NOT EXISTS "\${ANQST_GENERATED_WEBBASE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "Generated ${ANQST_WEBBASE_DIR_NAME} sources are missing for ${widgetName}Widget. Run 'npx anqst build' again.")
+endif()
+set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build ${ANQST_WEBBASE_DIR_NAME} unit tests" FORCE)
+if(NOT TARGET ${webBaseTarget})
+    add_subdirectory("\${ANQST_GENERATED_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
+endif()
+if(NOT TARGET ${webBaseTarget})
+    message(FATAL_ERROR "Target '${webBaseTarget}' was not created from generated ${ANQST_WEBBASE_DIR_NAME} sources for ${widgetName}Widget.")
+endif()`;
+}
+
+function renderCMake(spec: ParsedSpecModel, useSharedBaseWidget = true): string {
   return `cmake_minimum_required(VERSION 3.21)
 project(${spec.widgetName}Library LANGUAGES CXX)
 
@@ -1988,9 +2014,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-if(NOT TARGET anqstwebhostbase)
-    message(FATAL_ERROR "Target 'anqstwebhostbase' is required before adding generated widget library ${spec.widgetName}Widget.")
-endif()
+${renderWebBaseTargetCMake(spec.widgetName, useSharedBaseWidget)}
 
 add_library(${spec.widgetName}Widget
     ${spec.widgetName}.cpp
@@ -2005,10 +2029,10 @@ target_include_directories(${spec.widgetName}Widget
 )
 target_link_libraries(${spec.widgetName}Widget
     PUBLIC
-        anqstwebhostbase
+        ${anqstWebBaseTargetName()}
 )
 
-# Uses transitive Qt and include requirements from anqstwebhostbase.
+# Uses transitive Qt and include requirements from ${anqstWebBaseTargetName()}.
 `;
 }
 
@@ -5444,6 +5468,7 @@ export interface GenerateOutputsOptions {
   emitVanillaTS?: boolean;
   emitVanillaJS?: boolean;
   emitNodeExpressWs?: boolean;
+  useSharedBaseWidget?: boolean;
 }
 
 function generatedCppLibraryDirName(widgetName: string): string {
@@ -5464,7 +5489,8 @@ export function generateOutputs(
     emitAngularService: options.emitAngularService ?? true,
     emitVanillaTS: options.emitVanillaTS ?? useDefaultBrowserTargets,
     emitVanillaJS: options.emitVanillaJS ?? useDefaultBrowserTargets,
-    emitNodeExpressWs: options.emitNodeExpressWs ?? false
+    emitNodeExpressWs: options.emitNodeExpressWs ?? false,
+    useSharedBaseWidget: options.useSharedBaseWidget ?? true
   };
   const angularFrontendDir = `frontend/${generatedFrontendDirName(spec.widgetName, "AngularService")}`;
   const vanillaTsFrontendDir = `frontend/${generatedFrontendDirName(spec.widgetName, "VanillaTS")}`;
@@ -5502,7 +5528,7 @@ export function generateOutputs(
   }
   if (normalizedOptions.emitQWidget) {
     const cppTypes = buildCppTypeContext(spec);
-    outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec);
+    outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec, normalizedOptions.useSharedBaseWidget);
     outputs[`${cppDir}/${spec.widgetName}.qrc`] = renderEmbeddedQrc(spec.widgetName, []);
     outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetUmbrellaHeader(spec);
     outputs[`${cppDir}/include/${spec.widgetName}Widget.h`] = renderWidgetHeader(spec, cppTypes, codecCatalog);
@@ -5524,6 +5550,11 @@ export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): voi
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, withBuildStamp(relPath, content), "utf8");
   }
+}
+
+export function installVendoredAnQstWebBase(cwd: string, widgetName: string): void {
+  const webBaseRoot = path.join(resolveGeneratedLayoutPaths(cwd, widgetName).cppQtWidgetRoot, ANQST_WEBBASE_DIR_NAME);
+  installAnQstWebBaseTree(webBaseRoot);
 }
 
 function normalizeVanillaJsIndexHtml(html: string): string {
@@ -5771,13 +5802,36 @@ function normalizeEmbeddedIndexHtml(indexPath: string, webRoot: string): void {
   fs.writeFileSync(indexPath, html, "utf8");
 }
 
-function renderQtIntegrationCMake(widgetName: string): string {
+interface InstallQtIntegrationOptions {
+  useSharedBaseWidget?: boolean;
+}
+
+function renderQtIntegrationWebBaseCMake(widgetName: string, generatedRootVar: string, useSharedBaseWidget: boolean): string {
+  const webBaseTarget = anqstWebBaseTargetName();
+  if (useSharedBaseWidget) {
+    return `if(NOT TARGET ${webBaseTarget})
+    message(FATAL_ERROR "Target '${webBaseTarget}' must exist before including generated AnQst CMake for ${widgetName}.")
+endif()`;
+  }
+
+  return `set(ANQST_GENERATED_WEBBASE_DIR "\${${generatedRootVar}}/${ANQST_WEBBASE_DIR_NAME}")
+set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build ${ANQST_WEBBASE_DIR_NAME} unit tests" FORCE)
+if(NOT TARGET ${webBaseTarget})
+    add_subdirectory("\${ANQST_GENERATED_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
+endif()`;
+}
+
+function renderQtIntegrationCMake(widgetName: string, options: InstallQtIntegrationOptions = {}): string {
   const generatedRootVar = "ANQST_GENERATED_WIDGET_DIR";
   const generatedIncludeVar = "ANQST_GENERATED_INCLUDE_DIR";
   const projectRootVar = "ANQST_PROJECT_ROOT";
   const requiredFilesVar = "ANQST_REQUIRED_GENERATED_FILES";
   const widgetBinaryDirVar = "ANQST_GENERATED_WIDGET_BINARY_DIR";
   const widgetTarget = `${widgetName}Widget`;
+  const useSharedBaseWidget = options.useSharedBaseWidget ?? true;
+  const vendoredRequiredFiles = useSharedBaseWidget
+    ? ""
+    : `    "\${${generatedRootVar}}/${ANQST_WEBBASE_DIR_NAME}/CMakeLists.txt"\n`;
   return `cmake_minimum_required(VERSION 3.21)
 
 set(${projectRootVar} "\${CMAKE_CURRENT_LIST_DIR}/../../../../..")
@@ -5789,10 +5843,6 @@ if(TARGET ${widgetTarget})
     return()
 endif()
 
-if(NOT TARGET anqstwebhostbase)
-    message(FATAL_ERROR "Target 'anqstwebhostbase' must exist before including generated AnQst CMake for ${widgetName}.")
-endif()
-
 set(${requiredFilesVar}
     "\${${generatedRootVar}}/CMakeLists.txt"
     "\${${generatedRootVar}}/${widgetName}.qrc"
@@ -5801,7 +5851,7 @@ set(${requiredFilesVar}
     "\${${generatedIncludeVar}}/${widgetName}Widget.h"
     "\${${generatedIncludeVar}}/${widgetName}Types.h"
     "\${${generatedRootVar}}/webapp/index.html"
-)
+${vendoredRequiredFiles})
 
 foreach(required_file IN LISTS ${requiredFilesVar})
     if(NOT EXISTS "\${required_file}")
@@ -5813,16 +5863,18 @@ foreach(required_file IN LISTS ${requiredFilesVar})
     endif()
 endforeach()
 
+${renderQtIntegrationWebBaseCMake(widgetName, generatedRootVar, useSharedBaseWidget)}
+
 add_subdirectory("\${${generatedRootVar}}" "\${${widgetBinaryDirVar}}")
 `;
 }
 
-export function installQtIntegrationCMake(cwd: string, widgetName: string): void {
+export function installQtIntegrationCMake(cwd: string, widgetName: string, options: InstallQtIntegrationOptions = {}): void {
   const integrationDir = resolveGeneratedLayoutPaths(cwd, widgetName).cppCmakeRoot;
   fs.mkdirSync(integrationDir, { recursive: true });
   fs.writeFileSync(
     path.join(integrationDir, "CMakeLists.txt"),
-    withBuildStamp("backend/cpp/cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName)),
+    withBuildStamp("backend/cpp/cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName, options)),
     "utf8"
   );
 }
@@ -5833,6 +5885,7 @@ interface DesignerPluginAssets {
 
 interface InstallQtDesignerPluginOptions {
   widgetCategory?: string;
+  useSharedBaseWidget?: boolean;
 }
 
 function normalizeIcoSize(dim: number): number {
@@ -6074,10 +6127,12 @@ public:
 `;
 }
 
-function renderQtDesignerPluginCMake(widgetName: string, hasIcon: boolean): string {
+function renderQtDesignerPluginCMake(widgetName: string, hasIcon: boolean, useSharedBaseWidget = true): string {
   const widgetTarget = `${widgetName}Widget`;
   const pluginTarget = `${widgetName}DesignerPlugin`;
+  const webBaseTarget = anqstWebBaseTargetName();
   const resourceLine = hasIcon ? "    \"${CMAKE_CURRENT_LIST_DIR}/designerplugin.qrc\"\n" : "";
+  const defaultWebBaseDir = useSharedBaseWidget ? "" : `\${ANQST_WIDGET_DIR}/${ANQST_WEBBASE_DIR_NAME}`;
   return `cmake_minimum_required(VERSION 3.21)
 project(${pluginTarget} LANGUAGES CXX)
 
@@ -6089,7 +6144,7 @@ set(CMAKE_AUTORCC ON)
 
 set(ANQST_PROJECT_ROOT "\${CMAKE_CURRENT_LIST_DIR}/../../../../../../..")
 set(ANQST_WIDGET_DIR "\${CMAKE_CURRENT_LIST_DIR}/..")
-set(ANQST_WEBBASE_DIR "" CACHE PATH "Path to AnQstWebBase source directory")
+set(ANQST_WEBBASE_DIR "${defaultWebBaseDir}" CACHE PATH "Path to ${ANQST_WEBBASE_DIR_NAME} source directory")
 
 if(NOT EXISTS "\${ANQST_WIDGET_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Missing generated widget CMake project at \${ANQST_WIDGET_DIR}. Run 'anqst build' first.")
@@ -6097,6 +6152,7 @@ endif()
 
 if(NOT ANQST_WEBBASE_DIR)
     foreach(candidate
+        "\${ANQST_PROJECT_ROOT}/node_modules/@dusted/anqst/${ANQST_WEBBASE_DIR_NAME}"
         "\${ANQST_PROJECT_ROOT}/AnQstWidget/AnQstWebBase"
         "\${ANQST_PROJECT_ROOT}/../AnQstWidget/AnQstWebBase"
         "\${ANQST_PROJECT_ROOT}/../../AnQstWidget/AnQstWebBase"
@@ -6109,13 +6165,13 @@ if(NOT ANQST_WEBBASE_DIR)
 endif()
 
 if(NOT ANQST_WEBBASE_DIR OR NOT EXISTS "\${ANQST_WEBBASE_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "Unable to locate AnQstWebBase sources. Set -DANQST_WEBBASE_DIR=<path/to/AnQstWidget/AnQstWebBase>.")
+    message(FATAL_ERROR "Unable to locate ${ANQST_WEBBASE_DIR_NAME} sources. Set -DANQST_WEBBASE_DIR=<path/to/${ANQST_WEBBASE_DIR_NAME}>.")
 endif()
 
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets UiPlugin)
 
 set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build AnQstWebBase unit tests" FORCE)
-if(NOT TARGET anqstwebhostbase)
+if(NOT TARGET ${webBaseTarget})
     add_subdirectory("\${ANQST_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
 endif()
 
@@ -6154,7 +6210,7 @@ export function installQtDesignerPluginCMake(cwd: string, widgetName: string, op
     path.join(pluginDir, "CMakeLists.txt"),
     withBuildStamp(
       `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/CMakeLists.txt`,
-      renderQtDesignerPluginCMake(widgetName, assets.hasIcon)
+      renderQtDesignerPluginCMake(widgetName, assets.hasIcon, options.useSharedBaseWidget ?? true)
     ),
     "utf8"
   );

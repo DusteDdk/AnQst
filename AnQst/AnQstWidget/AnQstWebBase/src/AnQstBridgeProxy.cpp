@@ -1,6 +1,8 @@
 #include "AnQstBridgeProxy.h"
 #include "AnQstHostBridgeFacade.h"
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 AnQstBridgeProxy::AnQstBridgeProxy(AnQstHostBridgeFacade* facade, QObject* parent)
     : QObject(parent)
     , m_facade(facade) {}
@@ -24,3 +26,5 @@ void AnQstBridgeProxy::anQstBridge_setInput(const QString& service, const QStrin
 void AnQstBridgeProxy::anQstBridge_resolveSlot(const QString& requestId, bool ok, const QVariant& payload, const QString& error) {
     m_facade->resolveSlot(requestId, ok, payload, error);
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE

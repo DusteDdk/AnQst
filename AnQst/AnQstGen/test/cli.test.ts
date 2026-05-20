@@ -7,6 +7,7 @@ import { PNG } from "pngjs";
 import { runClean, runCommand, runGenerate, runVerify } from "../src/app";
 import { ANQST_LAYOUT_VERSION } from "../src/layout";
 import { getProgramDiagnostics } from "../src/program";
+import { resolveAnQstUseSharedBaseWidget } from "../src/project";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 const defaultGenerateTargets = ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"];
@@ -19,6 +20,7 @@ interface SettingsShape {
   spec: string;
   generate: string[];
   widgetCategory?: string;
+  useSharedBaseWidget?: unknown;
 }
 
 function withActiveStamp(stamp: string | null, fn: () => void): void {
@@ -98,6 +100,7 @@ function configureInstilledProject(
     layoutVersion?: number;
     specPath?: string;
     packageAnQst?: unknown;
+    useSharedBaseWidget?: unknown;
   } = {}
 ): { widgetName: string; specPath: string; settingsPath: string } {
   const widgetName = options.widgetName ?? "CdWidget";
@@ -110,6 +113,9 @@ function configureInstilledProject(
     generate,
     widgetCategory: typeof options.widgetCategory === "string" ? options.widgetCategory : "AnQst Widgets"
   };
+  if (options.useSharedBaseWidget !== undefined) {
+    settings.useSharedBaseWidget = options.useSharedBaseWidget;
+  }
   const settingsPath = writeSettings(projectDir, settings);
 
   fs.writeFileSync(path.join(projectDir, "AnQst", `${widgetName}.AnQst.d.ts`), readFixture("ValidCdSpec.AnQst.d.ts"), "utf8");
@@ -261,6 +267,35 @@ test("version option exits with status 0 and prints version", () => {
   assert.match(captured, /^anqst version /);
 });
 
+test("writeSharedBaseWidget copies bundled sources and refuses overwrite", () => {
+  withTempProject((projectDir) => {
+    const originalLog = console.log;
+    const originalError = console.error;
+    let logged = "";
+    let errored = "";
+    console.log = (...args: unknown[]) => {
+      logged = args.map((arg) => String(arg)).join(" ");
+    };
+    console.error = (...args: unknown[]) => {
+      errored = args.map((arg) => String(arg)).join(" ");
+    };
+    try {
+      const code = runCommand("--writeSharedBaseWidget", undefined);
+      assert.equal(code, 0);
+      assert.match(logged, /AnQstWebBase written to /);
+      assert.ok(fs.existsSync(path.join(projectDir, "AnQstWebBase", "CMakeLists.txt")));
+      assert.ok(fs.existsSync(path.join(projectDir, "AnQstWebBase", "src", "AnQstWebHostBase.h")));
+
+      const secondCode = runCommand("--writeSharedBaseWidget", undefined);
+      assert.equal(secondCode, 1);
+      assert.equal(errored, "Refusing to overwrite existing AnQstWebBase, delete it and run again.");
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+  });
+});
+
 test("package root exposes AnQst type declarations", () => {
   const packageJson = readJsonFile<{ types?: string; exports?: Record<string, unknown> }>(path.join(anqstGenRoot, "package.json"));
   assert.equal(packageJson.types, "index.d.ts");
@@ -271,6 +306,11 @@ test("package root exposes AnQst type declarations", () => {
   assert.ok(fs.existsSync(indexDtsPath));
   const indexDts = fs.readFileSync(indexDtsPath, "utf8");
   assert.match(indexDts, /export\s+\{\s*AnQst\s*\}\s+from\s+"\.\/spec\/AnQst-Spec-DSL";/);
+});
+
+test("package manifest includes AnQstWebBase distributable files", () => {
+  const packageJson = readJsonFile<{ files?: string[] }>(path.join(anqstGenRoot, "package.json"));
+  assert.ok(packageJson.files?.includes("AnQstWebBase/**"));
 });
 
 test("instill creates AnQst root, settings, hooks, and tsconfig mapping", () => {
@@ -355,6 +395,95 @@ test("build command emits outputs only under AnQst/generated", () => {
     assert.equal(fs.existsSync(path.join(projectDir, "generated_output")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "anqst-cmake")), false);
     assert.equal(fs.existsSync(path.join(projectDir, "src", "anqst-generated")), false);
+  });
+});
+
+test("build defaults useSharedBaseWidget to shared behavior", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"] });
+    assert.equal(resolveAnQstUseSharedBaseWidget(projectDir), true);
+
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 0);
+    } finally {
+      console.log = originalLog;
+    }
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const cmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+
+    assert.match(captured, /QWidget name: CdWidgetWidget/);
+    assert.match(captured, /AnQstWebBase module: External anqstwebhost(?:_local_\d+|_[a-f0-9]{64}), see anqst --help for more info/);
+    assert.equal(fs.existsSync(path.join(widgetRoot, "AnQstWebBase")), false);
+    assert.match(cmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+    assert.doesNotMatch(cmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
+  });
+});
+
+test("build vendors AnQstWebBase when useSharedBaseWidget is false", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"], useSharedBaseWidget: false });
+    assert.equal(resolveAnQstUseSharedBaseWidget(projectDir), false);
+
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 0);
+    } finally {
+      console.log = originalLog;
+    }
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const widgetCmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+    const integrationCmake = fs.readFileSync(
+      path.join(projectDir, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt"),
+      "utf8"
+    );
+
+    assert.match(captured, /QWidget name: CdWidgetWidget/);
+    assert.match(captured, /AnQstWebBase module: Embedded in CdWidgetWidget/);
+    assert.ok(fs.existsSync(path.join(widgetRoot, "AnQstWebBase", "CMakeLists.txt")));
+    assert.ok(fs.existsSync(path.join(widgetRoot, "AnQstWebBase", "src", "AnQstWebHostBase.h")));
+    assert.match(widgetCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
+    assert.match(integrationCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
+    assert.doesNotMatch(integrationCmake, /must exist before including generated AnQst CMake/);
+  });
+});
+
+test("build --noShared overrides useSharedBaseWidget true", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"], useSharedBaseWidget: true });
+
+    const code = runCommand("build", "--noShared");
+    assert.equal(code, 0);
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const widgetCmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+
+    assert.ok(fs.existsSync(path.join(widgetRoot, "AnQstWebBase", "CMakeLists.txt")));
+    assert.match(widgetCmake, /\$\{CMAKE_CURRENT_SOURCE_DIR\}\/AnQstWebBase/);
+  });
+});
+
+test("build --useShared overrides useSharedBaseWidget false", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"], useSharedBaseWidget: false });
+
+    const code = runCommand("build", "--useShared");
+    assert.equal(code, 0);
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const widgetCmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+
+    assert.equal(fs.existsSync(path.join(widgetRoot, "AnQstWebBase")), false);
+    assert.match(widgetCmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+    assert.doesNotMatch(widgetCmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
   });
 });
 
@@ -633,6 +762,24 @@ test("build validates settings widgetName against parsed namespace", () => {
   });
 });
 
+test("build validates useSharedBaseWidget setting type", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { useSharedBaseWidget: "false" });
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 1);
+    } finally {
+      console.error = originalError;
+    }
+    assert.ok(errors.some((line) => line.includes("expected boolean 'useSharedBaseWidget'")));
+  });
+});
+
 test("clean command requires path argument", () => {
   const code = runCommand("clean", undefined);
   assert.equal(code, 1);
@@ -694,8 +841,11 @@ test("build command runs cmake configure/build when --designerplugin is enabled"
     fs.mkdirSync(path.join(projectDir, "dist", "webapp", "browser"), { recursive: true });
     const distPng = createSolidPng(255, 0, 0);
     fs.writeFileSync(path.join(projectDir, "dist", "webapp", "browser", "favicon.ico"), createIcoFromPng(distPng));
+    const fakeWebBaseDir = path.join(projectDir, "fake-webbase");
+    fs.mkdirSync(fakeWebBaseDir, { recursive: true });
+    fs.writeFileSync(path.join(fakeWebBaseDir, "CMakeLists.txt"), "add_library(anqstwebhost STATIC empty.cpp)\n", "utf8");
 
-    withEnvVar("ANQST_WEBBASE_DIR", "/tmp/anqst-webbase", () => {
+    withEnvVar("ANQST_WEBBASE_DIR", fakeWebBaseDir, () => {
       withFakeCmake(0, 0, (logPath) => {
         const originalLog = console.log;
         const logs: string[] = [];
@@ -733,23 +883,17 @@ test("build command runs cmake configure/build when --designerplugin is enabled"
   });
 });
 
-test("build command fails when --designerplugin is enabled without ANQST_WEBBASE_DIR", () => {
+test("build command resolves bundled WebBase for --designerplugin without ANQST_WEBBASE_DIR", () => {
   withTempProject((projectDir) => {
     configureInstilledProject(projectDir, { generate: ["QWidget"] });
-    const originalError = console.error;
-    const errors: string[] = [];
-    console.error = (...args: unknown[]) => {
-      errors.push(args.map((arg) => String(arg)).join(" "));
-    };
-    try {
-      withEnvVar("ANQST_WEBBASE_DIR", undefined, () => {
+    withEnvVar("ANQST_WEBBASE_DIR", undefined, () => {
+      withFakeCmake(0, 0, (logPath) => {
         const code = runCommand("build", "--designerplugin");
-        assert.equal(code, 1);
+        assert.equal(code, 0);
+        const calls = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+        assert.match(calls, /-DANQST_WEBBASE_DIR=.*AnQstWebBase/);
       });
-    } finally {
-      console.error = originalError;
-    }
-    assert.ok(errors.some((line) => line.includes("Missing ANQST_WEBBASE_DIR environment variable")));
+    });
   });
 });
 

@@ -7,7 +7,7 @@ add_executable(anqstwebhostbase_tests
 
 target_link_libraries(anqstwebhostbase_tests
     PRIVATE
-        anqstwebhostbase
+        ${ANQST_WEBBASE_TARGET}
         Catch2::Catch2
         Qt5::Test
 )

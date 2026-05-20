@@ -35,6 +35,8 @@
 #include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 
+namespace ANQST_WEBBASE_NAMESPACE {
+
 namespace {
 static QString boolToString(bool value) {
     return value ? QStringLiteral("true") : QStringLiteral("false");
@@ -1816,3 +1818,5 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
 
     return QWidget::eventFilter(obj, event);
 }
+
+} // namespace ANQST_WEBBASE_NAMESPACE
