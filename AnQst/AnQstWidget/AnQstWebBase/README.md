@@ -54,6 +54,7 @@ Keep host APIs narrow and predictable so `AnQstGen` can generate a spec-specific
 ## Build notes
 
 - Linux (Ubuntu): use system packages only
+- CMake selects Qt from an existing `Qt`/`Qt::Core`, `Qt6::...`, or `Qt5::...` target when one is already in the build graph. If no Qt target exists yet, pass `-DANQST_QT_MAJOR_VERSION=5` or `-DANQST_QT_MAJOR_VERSION=6`; the default is Qt5.
 - Windows: Wild wild west, amirite?
 
 ### Ubuntu quick start

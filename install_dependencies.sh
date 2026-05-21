@@ -33,6 +33,13 @@ sudo apt-get install -y \
   qtmultimedia5-dev \
   libqt5svg5-dev \
   libqt5webenginewidgets5 \
+  qt6-base-dev \
+  qt6-base-dev-tools \
+  qt6-tools-dev \
+  qt6-tools-dev-tools \
+  qt6-declarative-dev \
+  qt6-webchannel-dev \
+  qt6-webengine-dev \
   xvfb \
   catch2 \
   nodejs

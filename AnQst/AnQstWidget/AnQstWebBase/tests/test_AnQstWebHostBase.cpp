@@ -29,6 +29,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <QWebEngineScript>
 #include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 #include <cstdlib>
@@ -176,6 +177,14 @@ bool waitForWebEngineError(
     return spyHasWebEngineError(spy, channel, detailFragments, matchedDetail);
 }
 
+bool hasWebEngineScript(QWebEngineScriptCollection& scripts, const QString& name) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return !scripts.find(name).isEmpty();
+#else
+    return !scripts.findScript(name).isNull();
+#endif
+}
+
 void writeHtmlFile(const QString& filePath, const QString& html) {
     QFile file(filePath);
     REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -315,18 +324,18 @@ TEST_CASE("text selection and scrollbar policies default to disabled", "[host][v
     static const QString kNoSelectScript = QStringLiteral("AnQstDisableTextSelection");
     static const QString kScriptName = QStringLiteral("AnQstDisableScrollbars");
     auto& scripts = view->page()->scripts();
-    CHECK_FALSE(scripts.findScript(kNoSelectScript).isNull());
-    CHECK_FALSE(scripts.findScript(kScriptName).isNull());
+    CHECK(hasWebEngineScript(scripts, kNoSelectScript));
+    CHECK(hasWebEngineScript(scripts, kScriptName));
 
     host.setTextSelectionEnabled(true);
-    CHECK(scripts.findScript(kNoSelectScript).isNull());
+    CHECK_FALSE(hasWebEngineScript(scripts, kNoSelectScript));
     host.setTextSelectionEnabled(false);
-    CHECK_FALSE(scripts.findScript(kNoSelectScript).isNull());
+    CHECK(hasWebEngineScript(scripts, kNoSelectScript));
 
     host.setScrollbarsEnabled(true);
-    CHECK(scripts.findScript(kScriptName).isNull());
+    CHECK_FALSE(hasWebEngineScript(scripts, kScriptName));
     host.setScrollbarsEnabled(false);
-    CHECK_FALSE(scripts.findScript(kScriptName).isNull());
+    CHECK(hasWebEngineScript(scripts, kScriptName));
 }
 
 TEST_CASE("startup bypass env switches host into browser qrc mode without creating webengine view", "[host][debug][env]") {

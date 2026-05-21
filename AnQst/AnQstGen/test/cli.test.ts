@@ -948,6 +948,9 @@ test("build command runs cmake configure/build when --designerplugin is enabled"
         assert.match(pluginCpp, /QString group\(\) const override \{ return QStringLiteral\("Custom Category"\); \}/);
         assert.match(pluginCpp, /QIcon\(QStringLiteral\(":\/anqstdesignerplugin\/plugin-icon\.png"\)\)/);
         assert.match(pluginCmake, /set\(ANQST_WIDGET_DIR "\$\{CMAKE_CURRENT_LIST_DIR\}\/\.\."\)/);
+        assert.match(pluginCmake, /include\(AnQstQt\)/);
+        assert.match(pluginCmake, /Qt\$\{ANQST_QT_MAJOR_VERSION\}::Widgets/);
+        assert.doesNotMatch(pluginCmake, /Qt5::Widgets/);
         assert.match(pluginQrc, /plugin-icon\.png/);
 
         const capturedLogs = logs.join("\n");
@@ -966,6 +969,20 @@ test("build command resolves bundled WebBase for --designerplugin without ANQST_
         assert.equal(code, 0);
         const calls = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
         assert.match(calls, /-DANQST_WEBBASE_DIR=.*AnQstWebBase/);
+      });
+    });
+  });
+});
+
+test("build command forwards ANQST_QT_MAJOR_VERSION for --designerplugin", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"] });
+    withEnvVar("ANQST_QT_MAJOR_VERSION", "6", () => {
+      withFakeCmake(0, 0, (logPath) => {
+        const code = runCommand("build", "--designerplugin");
+        assert.equal(code, 0);
+        const calls = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+        assert.match(calls, /-DANQST_QT_MAJOR_VERSION=6/);
       });
     });
   });

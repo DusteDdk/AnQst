@@ -7,7 +7,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets Network WebEngineWidgets WebChannel)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../../AnQstWidget/AnQstWebBase/cmake")
+include(AnQstQt)
+anqst_find_qt_components(Core Widgets Network WebEngineWidgets WebChannel)
 
 # Provides anqstwebhostbase target required by generated widget CMake.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../AnQstWidget/AnQstWebBase" "${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")

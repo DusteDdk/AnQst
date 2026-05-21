@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 full=true
+ANQST_QT_MAJOR_VERSION="${ANQST_QT_MAJOR_VERSION:-5}"
+export ANQST_QT_MAJOR_VERSION
 export ANQST_WEBBASE_DIR="$(realpath "${SCRIPT_DIR}/../../AnQstWidget/AnQstWebBase")"
 
 prepare_widget_deps() {
@@ -36,9 +38,10 @@ if $full; then
     fi
     echo "Copy plugin.."
     if [ -f AnQst/generated/backend/cpp/qt/CdEntryEditor_widget/designerPlugin/build/CdEntryEditorDesignerPlugin.so ]; then
-        mkdir -p "$HOME/.local/lib/qt5/plugins/designer"
+        designer_plugin_dir="$HOME/.local/lib/qt${ANQST_QT_MAJOR_VERSION}/plugins/designer"
+        mkdir -p "${designer_plugin_dir}"
         cp AnQst/generated/backend/cpp/qt/CdEntryEditor_widget/designerPlugin/build/CdEntryEditorDesignerPlugin.so \
-            "$HOME/.local/lib/qt5/plugins/designer/"
+            "${designer_plugin_dir}/"
     else
         echo "Designer plugin binary not available; skipping copy."
     fi
@@ -62,5 +65,5 @@ bash "${SCRIPT_DIR}/lib/widgets/build-vanilla-widgets.sh"
 
 echo "Rebuilding example_qt_app..."
 rm -rf "${SCRIPT_DIR}/build"
-cmake -S "${SCRIPT_DIR}" -B "${SCRIPT_DIR}/build" -G Ninja
+cmake -S "${SCRIPT_DIR}" -B "${SCRIPT_DIR}/build" -G Ninja -DANQST_QT_MAJOR_VERSION="${ANQST_QT_MAJOR_VERSION}"
 cmake --build "${SCRIPT_DIR}/build"

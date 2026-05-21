@@ -831,6 +831,10 @@ test("installQtDesignerPluginCMake emits category override and favicon icon asse
   assert.match(cpp, /widget->setMinimumHeight\(128\);/);
   assert.match(cpp, /"        <height>128<\/height>\\n"/);
   assert.match(cmake, /designerplugin\.qrc/);
+  assert.match(cmake, /include\(AnQstQt\)/);
+  assert.match(cmake, /anqst_find_qt_components\(Core Widgets UiPlugin\)/);
+  assert.match(cmake, /Qt\$\{ANQST_QT_MAJOR_VERSION\}::UiPlugin/);
+  assert.doesNotMatch(cmake, /Qt5::UiPlugin/);
   assert.match(qrc, /plugin-icon\.png/);
   assert.deepEqual(icon, png);
 });

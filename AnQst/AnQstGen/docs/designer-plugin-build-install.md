@@ -9,7 +9,7 @@ This guide describes how to build and install an AnQst-generated Qt Designer plu
 - `QWidget` target enabled in `./AnQst/<WidgetName>.settings.json` under `generate`.
 - Optional: set `"UseWebEngine": false` in the widget settings to build a browser-host-only widget/plugin without linking Qt WebEngine.
 - `ANQST_WEBBASE_DIR` set to your `AnQstWidget/AnQstWebBase` source directory.
-- Qt5 Designer tooling installed (`designer`, `qmake`, Qt5 UiPlugin development files).
+- Qt Designer tooling installed for the Qt major version you use (`designer`, `qmake`/`qmake6`, and Qt UiPlugin development files).
 
 ## Build the plugin
 
@@ -17,6 +17,12 @@ From the widget project root:
 
 ```bash
 ANQST_WEBBASE_DIR=/abs/path/to/AnQstWidget/AnQstWebBase npx anqst build --designerplugin
+```
+
+To build against Qt6 when no Qt targets already exist in the CMake graph, pass the major version through the environment:
+
+```bash
+ANQST_QT_MAJOR_VERSION=6 ANQST_WEBBASE_DIR=/abs/path/to/AnQstWidget/AnQstWebBase npx anqst build --designerplugin
 ```
 
 On success, output is placed in:
@@ -33,11 +39,13 @@ On success, output is placed in:
 cp AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so "$(qmake -query QT_INSTALL_PLUGINS)/designer/"
 ```
 
-### User-local Qt5 plugin path
+For Qt6 installations, use `qmake6 -query QT_INSTALL_PLUGINS` when available.
+
+### User-local Qt plugin path
 
 ```bash
-mkdir -p "$HOME/.local/lib/qt5/plugins/designer"
-cp AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so "$HOME/.local/lib/qt5/plugins/designer/"
+mkdir -p "$HOME/.local/lib/qt<major>/plugins/designer"
+cp AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin/build/<WidgetName>DesignerPlugin.so "$HOME/.local/lib/qt<major>/plugins/designer/"
 ```
 
 ## Verify plugin loading

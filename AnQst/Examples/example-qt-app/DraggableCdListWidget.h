@@ -17,7 +17,7 @@ public:
     void setDraftProvider(const DraftProvider& provider);
 
     QStringList mimeTypes() const override;
-    QMimeData* mimeData(const QList<QListWidgetItem*> items) const override;
+    QMimeData* mimeData(const QList<QListWidgetItem*>& items) const override;
 
 private:
     DraftProvider m_draftProvider;

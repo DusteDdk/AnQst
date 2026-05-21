@@ -221,11 +221,30 @@ static QString formatCertificateErrorDetail(const QWebEngineCertificateError& ce
     QStringList lines;
     lines.append(QStringLiteral("TLS certificate error while loading a request."));
     appendDetailValue(lines, QStringLiteral("URL: "), certificateError.url().toString());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    appendDetailValue(lines, QStringLiteral("Description: "), certificateError.description());
+    lines.append(QStringLiteral("Error code: %1").arg(static_cast<int>(certificateError.type())));
+#else
     appendDetailValue(lines, QStringLiteral("Description: "), certificateError.errorDescription());
     lines.append(QStringLiteral("Error code: %1").arg(static_cast<int>(certificateError.error())));
     lines.append(QStringLiteral("Overridable: %1").arg(boolToString(certificateError.isOverridable())));
     lines.append(QStringLiteral("Deferred: %1").arg(boolToString(certificateError.deferred())));
+#endif
     return joinDetailLines(lines);
+}
+
+static void removeWebEngineScriptsByName(QWebEngineScriptCollection& scripts, const QString& name) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QList<QWebEngineScript> existingScripts = scripts.find(name);
+    for (const QWebEngineScript& script : existingScripts) {
+        scripts.remove(script);
+    }
+#else
+    const QWebEngineScript existing = scripts.findScript(name);
+    if (!existing.isNull()) {
+        scripts.remove(existing);
+    }
+#endif
 }
 
 class LocalOnlyWebPage final : public QWebEnginePage {
@@ -274,6 +293,7 @@ protected:
         QWebEnginePage::javaScriptConsoleMessage(level, message, lineNumber, sourceID);
     }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     bool certificateError(const QWebEngineCertificateError& certificateError) override {
         if (parent() != nullptr) {
             QMetaObject::invokeMethod(
@@ -284,6 +304,7 @@ protected:
         }
         return QWebEnginePage::certificateError(certificateError);
     }
+#endif
 };
 #endif
 
@@ -510,6 +531,12 @@ bool AnQstWebHostBase::initializeWebView() {
                 }
                 emitWebEngineError(QStringLiteral("webengine.proxy_authentication_required"), joinDetailLines(lines));
             });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    connect(page, &QWebEnginePage::certificateError, this,
+            [this](const QWebEngineCertificateError& certificateError) {
+                emitWebEngineError(QStringLiteral("webengine.certificate_error"), formatCertificateErrorDetail(certificateError));
+            });
+#endif
 
     return true;
 #else
@@ -1084,10 +1111,7 @@ void AnQstWebHostBase::applyTextSelectionPolicy() {
     );
 
     auto& scripts = m_view->page()->scripts();
-    const QWebEngineScript existing = scripts.findScript(kScriptName);
-    if (!existing.isNull()) {
-        scripts.remove(existing);
-    }
+    removeWebEngineScriptsByName(scripts, kScriptName);
 
     if (!m_textSelectionEnabled) {
         QWebEngineScript script;
@@ -1125,10 +1149,7 @@ void AnQstWebHostBase::applyScrollbarPolicy() {
     );
 
     auto& scripts = m_view->page()->scripts();
-    const QWebEngineScript existing = scripts.findScript(kScriptName);
-    if (!existing.isNull()) {
-        scripts.remove(existing);
-    }
+    removeWebEngineScriptsByName(scripts, kScriptName);
 
     if (!m_scrollbarsEnabled) {
         QWebEngineScript script;

@@ -291,6 +291,10 @@ function runDesignerPluginBuild(cwd: string, widgetName: string, useSharedBaseWi
     "-DCMAKE_BUILD_TYPE=Release",
     `-DANQST_WEBBASE_DIR=${webBaseDir}`
   ];
+  const qtMajorVersion = process.env.ANQST_QT_MAJOR_VERSION?.trim();
+  if (qtMajorVersion) {
+    configureArgs.push(`-DANQST_QT_MAJOR_VERSION=${qtMajorVersion}`);
+  }
   const configure = spawnSync(
     "cmake",
     configureArgs,
@@ -304,7 +308,7 @@ function runDesignerPluginBuild(cwd: string, widgetName: string, useSharedBaseWi
     throw new VerifyError(
       [
         "CMake configure failed while building Qt Designer plugin.",
-        "If CMake reports missing Qt5UiPlugin, install qttools5-dev (Ubuntu/Debian) and re-run install_dependencies.sh."
+        "If CMake reports missing Qt UiPlugin development files, install qttools5-dev or qt6-tools-dev (Ubuntu/Debian) and re-run install_dependencies.sh."
       ].join(" ")
     );
   }
@@ -462,10 +466,10 @@ export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidge
       detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
       detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
       detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
-      detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS");
+      detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS or qmake6 -query QT_INSTALL_PLUGINS");
       detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
       detailLines.push(
-        `      - User-local install: mkdir -p \"$HOME/.local/lib/qt5/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt5/plugins/designer/\"`
+        `      - User-local install: mkdir -p \"$HOME/.local/lib/qt<major>/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt<major>/plugins/designer/\"`
       );
     }
     return {

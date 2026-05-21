@@ -6191,7 +6191,9 @@ if(NOT ANQST_WEBBASE_DIR OR NOT EXISTS "\${ANQST_WEBBASE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Unable to locate ${ANQST_WEBBASE_DIR_NAME} sources. Set -DANQST_WEBBASE_DIR=<path/to/${ANQST_WEBBASE_DIR_NAME}>.")
 endif()
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets UiPlugin)
+list(APPEND CMAKE_MODULE_PATH "\${ANQST_WEBBASE_DIR}/cmake")
+include(AnQstQt)
+anqst_find_qt_components(Core Widgets UiPlugin)
 
 set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build AnQstWebBase unit tests" FORCE)
 ${renderWebBaseModeCMake(useWebEngine)}
@@ -6215,9 +6217,9 @@ target_include_directories(${pluginTarget}
 target_link_libraries(${pluginTarget}
     PRIVATE
         ${widgetTarget}
-        Qt5::Core
-        Qt5::Widgets
-        Qt5::UiPlugin
+        Qt\${ANQST_QT_MAJOR_VERSION}::Core
+        Qt\${ANQST_QT_MAJOR_VERSION}::Widgets
+        Qt\${ANQST_QT_MAJOR_VERSION}::UiPlugin
 )
 set_target_properties(${pluginTarget} PROPERTIES
     PREFIX ""

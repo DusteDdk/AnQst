@@ -18,7 +18,7 @@ QStringList DraggableCdListWidget::mimeTypes() const {
     return { QString::fromUtf8(CdEntryEditor::kDragDropMime_CdDraft) };
 }
 
-QMimeData* DraggableCdListWidget::mimeData(const QList<QListWidgetItem*> items) const {
+QMimeData* DraggableCdListWidget::mimeData(const QList<QListWidgetItem*>& items) const {
     if (items.isEmpty() || !m_draftProvider) {
         return nullptr;
     }

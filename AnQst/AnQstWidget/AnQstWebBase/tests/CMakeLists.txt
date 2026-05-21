@@ -1,5 +1,5 @@
 find_package(Catch2 CONFIG REQUIRED)
-find_package(Qt5 REQUIRED COMPONENTS Test)
+anqst_find_qt_components(Test)
 
 add_executable(anqstwebhostbase_tests
     test_AnQstWebHostBase.cpp
@@ -9,7 +9,7 @@ target_link_libraries(anqstwebhostbase_tests
     PRIVATE
         ${ANQST_WEBBASE_TARGET}
         Catch2::Catch2
-        Qt5::Test
+        Qt${ANQST_QT_MAJOR_VERSION}::Test
 )
 
 anqst_configure_qt_runtime(anqstwebhostbase_tests)
