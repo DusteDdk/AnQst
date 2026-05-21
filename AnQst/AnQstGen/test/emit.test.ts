@@ -125,14 +125,27 @@ test("generateOutputs switches QWidget CMake between shared and vendored WebBase
     emitNodeExpressWs: false,
     useSharedBaseWidget: false
   });
+  const vendoredWithoutWebEngine = generateOutputs(parsed, {
+    emitAngularService: false,
+    emitQWidget: true,
+    emitNodeExpressWs: false,
+    useSharedBaseWidget: false,
+    useWebEngine: false
+  });
   const sharedCmake = shared["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
   const vendoredCmake = vendored["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
+  const vendoredWithoutWebEngineCmake = vendoredWithoutWebEngine["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
 
   assert.match(sharedCmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
   assert.doesNotMatch(sharedCmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
+  assert.match(sharedCmake, /ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "ON"/);
   assert.match(vendoredCmake, /set\(ANQST_GENERATED_WEBBASE_DIR "\$\{CMAKE_CURRENT_SOURCE_DIR\}\/AnQstWebBase"\)/);
   assert.match(vendoredCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
+  assert.match(vendoredCmake, /ANQSTWEBBASE_USE_WEBENGINE ON/);
   assert.match(vendoredCmake, /anqstwebhost(?:_local_\d+|_[a-f0-9]{64})/);
+  assert.match(vendoredWithoutWebEngineCmake, /ANQSTWEBBASE_USE_WEBENGINE OFF/);
+  assert.match(vendoredWithoutWebEngineCmake, /ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "OFF"/);
+  assert.doesNotMatch(vendoredWithoutWebEngineCmake, /QWebEngine|WebEngineWidgets/);
 });
 
 test("generateOutputs wires structured codecs through TS, C++, and node boundaries", () => {

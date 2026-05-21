@@ -21,6 +21,7 @@ This directory is a future-facing documentation area for designing a reusable Qt
 ## Headless and browser-host replay notes
 
 - `ANQST_BYPASS_QWEBENGINE=true` (also accepts `yes`, `on`, or `1`) defers embedded `QWebEngineView` startup and switches initial loading into browser-host mode. This is intended for headless or no-GPU environments that need the Qt host and WebSocket bridge without constructing WebEngine eagerly.
+- `ANQSTWEBBASE_USE_WEBENGINE=OFF` at CMake configure time removes the Qt WebEngine dependency entirely. In this mode the widget starts directly in browser-host mode and cannot reattach to an embedded application view.
 - Development browser reconnects depend on the bridge replay invariant: WebSocket disconnect disables dispatch, the next handshake re-enables dispatch, and that rising edge snapshots stored `Output` values to the new client. Do not remove the `setDispatchEnabled(false)` / `setDispatchEnabled(true)` lifecycle without replacing the replay behavior.
 
 ## Documentation structure

@@ -7,6 +7,7 @@ This guide describes how to build and install an AnQst-generated Qt Designer plu
 - A widget project with `package.json` containing:
   - `"AnQst": "./AnQst/<WidgetName>.settings.json"`
 - `QWidget` target enabled in `./AnQst/<WidgetName>.settings.json` under `generate`.
+- Optional: set `"UseWebEngine": false` in the widget settings to build a browser-host-only widget/plugin without linking Qt WebEngine.
 - `ANQST_WEBBASE_DIR` set to your `AnQstWidget/AnQstWebBase` source directory.
 - Qt5 Designer tooling installed (`designer`, `qmake`, Qt5 UiPlugin development files).
 

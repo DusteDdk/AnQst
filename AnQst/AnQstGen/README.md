@@ -44,9 +44,12 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
   "widgetName": "<WidgetName>",
   "spec": "./AnQst/<WidgetName>.AnQst.d.ts",
   "generate": ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"],
-  "widgetCategory": "AnQst Widgets"
+  "widgetCategory": "AnQst Widgets",
+  "UseWebEngine": true
 }
 ```
+
+`UseWebEngine` is optional and defaults to `true`. Set it to `false` when a generated QWidget should run only through browser-host debug mode and build without linking Qt WebEngine.
 
 ## CLI commands
 

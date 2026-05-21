@@ -7,7 +7,7 @@ import { PNG } from "pngjs";
 import { runClean, runCommand, runGenerate, runVerify } from "../src/app";
 import { ANQST_LAYOUT_VERSION } from "../src/layout";
 import { getProgramDiagnostics } from "../src/program";
-import { resolveAnQstUseSharedBaseWidget } from "../src/project";
+import { resolveAnQstUseSharedBaseWidget, resolveAnQstUseWebEngine } from "../src/project";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 const defaultGenerateTargets = ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"];
@@ -21,6 +21,7 @@ interface SettingsShape {
   generate: string[];
   widgetCategory?: string;
   useSharedBaseWidget?: unknown;
+  UseWebEngine?: unknown;
 }
 
 function withActiveStamp(stamp: string | null, fn: () => void): void {
@@ -101,6 +102,7 @@ function configureInstilledProject(
     specPath?: string;
     packageAnQst?: unknown;
     useSharedBaseWidget?: unknown;
+    UseWebEngine?: unknown;
   } = {}
 ): { widgetName: string; specPath: string; settingsPath: string } {
   const widgetName = options.widgetName ?? "CdWidget";
@@ -115,6 +117,9 @@ function configureInstilledProject(
   };
   if (options.useSharedBaseWidget !== undefined) {
     settings.useSharedBaseWidget = options.useSharedBaseWidget;
+  }
+  if (options.UseWebEngine !== undefined) {
+    settings.UseWebEngine = options.UseWebEngine;
   }
   const settingsPath = writeSettings(projectDir, settings);
 
@@ -341,6 +346,7 @@ test("instill creates AnQst root, settings, hooks, and tsconfig mapping", () => 
     assert.equal(settings.widgetName, "BurgerConstructor");
     assert.equal(settings.spec, "./AnQst/BurgerConstructor.AnQst.d.ts");
     assert.deepEqual(settings.generate, defaultGenerateTargets);
+    assert.equal(settings.UseWebEngine, true);
 
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "BurgerConstructor.AnQst.d.ts")));
     assert.ok(fs.existsSync(path.join(projectDir, "AnQst", "README.md")));
@@ -455,6 +461,56 @@ test("build vendors AnQstWebBase when useSharedBaseWidget is false", () => {
     assert.match(widgetCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
     assert.match(integrationCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
     assert.doesNotMatch(integrationCmake, /must exist before including generated AnQst CMake/);
+  });
+});
+
+test("build defaults UseWebEngine to enabled behavior", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"] });
+    assert.equal(resolveAnQstUseWebEngine(projectDir), true);
+
+    const code = runCommand("build", undefined);
+    assert.equal(code, 0);
+
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const cmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+    assert.match(cmake, /ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "ON"/);
+  });
+});
+
+test("build disables WebEngine linkage when UseWebEngine is false", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { generate: ["QWidget"], useSharedBaseWidget: false, UseWebEngine: false });
+    assert.equal(resolveAnQstUseWebEngine(projectDir), false);
+
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 0);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const widgetRoot = path.join(projectDir, "AnQst", "generated", "backend", "cpp", "qt", "CdWidget_widget");
+    const widgetCmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
+    const integrationCmake = fs.readFileSync(
+      path.join(projectDir, "AnQst", "generated", "backend", "cpp", "cmake", "CMakeLists.txt"),
+      "utf8"
+    );
+    const widgetCpp = fs.readFileSync(path.join(widgetRoot, "CdWidget.cpp"), "utf8");
+    const widgetHeader = fs.readFileSync(path.join(widgetRoot, "include", "CdWidgetWidget.h"), "utf8");
+
+    assert.match(captured, /Embedded WebEngine: Disabled; browser-host mode only/);
+    assert.match(widgetCmake, /ANQSTWEBBASE_USE_WEBENGINE OFF/);
+    assert.match(integrationCmake, /ANQSTWEBBASE_USE_WEBENGINE OFF/);
+    assert.doesNotMatch(widgetCmake, /QWebEngine|WebEngineWidgets/);
+    assert.doesNotMatch(integrationCmake, /QWebEngine|WebEngineWidgets/);
+    assert.doesNotMatch(widgetCpp, /QWebEngine|WebEngineWidgets/);
+    assert.doesNotMatch(widgetHeader, /QWebEngine|WebEngineWidgets/);
   });
 });
 
@@ -777,6 +833,24 @@ test("build validates useSharedBaseWidget setting type", () => {
       console.error = originalError;
     }
     assert.ok(errors.some((line) => line.includes("expected boolean 'useSharedBaseWidget'")));
+  });
+});
+
+test("build validates UseWebEngine setting type", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir, { UseWebEngine: "false" });
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const code = runCommand("build", undefined);
+      assert.equal(code, 1);
+    } finally {
+      console.error = originalError;
+    }
+    assert.ok(errors.some((line) => line.includes("expected boolean 'UseWebEngine'")));
   });
 });
 

@@ -149,12 +149,14 @@ All keys previously under `package.json.AnQst` move here.
   "widgetName": "<widgetName>",
   "spec": "./AnQst/<widgetName>.AnQst.d.ts",
   "generate": ["QWidget", "AngularService", "node_express_ws"],
-  "widgetCategory": "AnQst Widgets"
+  "widgetCategory": "AnQst Widgets",
+  "UseWebEngine": true
 }
 ```
 
 - `layoutVersion` is required and fixed to `2` for this overhaul.
 - `spec` must be inside `./AnQst`.
+- `UseWebEngine` is optional and defaults to `true`. Set it to `false` for a QWidget build that never embeds or links Qt WebEngine; the widget starts in browser-host debug mode and uses the local HTTP/WebSocket bridge.
 
 ### `./AnQst/.gitignore`
 

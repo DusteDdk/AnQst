@@ -1984,12 +1984,25 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
   return lines.join("\n");
 }
 
-function renderWebBaseTargetCMake(widgetName: string, useSharedBaseWidget: boolean): string {
+function renderWebBaseModeCMake(useWebEngine: boolean): string {
+  return `set(ANQSTWEBBASE_USE_WEBENGINE ${useWebEngine ? "ON" : "OFF"} CACHE BOOL "Build embedded WebEngine support in AnQstWebBase" FORCE)`;
+}
+
+function renderWebBaseTargetModeCheckCMake(widgetName: string, useWebEngine: boolean): string {
+  const webBaseTarget = anqstWebBaseTargetName();
+  return `get_target_property(ANQSTWEBBASE_TARGET_USES_WEBENGINE ${webBaseTarget} ANQSTWEBBASE_USE_WEBENGINE)
+if(NOT ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "${useWebEngine ? "ON" : "OFF"}")
+    message(FATAL_ERROR "Target '${webBaseTarget}' has incompatible embedded WebEngine mode for generated widget library ${widgetName}Widget.")
+endif()`;
+}
+
+function renderWebBaseTargetCMake(widgetName: string, useSharedBaseWidget: boolean, useWebEngine: boolean): string {
   const webBaseTarget = anqstWebBaseTargetName();
   if (useSharedBaseWidget) {
     return `if(NOT TARGET ${webBaseTarget})
     message(FATAL_ERROR "Target '${webBaseTarget}' is required before adding generated widget library ${widgetName}Widget.")
-endif()`;
+endif()
+${renderWebBaseTargetModeCheckCMake(widgetName, useWebEngine)}`;
   }
 
   return `set(ANQST_GENERATED_WEBBASE_DIR "\${CMAKE_CURRENT_SOURCE_DIR}/${ANQST_WEBBASE_DIR_NAME}")
@@ -1997,15 +2010,17 @@ if(NOT EXISTS "\${ANQST_GENERATED_WEBBASE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Generated ${ANQST_WEBBASE_DIR_NAME} sources are missing for ${widgetName}Widget. Run 'npx anqst build' again.")
 endif()
 set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build ${ANQST_WEBBASE_DIR_NAME} unit tests" FORCE)
+${renderWebBaseModeCMake(useWebEngine)}
 if(NOT TARGET ${webBaseTarget})
     add_subdirectory("\${ANQST_GENERATED_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
 endif()
 if(NOT TARGET ${webBaseTarget})
     message(FATAL_ERROR "Target '${webBaseTarget}' was not created from generated ${ANQST_WEBBASE_DIR_NAME} sources for ${widgetName}Widget.")
-endif()`;
+endif()
+${renderWebBaseTargetModeCheckCMake(widgetName, useWebEngine)}`;
 }
 
-function renderCMake(spec: ParsedSpecModel, useSharedBaseWidget = true): string {
+function renderCMake(spec: ParsedSpecModel, useSharedBaseWidget = true, useWebEngine = true): string {
   return `cmake_minimum_required(VERSION 3.21)
 project(${spec.widgetName}Library LANGUAGES CXX)
 
@@ -2014,7 +2029,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-${renderWebBaseTargetCMake(spec.widgetName, useSharedBaseWidget)}
+${renderWebBaseTargetCMake(spec.widgetName, useSharedBaseWidget, useWebEngine)}
 
 add_library(${spec.widgetName}Widget
     ${spec.widgetName}.cpp
@@ -5469,6 +5484,7 @@ export interface GenerateOutputsOptions {
   emitVanillaJS?: boolean;
   emitNodeExpressWs?: boolean;
   useSharedBaseWidget?: boolean;
+  useWebEngine?: boolean;
 }
 
 function generatedCppLibraryDirName(widgetName: string): string {
@@ -5490,7 +5506,8 @@ export function generateOutputs(
     emitVanillaTS: options.emitVanillaTS ?? useDefaultBrowserTargets,
     emitVanillaJS: options.emitVanillaJS ?? useDefaultBrowserTargets,
     emitNodeExpressWs: options.emitNodeExpressWs ?? false,
-    useSharedBaseWidget: options.useSharedBaseWidget ?? true
+    useSharedBaseWidget: options.useSharedBaseWidget ?? true,
+    useWebEngine: options.useWebEngine ?? true
   };
   const angularFrontendDir = `frontend/${generatedFrontendDirName(spec.widgetName, "AngularService")}`;
   const vanillaTsFrontendDir = `frontend/${generatedFrontendDirName(spec.widgetName, "VanillaTS")}`;
@@ -5528,7 +5545,7 @@ export function generateOutputs(
   }
   if (normalizedOptions.emitQWidget) {
     const cppTypes = buildCppTypeContext(spec);
-    outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec, normalizedOptions.useSharedBaseWidget);
+    outputs[`${cppDir}/CMakeLists.txt`] = renderCMake(spec, normalizedOptions.useSharedBaseWidget, normalizedOptions.useWebEngine);
     outputs[`${cppDir}/${spec.widgetName}.qrc`] = renderEmbeddedQrc(spec.widgetName, []);
     outputs[`${cppDir}/include/${spec.widgetName}.h`] = renderWidgetUmbrellaHeader(spec);
     outputs[`${cppDir}/include/${spec.widgetName}Widget.h`] = renderWidgetHeader(spec, cppTypes, codecCatalog);
@@ -5804,21 +5821,25 @@ function normalizeEmbeddedIndexHtml(indexPath: string, webRoot: string): void {
 
 interface InstallQtIntegrationOptions {
   useSharedBaseWidget?: boolean;
+  useWebEngine?: boolean;
 }
 
-function renderQtIntegrationWebBaseCMake(widgetName: string, generatedRootVar: string, useSharedBaseWidget: boolean): string {
+function renderQtIntegrationWebBaseCMake(widgetName: string, generatedRootVar: string, useSharedBaseWidget: boolean, useWebEngine: boolean): string {
   const webBaseTarget = anqstWebBaseTargetName();
   if (useSharedBaseWidget) {
     return `if(NOT TARGET ${webBaseTarget})
     message(FATAL_ERROR "Target '${webBaseTarget}' must exist before including generated AnQst CMake for ${widgetName}.")
-endif()`;
+endif()
+${renderWebBaseTargetModeCheckCMake(widgetName, useWebEngine)}`;
   }
 
   return `set(ANQST_GENERATED_WEBBASE_DIR "\${${generatedRootVar}}/${ANQST_WEBBASE_DIR_NAME}")
 set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build ${ANQST_WEBBASE_DIR_NAME} unit tests" FORCE)
+${renderWebBaseModeCMake(useWebEngine)}
 if(NOT TARGET ${webBaseTarget})
     add_subdirectory("\${ANQST_GENERATED_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
-endif()`;
+endif()
+${renderWebBaseTargetModeCheckCMake(widgetName, useWebEngine)}`;
 }
 
 function renderQtIntegrationCMake(widgetName: string, options: InstallQtIntegrationOptions = {}): string {
@@ -5829,6 +5850,7 @@ function renderQtIntegrationCMake(widgetName: string, options: InstallQtIntegrat
   const widgetBinaryDirVar = "ANQST_GENERATED_WIDGET_BINARY_DIR";
   const widgetTarget = `${widgetName}Widget`;
   const useSharedBaseWidget = options.useSharedBaseWidget ?? true;
+  const useWebEngine = options.useWebEngine ?? true;
   const vendoredRequiredFiles = useSharedBaseWidget
     ? ""
     : `    "\${${generatedRootVar}}/${ANQST_WEBBASE_DIR_NAME}/CMakeLists.txt"\n`;
@@ -5863,7 +5885,7 @@ foreach(required_file IN LISTS ${requiredFilesVar})
     endif()
 endforeach()
 
-${renderQtIntegrationWebBaseCMake(widgetName, generatedRootVar, useSharedBaseWidget)}
+${renderQtIntegrationWebBaseCMake(widgetName, generatedRootVar, useSharedBaseWidget, useWebEngine)}
 
 add_subdirectory("\${${generatedRootVar}}" "\${${widgetBinaryDirVar}}")
 `;
@@ -5886,6 +5908,7 @@ interface DesignerPluginAssets {
 interface InstallQtDesignerPluginOptions {
   widgetCategory?: string;
   useSharedBaseWidget?: boolean;
+  useWebEngine?: boolean;
 }
 
 function normalizeIcoSize(dim: number): number {
@@ -6127,7 +6150,7 @@ public:
 `;
 }
 
-function renderQtDesignerPluginCMake(widgetName: string, hasIcon: boolean, useSharedBaseWidget = true): string {
+function renderQtDesignerPluginCMake(widgetName: string, hasIcon: boolean, useSharedBaseWidget = true, useWebEngine = true): string {
   const widgetTarget = `${widgetName}Widget`;
   const pluginTarget = `${widgetName}DesignerPlugin`;
   const webBaseTarget = anqstWebBaseTargetName();
@@ -6171,9 +6194,11 @@ endif()
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets UiPlugin)
 
 set(ANQSTWEBBASE_BUILD_TESTS OFF CACHE BOOL "Build AnQstWebBase unit tests" FORCE)
+${renderWebBaseModeCMake(useWebEngine)}
 if(NOT TARGET ${webBaseTarget})
     add_subdirectory("\${ANQST_WEBBASE_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
 endif()
+${renderWebBaseTargetModeCheckCMake(widgetName, useWebEngine)}
 
 if(NOT TARGET ${widgetTarget})
     add_subdirectory("\${ANQST_WIDGET_DIR}" "\${CMAKE_CURRENT_BINARY_DIR}/generated-widget")
@@ -6210,7 +6235,7 @@ export function installQtDesignerPluginCMake(cwd: string, widgetName: string, op
     path.join(pluginDir, "CMakeLists.txt"),
     withBuildStamp(
       `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/CMakeLists.txt`,
-      renderQtDesignerPluginCMake(widgetName, assets.hasIcon, options.useSharedBaseWidget ?? true)
+      renderQtDesignerPluginCMake(widgetName, assets.hasIcon, options.useSharedBaseWidget ?? true, options.useWebEngine ?? true)
     ),
     "utf8"
   );

@@ -13,6 +13,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 
 option(ANQSTWEBBASE_BUILD_TESTS "Build AnQstWebBase unit tests" ON)
+option(ANQSTWEBBASE_USE_WEBENGINE "Build embedded WebEngine support in AnQstWebBase" ON)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/AnQstWebBaseAbi.cmake" OPTIONAL)
 if(NOT DEFINED ANQST_WEBBASE_ABI_HASH_STAMP OR ANQST_WEBBASE_ABI_HASH_STAMP STREQUAL "_local_0")
@@ -26,7 +27,10 @@ configure_file(
     @ONLY
 )
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets Network WebEngineWidgets WebChannel)
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets Network WebChannel)
+if(ANQSTWEBBASE_USE_WEBENGINE)
+    find_package(Qt5 REQUIRED COMPONENTS WebEngineWidgets)
+endif()
 
 get_target_property(QT5_CORE_DLL_RELEASE Qt5::Core IMPORTED_LOCATION_RELEASE)
 if(NOT QT5_CORE_DLL_RELEASE)
@@ -87,9 +91,19 @@ if(NOT TARGET ${ANQST_WEBBASE_TARGET})
             Qt5::Core
             Qt5::Widgets
             Qt5::Network
-            Qt5::WebEngineWidgets
             Qt5::WebChannel
     )
+    if(ANQSTWEBBASE_USE_WEBENGINE)
+        target_link_libraries(${ANQST_WEBBASE_TARGET}
+            PUBLIC
+                Qt5::WebEngineWidgets
+        )
+        target_compile_definitions(${ANQST_WEBBASE_TARGET} PUBLIC ANQSTWEBBASE_USE_WEBENGINE=1)
+        set_target_properties(${ANQST_WEBBASE_TARGET} PROPERTIES ANQSTWEBBASE_USE_WEBENGINE ON)
+    else()
+        target_compile_definitions(${ANQST_WEBBASE_TARGET} PUBLIC ANQSTWEBBASE_USE_WEBENGINE=0)
+        set_target_properties(${ANQST_WEBBASE_TARGET} PROPERTIES ANQSTWEBBASE_USE_WEBENGINE OFF)
+    endif()
 
     target_include_directories(${ANQST_WEBBASE_TARGET}
         PUBLIC

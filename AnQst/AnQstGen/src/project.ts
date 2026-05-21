@@ -26,6 +26,7 @@ export interface AnQstProjectSettings {
   generate?: string[];
   widgetCategory?: string;
   useSharedBaseWidget?: boolean;
+  UseWebEngine?: boolean;
 }
 
 export interface ResolvedAnQstSettingsContext {
@@ -138,6 +139,13 @@ function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProj
     );
   }
 
+  const useWebEngine = settingsObject.UseWebEngine;
+  if (useWebEngine !== undefined && typeof useWebEngine !== "boolean") {
+    throw new VerifyError(
+      `Invalid AnQst settings file '${normalizeSlashes(path.relative(cwd, settingsPath))}': expected boolean 'UseWebEngine'.`
+    );
+  }
+
   const resolvedSpecPath = path.resolve(cwd, spec.trim());
   const anqstRoot = anqstRootDir(cwd);
   if (!isSubPath(anqstRoot, resolvedSpecPath)) {
@@ -152,7 +160,8 @@ function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProj
     spec: spec.trim(),
     generate: Array.isArray(generate) ? [...generate] : undefined,
     widgetCategory: typeof widgetCategory === "string" ? widgetCategory.trim() : undefined,
-    useSharedBaseWidget: typeof useSharedBaseWidget === "boolean" ? useSharedBaseWidget : undefined
+    useSharedBaseWidget: typeof useSharedBaseWidget === "boolean" ? useSharedBaseWidget : undefined,
+    UseWebEngine: typeof useWebEngine === "boolean" ? useWebEngine : undefined
   };
 }
 
@@ -293,6 +302,11 @@ export function resolveAnQstUseSharedBaseWidget(cwd: string): boolean {
   return settings.useSharedBaseWidget ?? true;
 }
 
+export function resolveAnQstUseWebEngine(cwd: string): boolean {
+  const { settings } = resolveAnQstSettings(cwd);
+  return settings.UseWebEngine ?? true;
+}
+
 export function resolveAnQstWidgetName(cwd: string): string {
   const { settings } = resolveAnQstSettings(cwd);
   return settings.widgetName;
@@ -337,7 +351,8 @@ export function runInstill(cwd: string, widgetName: string): string {
     widgetName: cleanName,
     spec: `./AnQst/${anqstSpecFileName(cleanName)}`,
     generate: [...DEFAULT_ANQST_GENERATE_TARGETS],
-    widgetCategory: "AnQst Widgets"
+    widgetCategory: "AnQst Widgets",
+    UseWebEngine: true
   };
   fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
 

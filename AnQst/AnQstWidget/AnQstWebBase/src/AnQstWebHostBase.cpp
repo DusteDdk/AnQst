@@ -30,11 +30,16 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWebChannel>
+#ifndef ANQSTWEBBASE_USE_WEBENGINE
+#define ANQSTWEBBASE_USE_WEBENGINE 1
+#endif
+#if ANQSTWEBBASE_USE_WEBENGINE
 #include <QWebEngineCertificateError>
 #include <QWebEnginePage>
 #include <QWebEngineScript>
 #include <QWebEngineScriptCollection>
 #include <QWebEngineView>
+#endif
 
 namespace ANQST_WEBBASE_NAMESPACE {
 
@@ -75,6 +80,7 @@ static QString normalizeQrcRoot(const QString& root) {
     return normalized;
 }
 
+#if ANQSTWEBBASE_USE_WEBENGINE
 static void disableWebEngineSandboxForTrustedHost() {
     // The hosted page is considered trusted at application level.
     qputenv("QTWEBENGINE_DISABLE_SANDBOX", QByteArrayLiteral("1"));
@@ -88,6 +94,7 @@ static void disableWebEngineSandboxForTrustedHost() {
     }
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
 }
+#endif
 
 static bool shouldBypassQWebEngineStartup() {
     const QString rawValue = QProcessEnvironment::systemEnvironment()
@@ -100,6 +107,7 @@ static bool shouldBypassQWebEngineStartup() {
            rawValue == QStringLiteral("1");
 }
 
+#if ANQSTWEBBASE_USE_WEBENGINE
 static bool shouldEmitJavaScriptConsoleLevel(QWebEnginePage::JavaScriptConsoleMessageLevel level) {
     return level == QWebEnginePage::WarningMessageLevel ||
            level == QWebEnginePage::ErrorMessageLevel;
@@ -277,9 +285,11 @@ protected:
         return QWebEnginePage::certificateError(certificateError);
     }
 };
+#endif
 
 } // namespace
 
+#if ANQSTWEBBASE_USE_WEBENGINE
 class LocalWebView final : public QWebEngineView {
 public:
     explicit LocalWebView(QWidget* parent = nullptr)
@@ -299,6 +309,7 @@ protected:
 private:
     bool m_contextMenuEnabled = true;
 };
+#endif
 
 AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     : QWidget(parent)
@@ -323,7 +334,7 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_scrollbarsEnabled(false)
     , m_debugState()
     , m_remoteNavigationBlocked(true)
-    , m_bypassQWebEngineStartup(shouldBypassQWebEngineStartup())
+    , m_bypassQWebEngineStartup(!ANQSTWEBBASE_USE_WEBENGINE || shouldBypassQWebEngineStartup())
     , m_startupBypassApplied(false)
     , m_activeDebugDialog(nullptr)
     , m_hoverThrottleTimer(new QTimer(this))
@@ -351,6 +362,9 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     setRemoteNavigationBlocked(true);
     m_debugState.provider = AnQstWidgetResourceProvider::Qrc;
     m_debugState.host = AnQstAngularAppHost::Application;
+#if !ANQSTWEBBASE_USE_WEBENGINE
+    m_debugState.host = AnQstAngularAppHost::Browser;
+#endif
     m_debugState.resourceUrl = QStringLiteral("http://localhost:4200/");
     m_debugState.resourceDir = QDir::currentPath();
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, this, &AnQstWebHostBase::anQstBridge_outputUpdated);
@@ -422,13 +436,26 @@ AnQstWebHostBase::~AnQstWebHostBase() {
 }
 
 bool AnQstWebHostBase::installBridgeBootstrapScript(const QString& scriptSource, bool forceReinstall) {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (!initializeWebView()) {
         return false;
     }
     return installBridgeBootstrapScriptOnView(scriptSource, forceReinstall);
+#else
+    Q_UNUSED(scriptSource);
+    Q_UNUSED(forceReinstall);
+    emitHostError(
+        QStringLiteral("HOST_WEBENGINE_DISABLED"),
+        QStringLiteral("debug"),
+        QStringLiteral("warn"),
+        true,
+        QStringLiteral("Embedded WebEngine support is disabled for this widget build."));
+    return false;
+#endif
 }
 
 bool AnQstWebHostBase::initializeWebView() {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view != nullptr) {
         return true;
     }
@@ -485,9 +512,19 @@ bool AnQstWebHostBase::initializeWebView() {
             });
 
     return true;
+#else
+    emitHostError(
+        QStringLiteral("HOST_WEBENGINE_DISABLED"),
+        QStringLiteral("debug"),
+        QStringLiteral("warn"),
+        true,
+        QStringLiteral("Embedded WebEngine support is disabled for this widget build."));
+    return false;
+#endif
 }
 
 bool AnQstWebHostBase::installBridgeBootstrapScriptOnView(const QString& scriptSource, bool forceReinstall) {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr || m_view->page() == nullptr) {
         return false;
     }
@@ -518,6 +555,11 @@ bool AnQstWebHostBase::installBridgeBootstrapScriptOnView(const QString& scriptS
     m_view->page()->scripts().insert(bootstrapScript);
     m_bridgeBootstrapInstalled = true;
     return true;
+#else
+    Q_UNUSED(scriptSource);
+    Q_UNUSED(forceReinstall);
+    return false;
+#endif
 }
 
 bool AnQstWebHostBase::setContentRoot(const QString& rootPath) {
@@ -746,6 +788,7 @@ void AnQstWebHostBase::anQstBridge_resolveSlot(const QString& requestId, bool ok
 }
 
 void AnQstWebHostBase::handleLoadFinished(bool ok) {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr || m_view->page() == nullptr) {
         return;
     }
@@ -773,6 +816,9 @@ void AnQstWebHostBase::handleLoadFinished(bool ok) {
         emit onHostReady();
         emitOutputSnapshotIfReady();
     }
+#else
+    Q_UNUSED(ok);
+#endif
 }
 
 void AnQstWebHostBase::handleNavigationPolicyError(const QUrl& blockedUrl) {
@@ -994,9 +1040,11 @@ QString AnQstWebHostBase::loadDefaultBridgeBootstrapScript() const {
 
 void AnQstWebHostBase::setContextMenuEnabled(bool enabled) {
     m_contextMenuEnabled = enabled;
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view != nullptr) {
         m_view->setContextMenuEnabled(enabled);
     }
+#endif
 }
 
 void AnQstWebHostBase::setTextSelectionEnabled(bool enabled) {
@@ -1016,6 +1064,7 @@ void AnQstWebHostBase::setScrollbarsEnabled(bool enabled) {
 }
 
 void AnQstWebHostBase::applyTextSelectionPolicy() {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr || m_view->page() == nullptr) {
         return;
     }
@@ -1052,9 +1101,11 @@ void AnQstWebHostBase::applyTextSelectionPolicy() {
     } else {
         m_view->page()->runJavaScript(kEnableJs);
     }
+#endif
 }
 
 void AnQstWebHostBase::applyScrollbarPolicy() {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr || m_view->page() == nullptr) {
         return;
     }
@@ -1091,6 +1142,7 @@ void AnQstWebHostBase::applyScrollbarPolicy() {
     } else {
         m_view->page()->runJavaScript(kEnableJs);
     }
+#endif
 }
 
 void AnQstWebHostBase::setRemoteNavigationBlocked(bool blocked) {
@@ -1112,11 +1164,15 @@ void AnQstWebHostBase::executeDebugJavaScript(const QString& source) {
     }
     appendJsConsoleCommandHistoryEntry(source);
     appendJsConsoleLine(QStringLiteral("> %1").arg(source));
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr || m_view->page() == nullptr) {
         appendJsConsoleLine(QStringLiteral("[info] Embedded web view is unavailable."));
         return;
     }
     m_view->page()->runJavaScript(source);
+#else
+    appendJsConsoleLine(QStringLiteral("[info] Embedded web view is disabled for this widget build."));
+#endif
 }
 
 void AnQstWebHostBase::handleDebugShortcut() {
@@ -1124,6 +1180,15 @@ void AnQstWebHostBase::handleDebugShortcut() {
 }
 
 void AnQstWebHostBase::handleReattachRequested() {
+#if !ANQSTWEBBASE_USE_WEBENGINE
+    emitHostError(
+        QStringLiteral("HOST_WEBENGINE_DISABLED"),
+        QStringLiteral("debug"),
+        QStringLiteral("warn"),
+        true,
+        QStringLiteral("Embedded WebEngine support is disabled; keeping browser-host mode active."));
+    return;
+#endif
     if (m_debugState.host != AnQstAngularAppHost::Browser) {
         return;
     }
@@ -1271,6 +1336,19 @@ bool AnQstWebHostBase::applyDebugStateChange(const DebugState& previousState, co
         return false;
     }
     DebugState nextState = dialogResult.nextState;
+    bool openBrowser = dialogResult.openBrowser;
+#if !ANQSTWEBBASE_USE_WEBENGINE
+    if (nextState.host == AnQstAngularAppHost::Application) {
+        emitHostError(
+            QStringLiteral("HOST_WEBENGINE_DISABLED"),
+            QStringLiteral("debug"),
+            QStringLiteral("warn"),
+            true,
+            QStringLiteral("Embedded WebEngine support is disabled; using browser-host mode instead."));
+        nextState.host = AnQstAngularAppHost::Browser;
+        openBrowser = true;
+    }
+#endif
     nextState.resourceDir = normalizedDirectoryRoot(nextState.resourceDir);
     if (nextState.resourceDir.isEmpty()) {
         nextState.resourceDir = normalizedDirectoryRoot(QDir::currentPath());
@@ -1313,7 +1391,7 @@ bool AnQstWebHostBase::applyDebugStateChange(const DebugState& previousState, co
     if (nextState.host == AnQstAngularAppHost::Application) {
         ok = applyApplicationHostState(previousState, nextState);
     } else {
-        ok = applyBrowserHostState(previousState, nextState, dialogResult.openBrowser);
+        ok = applyBrowserHostState(previousState, nextState, openBrowser);
     }
     if (!ok) {
         return false;
@@ -1351,13 +1429,26 @@ bool AnQstWebHostBase::applyStartupBypassIfRequested() {
 
     const bool applied = applyDebugStateChange(m_debugState, dialogResult);
     if (applied) {
+#if ANQSTWEBBASE_USE_WEBENGINE
         m_bypassQWebEngineStartup = false;
+#endif
         m_startupBypassApplied = true;
     }
     return applied;
 }
 
 bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState, const DebugState& nextState) {
+#if !ANQSTWEBBASE_USE_WEBENGINE
+    Q_UNUSED(previousState);
+    Q_UNUSED(nextState);
+    emitHostError(
+        QStringLiteral("HOST_WEBENGINE_DISABLED"),
+        QStringLiteral("debug"),
+        QStringLiteral("warn"),
+        true,
+        QStringLiteral("Embedded WebEngine support is disabled; application-host mode is unavailable."));
+    return false;
+#else
     bool requiresServer = false;
     const QUrl entryUrl = resolveEntryPointForProvider(nextState, &requiresServer);
     if (requiresServer) {
@@ -1404,6 +1495,7 @@ bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState
     }
     setRemoteNavigationBlocked(true);
     return showEmbeddedView(entryUrl);
+#endif
 }
 
 bool AnQstWebHostBase::applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser) {
@@ -1574,6 +1666,7 @@ QUrl AnQstWebHostBase::resolveEntryPointForProvider(const DebugState& state, boo
 }
 
 bool AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (!initializeWebView()) {
         return false;
     }
@@ -1584,13 +1677,19 @@ bool AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
     emitOutputSnapshotIfReady();
     m_view->setUrl(targetUrl);
     return true;
+#else
+    Q_UNUSED(targetUrl);
+    return false;
+#endif
 }
 
 void AnQstWebHostBase::showBrowserPlaceholder(const QString& browserUrlText) {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view != nullptr) {
         m_view->setUrl(QUrl(QStringLiteral("about:blank")));
         m_view->setVisible(false);
     }
+#endif
     m_devPlaceholder->setVisible(true);
     m_reattachButton->setVisible(true);
     const QString escapedUrl = browserUrlText.toHtmlEscaped();
@@ -1661,11 +1760,13 @@ void AnQstWebHostBase::applyDebugBorderHint() {
     if (m_view == nullptr) {
         return;
     }
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (debugHint == QStringLiteral("true")) {
         m_view->setStyleSheet(QStringLiteral("border: 1px solid #6a1b9a;"));
         return;
     }
     m_view->setStyleSheet(QString());
+#endif
 }
 
 bool AnQstWebHostBase::enableDebug() {
@@ -1707,6 +1808,7 @@ void AnQstWebHostBase::registerHoverTarget(const QString& service, const QString
 }
 
 void AnQstWebHostBase::installDragDropEventFilter() {
+#if ANQSTWEBBASE_USE_WEBENGINE
     if (m_view == nullptr) {
         return;
     }
@@ -1721,6 +1823,7 @@ void AnQstWebHostBase::installDragDropEventFilter() {
         fp->installEventFilter(this);
         m_dragDropFilterInstalled = true;
     }
+#endif
 }
 
 bool AnQstWebHostBase::matchDropMimeType(const QMimeData* mime, QString* matchedMimeType) const {

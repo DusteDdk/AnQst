@@ -18,6 +18,7 @@ import {
   resolveAnQstSettings,
   resolveAnQstSpecPath,
   resolveAnQstUseSharedBaseWidget,
+  resolveAnQstUseWebEngine,
   resolveAnQstWidgetCategory,
   resolveAnQstWidgetName,
   runInstill
@@ -326,6 +327,7 @@ export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidge
     const configuredWidgetName = resolveAnQstWidgetName(cwd);
     const configuredTargets = resolveAnQstGenerateTargets(cwd);
     const useSharedBaseWidget = useSharedBaseWidgetOverride ?? resolveAnQstUseSharedBaseWidget(cwd);
+    const useWebEngine = resolveAnQstUseWebEngine(cwd);
     const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
     const preferredFrontendTarget = firstBrowserFrontendTarget(configuredTargets);
     const parsed = parseSpecFile(specPath);
@@ -339,13 +341,13 @@ export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidge
 
     resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
 
-    const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget });
+    const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget, useWebEngine });
     writeGeneratedOutputs(cwd, outputs);
     if (generationTargets.emitQWidget) {
       if (!useSharedBaseWidget) {
         installVendoredAnQstWebBase(cwd, parsed.widgetName);
       }
-      installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget });
+      installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget, useWebEngine });
     }
 
     const shouldRunAngularBuild = generationTargets.emitQWidget
@@ -391,7 +393,7 @@ export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidge
         console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
       } else {
         const widgetCategory = resolveAnQstWidgetCategory(cwd);
-        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory, useSharedBaseWidget });
+        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory, useSharedBaseWidget, useWebEngine });
         runDesignerPluginBuild(cwd, parsed.widgetName, useSharedBaseWidget);
         designerPluginBuilt = true;
       }
@@ -440,6 +442,7 @@ export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidge
           ? `External ${anqstWebBaseTargetName()}, see anqst --help for more info`
           : `Embedded in ${widgetClassName}`}`
       );
+      detailLines.push(`      - Embedded WebEngine: ${useWebEngine ? "Enabled" : "Disabled; browser-host mode only"}`);
       detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
       detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
       detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
