@@ -18,6 +18,11 @@ This directory is a future-facing documentation area for designing a reusable Qt
   - JavaScript stack traces are additive enrichment captured through an early `DocumentCreation` script and surfaced through the same signal when the renderer and JS engine stay alive long enough to produce them.
   - External-browser host mode is out of scope for this signal.
 
+## Headless and browser-host replay notes
+
+- `ANQST_BYPASS_QWEBENGINE=true` (also accepts `yes`, `on`, or `1`) defers embedded `QWebEngineView` startup and switches initial loading into browser-host mode. This is intended for headless or no-GPU environments that need the Qt host and WebSocket bridge without constructing WebEngine eagerly.
+- Development browser reconnects depend on the bridge replay invariant: WebSocket disconnect disables dispatch, the next handshake re-enables dispatch, and that rising edge snapshots stored `Output` values to the new client. Do not remove the `setDispatchEnabled(false)` / `setDispatchEnabled(true)` lifecycle without replacing the replay behavior.
+
 ## Documentation structure
 
 - `PHASE-1-Host-Base.md`  

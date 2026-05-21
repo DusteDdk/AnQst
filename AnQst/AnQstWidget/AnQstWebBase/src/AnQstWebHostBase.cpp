@@ -6,6 +6,7 @@
 #include "AngularHttpBaseServer.h"
 
 #include <QAuthenticator>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QContextMenuEvent>
 #include <QDir>
@@ -86,6 +87,17 @@ static void disableWebEngineSandboxForTrustedHost() {
         flags.append("--no-sandbox");
     }
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
+}
+
+static bool shouldBypassQWebEngineStartup() {
+    const QString rawValue = QProcessEnvironment::systemEnvironment()
+                                 .value(QStringLiteral("ANQST_BYPASS_QWEBENGINE"))
+                                 .trimmed()
+                                 .toLower();
+    return rawValue == QStringLiteral("true") ||
+           rawValue == QStringLiteral("yes") ||
+           rawValue == QStringLiteral("on") ||
+           rawValue == QStringLiteral("1");
 }
 
 static bool shouldEmitJavaScriptConsoleLevel(QWebEnginePage::JavaScriptConsoleMessageLevel level) {
@@ -290,7 +302,8 @@ private:
 
 AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     : QWidget(parent)
-    , m_view(new LocalWebView(this))
+    , m_layout(new QVBoxLayout(this))
+    , m_view(nullptr)
     , m_devPlaceholder(new QLabel(this))
     , m_reattachButton(new QPushButton(QStringLiteral("Reattach"), this))
     , m_webChannel(new QWebChannel(this))
@@ -305,23 +318,23 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_bridgeBootstrapInstalled(false)
     , m_developmentModeEnabled(false)
     , m_developmentModeAllowLan(false)
+    , m_contextMenuEnabled(true)
     , m_textSelectionEnabled(false)
     , m_scrollbarsEnabled(false)
     , m_debugState()
     , m_remoteNavigationBlocked(true)
+    , m_bypassQWebEngineStartup(shouldBypassQWebEngineStartup())
+    , m_startupBypassApplied(false)
     , m_activeDebugDialog(nullptr)
     , m_hoverThrottleTimer(new QTimer(this))
     , m_dragDropFilterInstalled(false)
 {
-    disableWebEngineSandboxForTrustedHost();
     setProperty("anqstBlockRemoteNavigation", true);
 
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_view);
-    layout->addWidget(m_devPlaceholder);
-    layout->addWidget(m_reattachButton);
-    setLayout(layout);
+    m_layout->setContentsMargins(0, 0, 0, 0);
+    m_layout->addWidget(m_devPlaceholder);
+    m_layout->addWidget(m_reattachButton);
+    setLayout(m_layout);
 
     m_devPlaceholder->setVisible(false);
     m_devPlaceholder->setStyleSheet(QStringLiteral("background-color: #2e7d32; color: #ffffff; font-weight: 600; padding: 12px;"));
@@ -335,51 +348,11 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     m_reattachButton->setObjectName(QStringLiteral("AnQstDevModeReattachButton"));
     connect(m_reattachButton, &QPushButton::clicked, this, &AnQstWebHostBase::handleReattachRequested);
 
-    m_view->setPage(new LocalOnlyWebPage(this));
-    auto* page = m_view->page();
-    page->setWebChannel(m_webChannel);
     setRemoteNavigationBlocked(true);
-    installBridgeBootstrapScript();
-    applyTextSelectionPolicy();
-    applyScrollbarPolicy();
     m_debugState.provider = AnQstWidgetResourceProvider::Qrc;
     m_debugState.host = AnQstAngularAppHost::Application;
     m_debugState.resourceUrl = QStringLiteral("http://localhost:4200/");
     m_debugState.resourceDir = QDir::currentPath();
-    applyDebugBorderHint();
-
-    connect(m_view, &QWebEngineView::loadFinished, this, &AnQstWebHostBase::handleLoadFinished);
-    connect(m_view, &QWebEngineView::renderProcessTerminated, this,
-            [this, page](QWebEnginePage::RenderProcessTerminationStatus terminationStatus, int exitCode) {
-                QStringList lines;
-                lines.append(QStringLiteral("WebEngine render process terminated."));
-                lines.append(QStringLiteral("Status: %1").arg(renderProcessTerminationStatusToString(terminationStatus)));
-                lines.append(QStringLiteral("Exit code: %1").arg(exitCode));
-                appendDetailValue(lines, QStringLiteral("Requested URL: "), page->requestedUrl().toString());
-                appendDetailValue(lines, QStringLiteral("Current URL: "), m_view->url().toString());
-                emitWebEngineError(QStringLiteral("webengine.render_process_terminated"), joinDetailLines(lines));
-            });
-    connect(page, &QWebEnginePage::authenticationRequired, this,
-            [this](const QUrl& requestUrl, QAuthenticator* authenticator) {
-                QStringList lines;
-                lines.append(QStringLiteral("WebEngine request requires HTTP authentication."));
-                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
-                if (authenticator != nullptr) {
-                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
-                }
-                emitWebEngineError(QStringLiteral("webengine.authentication_required"), joinDetailLines(lines));
-            });
-    connect(page, &QWebEnginePage::proxyAuthenticationRequired, this,
-            [this](const QUrl& requestUrl, QAuthenticator* authenticator, const QString& proxyHost) {
-                QStringList lines;
-                lines.append(QStringLiteral("WebEngine request requires proxy authentication."));
-                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
-                appendDetailValue(lines, QStringLiteral("Proxy host: "), proxyHost);
-                if (authenticator != nullptr) {
-                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
-                }
-                emitWebEngineError(QStringLiteral("webengine.proxy_authentication_required"), joinDetailLines(lines));
-            });
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, this, &AnQstWebHostBase::anQstBridge_outputUpdated);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeSlotInvocationRequested, this, &AnQstWebHostBase::anQstBridge_slotInvocationRequested);
     connect(m_bridgeFacade, &AnQstHostBridgeFacade::bridgeOutputUpdated, m_bridgeProxy, &AnQstBridgeProxy::anQstBridge_outputUpdated);
@@ -431,9 +404,93 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
             true,
             QStringLiteral("Development browser client detached."));
     });
+
+    if (!m_bypassQWebEngineStartup) {
+        initializeWebView();
+    }
+}
+
+AnQstWebHostBase::~AnQstWebHostBase() {
+    if (m_devServer != nullptr) {
+        disconnect(m_devServer, nullptr, this, nullptr);
+        m_devServer->setFacade(nullptr);
+        m_devServer->stop();
+    }
+    if (m_bridgeFacade != nullptr) {
+        m_bridgeFacade->setDispatchEnabled(false);
+    }
 }
 
 bool AnQstWebHostBase::installBridgeBootstrapScript(const QString& scriptSource, bool forceReinstall) {
+    if (!initializeWebView()) {
+        return false;
+    }
+    return installBridgeBootstrapScriptOnView(scriptSource, forceReinstall);
+}
+
+bool AnQstWebHostBase::initializeWebView() {
+    if (m_view != nullptr) {
+        return true;
+    }
+
+    disableWebEngineSandboxForTrustedHost();
+    m_view = new LocalWebView(this);
+    m_view->setContextMenuEnabled(m_contextMenuEnabled);
+    m_layout->insertWidget(0, m_view);
+
+    m_view->setPage(new LocalOnlyWebPage(this));
+    auto* page = m_view->page();
+    page->setWebChannel(m_webChannel);
+    setRemoteNavigationBlocked(m_remoteNavigationBlocked);
+
+    if (!installBridgeBootstrapScriptOnView(QString(), false)) {
+        return false;
+    }
+    applyTextSelectionPolicy();
+    applyScrollbarPolicy();
+    applyDebugBorderHint();
+    installDragDropEventFilter();
+
+    connect(m_view, &QWebEngineView::loadFinished, this, &AnQstWebHostBase::handleLoadFinished);
+    connect(m_view, &QWebEngineView::renderProcessTerminated, this,
+            [this, page](QWebEnginePage::RenderProcessTerminationStatus terminationStatus, int exitCode) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine render process terminated."));
+                lines.append(QStringLiteral("Status: %1").arg(renderProcessTerminationStatusToString(terminationStatus)));
+                lines.append(QStringLiteral("Exit code: %1").arg(exitCode));
+                appendDetailValue(lines, QStringLiteral("Requested URL: "), page->requestedUrl().toString());
+                appendDetailValue(lines, QStringLiteral("Current URL: "), m_view != nullptr ? m_view->url().toString() : QString());
+                emitWebEngineError(QStringLiteral("webengine.render_process_terminated"), joinDetailLines(lines));
+            });
+    connect(page, &QWebEnginePage::authenticationRequired, this,
+            [this](const QUrl& requestUrl, QAuthenticator* authenticator) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine request requires HTTP authentication."));
+                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
+                if (authenticator != nullptr) {
+                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
+                }
+                emitWebEngineError(QStringLiteral("webengine.authentication_required"), joinDetailLines(lines));
+            });
+    connect(page, &QWebEnginePage::proxyAuthenticationRequired, this,
+            [this](const QUrl& requestUrl, QAuthenticator* authenticator, const QString& proxyHost) {
+                QStringList lines;
+                lines.append(QStringLiteral("WebEngine request requires proxy authentication."));
+                appendDetailValue(lines, QStringLiteral("URL: "), requestUrl.toString());
+                appendDetailValue(lines, QStringLiteral("Proxy host: "), proxyHost);
+                if (authenticator != nullptr) {
+                    appendDetailValue(lines, QStringLiteral("Realm: "), authenticator->realm());
+                }
+                emitWebEngineError(QStringLiteral("webengine.proxy_authentication_required"), joinDetailLines(lines));
+            });
+
+    return true;
+}
+
+bool AnQstWebHostBase::installBridgeBootstrapScriptOnView(const QString& scriptSource, bool forceReinstall) {
+    if (m_view == nullptr || m_view->page() == nullptr) {
+        return false;
+    }
     if (m_bridgeBootstrapInstalled && !forceReinstall) {
         return true;
     }
@@ -541,8 +598,11 @@ bool AnQstWebHostBase::loadEntryPoint(const QString& entryPoint) {
     m_entryPoint = entryPoint;
     m_entryPointLoaded = false;
     emitOutputSnapshotIfReady();
+    if (m_bypassQWebEngineStartup) {
+        return applyStartupBypassIfRequested();
+    }
     if (!m_developmentModeEnabled) {
-        m_view->setUrl(targetUrl);
+        return showEmbeddedView(targetUrl);
     } else {
         m_entryPointLoaded = true;
         emitOutputSnapshotIfReady();
@@ -686,6 +746,9 @@ void AnQstWebHostBase::anQstBridge_resolveSlot(const QString& requestId, bool ok
 }
 
 void AnQstWebHostBase::handleLoadFinished(bool ok) {
+    if (m_view == nullptr || m_view->page() == nullptr) {
+        return;
+    }
     if (!ok) {
         QStringList lines;
         lines.append(QStringLiteral("Host failed to load entry point."));
@@ -930,7 +993,10 @@ QString AnQstWebHostBase::loadDefaultBridgeBootstrapScript() const {
 }
 
 void AnQstWebHostBase::setContextMenuEnabled(bool enabled) {
-    m_view->setContextMenuEnabled(enabled);
+    m_contextMenuEnabled = enabled;
+    if (m_view != nullptr) {
+        m_view->setContextMenuEnabled(enabled);
+    }
 }
 
 void AnQstWebHostBase::setTextSelectionEnabled(bool enabled) {
@@ -950,6 +1016,9 @@ void AnQstWebHostBase::setScrollbarsEnabled(bool enabled) {
 }
 
 void AnQstWebHostBase::applyTextSelectionPolicy() {
+    if (m_view == nullptr || m_view->page() == nullptr) {
+        return;
+    }
     static const QString kScriptName = QStringLiteral("AnQstDisableTextSelection");
     static const QString kDisableJs = QStringLiteral(
         "(function(){"
@@ -986,6 +1055,9 @@ void AnQstWebHostBase::applyTextSelectionPolicy() {
 }
 
 void AnQstWebHostBase::applyScrollbarPolicy() {
+    if (m_view == nullptr || m_view->page() == nullptr) {
+        return;
+    }
     static const QString kScriptName = QStringLiteral("AnQstDisableScrollbars");
     static const QString kDisableJs = QStringLiteral(
         "(function(){"
@@ -1040,6 +1112,10 @@ void AnQstWebHostBase::executeDebugJavaScript(const QString& source) {
     }
     appendJsConsoleCommandHistoryEntry(source);
     appendJsConsoleLine(QStringLiteral("> %1").arg(source));
+    if (m_view == nullptr || m_view->page() == nullptr) {
+        appendJsConsoleLine(QStringLiteral("[info] Embedded web view is unavailable."));
+        return;
+    }
     m_view->page()->runJavaScript(source);
 }
 
@@ -1254,6 +1330,33 @@ bool AnQstWebHostBase::applyDebugStateChange(const DebugState& previousState, co
     return true;
 }
 
+bool AnQstWebHostBase::applyStartupBypassIfRequested() {
+    if (m_startupBypassApplied) {
+        return true;
+    }
+    if (!m_bypassQWebEngineStartup) {
+        return true;
+    }
+    if (!m_contentRootSet || m_entryPoint.trimmed().isEmpty()) {
+        return false;
+    }
+
+    DebugDialogResult dialogResult;
+    dialogResult.accepted = true;
+    dialogResult.nextState.provider = AnQstWidgetResourceProvider::Qrc;
+    dialogResult.nextState.host = AnQstAngularAppHost::Browser;
+    dialogResult.nextState.resourceUrl = m_debugState.resourceUrl;
+    dialogResult.nextState.resourceDir = m_debugState.resourceDir;
+    dialogResult.openBrowser = false;
+
+    const bool applied = applyDebugStateChange(m_debugState, dialogResult);
+    if (applied) {
+        m_bypassQWebEngineStartup = false;
+        m_startupBypassApplied = true;
+    }
+    return applied;
+}
+
 bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState, const DebugState& nextState) {
     bool requiresServer = false;
     const QUrl entryUrl = resolveEntryPointForProvider(nextState, &requiresServer);
@@ -1290,8 +1393,7 @@ bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState
             return false;
         }
         setRemoteNavigationBlocked(false);
-        showEmbeddedView(proxyUrl);
-        return true;
+        return showEmbeddedView(proxyUrl);
     }
 
     if (!entryUrl.isValid()) {
@@ -1301,8 +1403,7 @@ bool AnQstWebHostBase::applyApplicationHostState(const DebugState& previousState
         m_devServer->stop();
     }
     setRemoteNavigationBlocked(true);
-    showEmbeddedView(entryUrl);
-    return true;
+    return showEmbeddedView(entryUrl);
 }
 
 bool AnQstWebHostBase::applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser) {
@@ -1472,18 +1573,24 @@ QUrl AnQstWebHostBase::resolveEntryPointForProvider(const DebugState& state, boo
     return QUrl::fromLocalFile(entryInfo.absoluteFilePath());
 }
 
-void AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
+bool AnQstWebHostBase::showEmbeddedView(const QUrl& targetUrl) {
+    if (!initializeWebView()) {
+        return false;
+    }
     m_devPlaceholder->setVisible(false);
     m_reattachButton->setVisible(false);
     m_view->setVisible(true);
     m_entryPointLoaded = false;
     emitOutputSnapshotIfReady();
     m_view->setUrl(targetUrl);
+    return true;
 }
 
 void AnQstWebHostBase::showBrowserPlaceholder(const QString& browserUrlText) {
-    m_view->setUrl(QUrl(QStringLiteral("about:blank")));
-    m_view->setVisible(false);
+    if (m_view != nullptr) {
+        m_view->setUrl(QUrl(QStringLiteral("about:blank")));
+        m_view->setVisible(false);
+    }
     m_devPlaceholder->setVisible(true);
     m_reattachButton->setVisible(true);
     const QString escapedUrl = browserUrlText.toHtmlEscaped();
@@ -1551,6 +1658,9 @@ void AnQstWebHostBase::applyDebugBorderHint() {
                                   .value(QStringLiteral("ANQST_WIDGET_DEBUG"))
                                   .trimmed()
                                   .toLower();
+    if (m_view == nullptr) {
+        return;
+    }
     if (debugHint == QStringLiteral("true")) {
         m_view->setStyleSheet(QStringLiteral("border: 1px solid #6a1b9a;"));
         return;
@@ -1597,6 +1707,9 @@ void AnQstWebHostBase::registerHoverTarget(const QString& service, const QString
 }
 
 void AnQstWebHostBase::installDragDropEventFilter() {
+    if (m_view == nullptr) {
+        return;
+    }
     if (m_dragDropFilterInstalled) {
         return;
     }

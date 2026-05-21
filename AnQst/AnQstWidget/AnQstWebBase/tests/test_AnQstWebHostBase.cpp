@@ -49,6 +49,29 @@ using namespace ANQST_WEBBASE_NAMESPACE;
 
 namespace {
 
+class ScopedEnvironmentVariable final {
+public:
+    ScopedEnvironmentVariable(const char* name, const QByteArray& value)
+        : m_name(name)
+        , m_previousValue(qgetenv(name))
+        , m_hadPreviousValue(!m_previousValue.isNull()) {
+        qputenv(m_name.constData(), value);
+    }
+
+    ~ScopedEnvironmentVariable() {
+        if (m_hadPreviousValue) {
+            qputenv(m_name.constData(), m_previousValue);
+        } else {
+            qunsetenv(m_name.constData());
+        }
+    }
+
+private:
+    QByteArray m_name;
+    QByteArray m_previousValue;
+    bool m_hadPreviousValue;
+};
+
 class DummyBridge final : public QObject {
     Q_OBJECT
 public:
@@ -304,6 +327,43 @@ TEST_CASE("text selection and scrollbar policies default to disabled", "[host][v
     CHECK(scripts.findScript(kScriptName).isNull());
     host.setScrollbarsEnabled(false);
     CHECK_FALSE(scripts.findScript(kScriptName).isNull());
+}
+
+TEST_CASE("startup bypass env switches host into browser qrc mode without creating webengine view", "[host][debug][env]") {
+    ensureApp();
+    ScopedEnvironmentVariable bypassEnv("ANQST_BYPASS_QWEBENGINE", QByteArrayLiteral("YES"));
+
+    AnQstWebHostBase host;
+    QSignalSpy debugSpy(&host, &AnQstWebHostBase::developmentModeEnabled);
+
+    auto* initialView = host.findChild<QWebEngineView*>();
+    CHECK(initialView == nullptr);
+
+    REQUIRE(host.setContentRoot(QStringLiteral("qrc:/qtwebchannel")));
+    REQUIRE(host.loadEntryPoint(QStringLiteral("qwebchannel.js")));
+
+    CHECK(debugSpy.count() == 1);
+    CHECK(host.isDevelopmentModeEnabled());
+    CHECK_FALSE(host.developmentModeUrl().isEmpty());
+
+    auto* placeholder = host.findChild<QLabel*>(QStringLiteral("AnQstDevModePlaceholder"));
+    auto* reattachButton = host.findChild<QPushButton*>(QStringLiteral("AnQstDevModeReattachButton"));
+    REQUIRE(placeholder != nullptr);
+    REQUIRE(reattachButton != nullptr);
+    CHECK_FALSE(placeholder->isHidden());
+    CHECK_FALSE(reattachButton->isHidden());
+    CHECK(host.findChild<QWebEngineView*>() == nullptr);
+}
+
+TEST_CASE("false-like bypass env preserves default embedded webengine startup", "[host][debug][env]") {
+    ensureApp();
+    ScopedEnvironmentVariable bypassEnv("ANQST_BYPASS_QWEBENGINE", QByteArrayLiteral("off"));
+
+    AnQstWebHostBase host;
+
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    CHECK_FALSE(host.isDevelopmentModeEnabled());
 }
 
 TEST_CASE("bridge bootstrap script failure emits structured error", "[host][bridge][bootstrap]") {

@@ -18,6 +18,7 @@ class QLabel;
 class QMimeData;
 class QPushButton;
 class QTimer;
+class QVBoxLayout;
 class QWebChannel;
 
 namespace ANQST_WEBBASE_NAMESPACE {
@@ -53,6 +54,7 @@ public:
     Q_ENUM(AnQstAngularAppHost)
 
     explicit AnQstWebHostBase(QWidget* parent = nullptr);
+    ~AnQstWebHostBase() override;
 
     static constexpr int kMaxQueuedSlotInvocations = 1024;
 
@@ -153,11 +155,14 @@ private:
     bool applyDebugStateChange(const DebugState& previousState, const DebugDialogResult& dialogResult);
     bool applyApplicationHostState(const DebugState& previousState, const DebugState& nextState);
     bool applyBrowserHostState(const DebugState& previousState, const DebugState& nextState, bool openBrowser);
+    bool applyStartupBypassIfRequested();
     bool configureServerForProvider(const DebugState& nextState);
     bool ensureDirectoryProviderValid(const QString& directoryInput, QString* normalizedRoot = nullptr) const;
     bool ensureHttpProviderValid(const QString& urlText, QUrl* normalizedUrl = nullptr) const;
     QUrl resolveEntryPointForProvider(const DebugState& state, bool* requiresServer) const;
-    void showEmbeddedView(const QUrl& targetUrl);
+    bool initializeWebView();
+    bool installBridgeBootstrapScriptOnView(const QString& scriptSource, bool forceReinstall);
+    bool showEmbeddedView(const QUrl& targetUrl);
     void showBrowserPlaceholder(const QString& browserUrl);
     bool openUrlInBrowser(const QString& urlText) const;
     QString normalizedDirectoryRoot(const QString& directoryInput) const;
@@ -187,6 +192,7 @@ private:
     QVariant deserializeMimePayload(const QMimeData* mime, const QString& mimeType);
     void dispatchHoverThrottle();
 
+    QVBoxLayout* m_layout;
     LocalWebView* m_view;
     QLabel* m_devPlaceholder;
     QPushButton* m_reattachButton;
@@ -205,11 +211,14 @@ private:
     bool m_bridgeBootstrapInstalled;
     bool m_developmentModeEnabled;
     bool m_developmentModeAllowLan;
+    bool m_contextMenuEnabled;
     bool m_textSelectionEnabled;
     bool m_scrollbarsEnabled;
     QString m_developmentModeUrl;
     DebugState m_debugState;
     bool m_remoteNavigationBlocked;
+    bool m_bypassQWebEngineStartup;
+    bool m_startupBypassApplied;
     QStringList m_jsConsoleLines;
     QStringList m_jsConsoleCommandHistory;
     AnQstWidgetDebugDialog* m_activeDebugDialog;
