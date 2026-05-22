@@ -6,8 +6,13 @@ import path from "node:path";
 import { parseSpecFile } from "../src/parser";
 import { PNG } from "pngjs";
 import { generateOutputs, installQtDesignerPluginCMake, installQtIntegrationCMake } from "../src/emit";
+import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "../src/abi-stamp";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function createSolidPng(r: number, g: number, b: number, a = 255): Buffer {
   const png = new PNG({ width: 1, height: 1 });
@@ -96,7 +101,7 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetWidget\.h"/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /#include "CdWidgetTypes\.h"/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidget.h"], /<AnQst_version>/);
-  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class CdWidgetWidget : public anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::AnQstWebHostBase/);
+  assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], new RegExp(`class CdWidgetWidget : public ${escapeRegExp(anqstWebBaseNamespaceName())}::AnQstWebHostBase`));
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /class handle/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /handle handle;/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /void validate\(const ValidateHandler& handler\) const;/);
@@ -136,13 +141,13 @@ test("generateOutputs switches QWidget CMake between shared and vendored WebBase
   const vendoredCmake = vendored["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
   const vendoredWithoutWebEngineCmake = vendoredWithoutWebEngine["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"];
 
-  assert.match(sharedCmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+  assert.match(sharedCmake, new RegExp(`Target '${escapeRegExp(anqstWebBaseTargetName())}' is required before adding generated widget library CdWidgetWidget`));
   assert.doesNotMatch(sharedCmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
   assert.match(sharedCmake, /ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "ON"/);
   assert.match(vendoredCmake, /set\(ANQST_GENERATED_WEBBASE_DIR "\$\{CMAKE_CURRENT_SOURCE_DIR\}\/AnQstWebBase"\)/);
   assert.match(vendoredCmake, /add_subdirectory\("\$\{ANQST_GENERATED_WEBBASE_DIR\}" "\$\{CMAKE_CURRENT_BINARY_DIR\}\/anqstwebbase"\)/);
   assert.match(vendoredCmake, /ANQSTWEBBASE_USE_WEBENGINE ON/);
-  assert.match(vendoredCmake, /anqstwebhost(?:_local_\d+|_[a-f0-9]{64})/);
+  assert.match(vendoredCmake, new RegExp(escapeRegExp(anqstWebBaseTargetName())));
   assert.match(vendoredWithoutWebEngineCmake, /ANQSTWEBBASE_USE_WEBENGINE OFF/);
   assert.match(vendoredWithoutWebEngineCmake, /ANQSTWEBBASE_TARGET_USES_WEBENGINE STREQUAL "OFF"/);
   assert.doesNotMatch(vendoredWithoutWebEngineCmake, /QWebEngine|WebEngineWidgets/);
@@ -209,8 +214,8 @@ declare namespace StructuredWidget {
   assert.match(cppWidget, /inline QVariant encodeAnQstStructured_Draft/);
   assert.match(cppWidget, /inline Result decodeAnQstStructured_Result/);
   assert.match(cppWidget, /#include "AnQstBase93\.h"/);
-  assert.match(cppWidget, /anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::anqstBase93Encode\(/);
-  assert.match(cppWidget, /anqstwebbase(?:_local_\d+|_[a-f0-9]{64})::anqstBase93Decode\(/);
+  assert.match(cppWidget, new RegExp(`${escapeRegExp(anqstWebBaseNamespaceName())}::anqstBase93Encode\\(`));
+  assert.match(cppWidget, new RegExp(`${escapeRegExp(anqstWebBaseNamespaceName())}::anqstBase93Decode\\(`));
   assert.doesNotMatch(cppWidget, /inline int base93AlphabetIndex/);
   assert.doesNotMatch(cppWidget, /inline std::string base93Encode/);
   assert.match(cppWidget, /const Draft draft = decodeAnQstStructured_Draft\(args\.value\(0\)\)/);

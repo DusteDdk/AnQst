@@ -89,7 +89,7 @@ function isSubPath(parentPath: string, childPath: string): boolean {
 function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProjectSettings {
   if (!fs.existsSync(settingsPath)) {
     throw new VerifyError(
-      `Missing AnQst settings file '${normalizeSlashes(path.relative(cwd, settingsPath))}'. Run 'anqst instill <WidgetName>' first.`
+      `Missing AnQst settings file '${normalizeSlashes(path.relative(cwd, settingsPath))}'. Run 'npx anqst instill <WidgetName>' first.`
     );
   }
   const raw = readJsonFile<unknown>(settingsPath);
@@ -168,7 +168,7 @@ function readAnQstSettingsFromPath(cwd: string, settingsPath: string): AnQstProj
 function resolveSettingsPathFromPackage(cwd: string, packageJson: PackageJsonLike): string {
   const settingsRef = packageJson.AnQst;
   if (settingsRef === undefined) {
-    throw new VerifyError("Missing package.json key 'AnQst'. Run 'anqst instill <WidgetName>' first.");
+    throw new VerifyError("Missing package.json key 'AnQst'. Run 'npx anqst instill <WidgetName>' first.");
   }
   if (typeof settingsRef !== "string" || settingsRef.trim().length === 0) {
     throw new VerifyError("Invalid package.json key 'AnQst': expected non-empty string path to settings JSON.");
@@ -185,8 +185,8 @@ function buildAnQstDirectoryReadme(widgetName: string): string {
     "## Files",
     "",
     `- \`${anqstSpecFileName(widgetName)}\`: AnQst widget spec source.`,
-    `- \`${anqstSettingsFileName(widgetName)}\`: project-local AnQst configuration used by \`anqst build\`.`,
-    "- `generated/`: deterministic build output roots managed by `anqst build`.",
+    `- \`${anqstSettingsFileName(widgetName)}\`: project-local AnQst configuration used by \`npx anqst build\`.`,
+    "- `generated/`: deterministic build output roots managed by `npx anqst build`.",
     "",
     "## Regeneration",
     "",
@@ -246,7 +246,7 @@ function updateTsConfig(cwd: string, widgetName: string): void {
 function validateWidgetName(widgetName: string): string {
   const trimmed = widgetName.trim();
   if (trimmed.length === 0) {
-    throw new VerifyError("Usage: anqst instill <WidgetName>");
+    throw new VerifyError("Usage: npx anqst instill <WidgetName>");
   }
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) {
     throw new VerifyError("Invalid widget name: expected a TypeScript identifier for namespace generation.");

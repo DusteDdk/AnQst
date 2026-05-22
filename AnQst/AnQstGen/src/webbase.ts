@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveAnQstWebBaseAbiHashStamp } from "./abi-hash";
+import { anqstWebBaseAbiStamp, anqstWebBaseNamespaceName } from "./abi-stamp";
 
 export const ANQST_WEBBASE_DIR_NAME = "AnQstWebBase";
 
@@ -78,7 +78,7 @@ export function copyAnQstWebBaseTree(sourceDir: string, targetDir: string): void
     }
   }
 
-  writeAnQstWebBaseAbiStamp(targetDir, resolveAnQstWebBaseAbiHashStamp());
+  writeAnQstWebBaseAbiStamp(targetDir, anqstWebBaseAbiStamp());
 }
 
 export function installAnQstWebBaseTree(targetDir: string): void {
@@ -89,7 +89,7 @@ export function installAnQstWebBaseTree(targetDir: string): void {
 export function writeAnQstWebBaseAbiStamp(targetDir: string, stamp: string): void {
   fs.writeFileSync(
     path.join(targetDir, "AnQstWebBaseAbi.cmake"),
-    `set(ANQST_WEBBASE_ABI_HASH_STAMP "${stamp}")\n`,
+    `set(ANQST_WEBBASE_ABI_STAMP "${stamp}")\n`,
     "utf8"
   );
   fs.writeFileSync(
@@ -97,8 +97,8 @@ export function writeAnQstWebBaseAbiStamp(targetDir: string, stamp: string): voi
     [
       "#pragma once",
       "",
-      `#define ANQST_WEBBASE_ABI_HASH_STAMP "${stamp}"`,
-      `#define ANQST_WEBBASE_NAMESPACE anqstwebbase${stamp}`,
+      `#define ANQST_WEBBASE_ABI_STAMP "${stamp}"`,
+      `#define ANQST_WEBBASE_NAMESPACE ${anqstWebBaseNamespaceName(stamp)}`,
       ""
     ].join("\n"),
     "utf8"

@@ -1,5 +1,5 @@
 import { emitBase93Decoder, emitBase93Encoder } from "./base93";
-import { anqstWebBaseNamespaceName } from "./abi-hash";
+import { anqstWebBaseNamespaceName } from "./abi-stamp";
 import {
   sanitizeIdentifier,
   stripAnQstType,

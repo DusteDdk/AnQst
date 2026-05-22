@@ -4,7 +4,7 @@
 
 `Examples/example-qt-app/lib/widgets/CdEntryEditor/AnQst/generated/`
 
-**Recorded generator stamp:** `Built by AnQst 57d0492_dirty_build_2` (prepended via `withBuildStamp` in `AnQstGen/src/emit.ts`).
+**Recorded generator stamp:** generated artifacts are prepended with the AnQstGen package version via `withBuildStamp` in `AnQstGen/src/emit.ts`.
 
 **Central orchestration:** `generateOutputs` in `AnQstGen/src/emit.ts` wires TypeScript, C++, and optional Node outputs; `buildBoundaryCodecCatalog` in `AnQstGen/src/boundary-codecs.ts` feeds boundary-specific encode/decode emission for both TS and C++ (`renderTsBoundaryCodecHelpers`, `renderCppBoundaryCodecHelpers` from `AnQstGen/src/boundary-codec-render.ts`, invoked from `emit.ts`).
 
@@ -27,7 +27,7 @@
 
 - **Role:** NPM package manifest for the generated Angular library; `exports` map entrypoints for types and runtime.
 - **Verdict:** **Pass.** Matches `renderNpmPackage` (`emit.ts`). `anqst.widget` / `anqst.services` metadata matches the spec root.
-- **Implementation:** `renderNpmPackage` (`emit.ts` ~2038+); stamp via `withBuildStamp` for JSON (`emit.ts` ~1989–2007).
+- **Implementation:** `renderNpmPackage` (`emit.ts` ~2038+); package-version stamp via `withBuildStamp` for JSON (`emit.ts` ~1989–2007).
 
 ### `index.ts`
 
@@ -101,7 +101,7 @@
 
 ### `CMakeLists.txt`
 
-- **Role:** `CdEntryEditorWidget` library target, MOC/RCC, link to `anqstwebhostbase`, public include dir.
+- **Role:** `CdEntryEditorWidget` library target, MOC/RCC, link to the version-stamped AnQstWebBase target, public include dir.
 - **Verdict:** **Pass** — matches §4.4 “widget library + MOC/autogen”.
 - **Implementation:** `renderCMake` (`emit.ts` ~1924+).
 

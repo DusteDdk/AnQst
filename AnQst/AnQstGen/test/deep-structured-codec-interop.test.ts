@@ -213,18 +213,7 @@ declare namespace DeepWidget {
   );
 
   const parsed = parseSpecFile(specPath);
-  const previousAbiStamp = process.env.ANQST_WEBBASE_ABI_HASH_STAMP;
-  process.env.ANQST_WEBBASE_ABI_HASH_STAMP = "_local_0";
-  let outputs: ReturnType<typeof generateOutputs>;
-  try {
-    outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
-  } finally {
-    if (previousAbiStamp === undefined) {
-      delete process.env.ANQST_WEBBASE_ABI_HASH_STAMP;
-    } else {
-      process.env.ANQST_WEBBASE_ABI_HASH_STAMP = previousAbiStamp;
-    }
-  }
+  const outputs = generateOutputs(parsed, { emitAngularService: true, emitQWidget: true, emitNodeExpressWs: false });
   const tsCodec = buildTsDraftCodec(outputs["frontend/DeepWidget_Angular/services.ts"]);
   const headerSource = outputs["backend/cpp/qt/DeepWidget_widget/include/DeepWidgetTypes.h"];
   const widgetHeaderSource = outputs["backend/cpp/qt/DeepWidget_widget/include/DeepWidgetWidget.h"];

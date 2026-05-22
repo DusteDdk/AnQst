@@ -8,11 +8,12 @@ import { runClean, runCommand, runGenerate, runVerify } from "../src/app";
 import { ANQST_LAYOUT_VERSION } from "../src/layout";
 import { getProgramDiagnostics } from "../src/program";
 import { resolveAnQstUseSharedBaseWidget, resolveAnQstUseWebEngine } from "../src/project";
+import { anqstWebBaseTargetName } from "../src/abi-stamp";
+import { readAnQstPackageVersion } from "../src/package-version";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 const defaultGenerateTargets = ["QWidget", "AngularService", "VanillaTS", "VanillaJS", "node_express_ws"];
 const anqstGenRoot = path.resolve(__dirname, "../..");
-const activeStampPath = path.join(anqstGenRoot, ".anqstgen-version-active.json");
 
 interface SettingsShape {
   layoutVersion: number;
@@ -24,23 +25,8 @@ interface SettingsShape {
   UseWebEngine?: unknown;
 }
 
-function withActiveStamp(stamp: string | null, fn: () => void): void {
-  const existed = fs.existsSync(activeStampPath);
-  const previous = existed ? fs.readFileSync(activeStampPath, "utf8") : "";
-  try {
-    if (stamp === null) {
-      fs.rmSync(activeStampPath, { force: true });
-    } else {
-      fs.writeFileSync(activeStampPath, `${JSON.stringify({ active: stamp }, null, 2)}\n`, "utf8");
-    }
-    fn();
-  } finally {
-    if (existed) {
-      fs.writeFileSync(activeStampPath, previous, "utf8");
-    } else {
-      fs.rmSync(activeStampPath, { force: true });
-    }
-  }
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function withTempProject(fn: (projectDir: string) => void): void {
@@ -254,7 +240,7 @@ test("help option exits with status 0 and prints command list", () => {
   const code = runCommand("--help", undefined);
   console.log = originalLog;
   assert.equal(code, 0);
-  assert.match(captured, /anqst version /);
+  assert.match(captured, new RegExp(`anqst version ${escapeRegExp(readAnQstPackageVersion())}`));
   assert.match(captured, /Commands:/);
   assert.match(captured, /instill <WidgetName>/);
   assert.match(captured, /-v, --version/);
@@ -269,7 +255,7 @@ test("version option exits with status 0 and prints version", () => {
   const code = runCommand("--version", undefined);
   console.log = originalLog;
   assert.equal(code, 0);
-  assert.match(captured, /^anqst version /);
+  assert.match(captured, new RegExp(`^anqst version ${escapeRegExp(readAnQstPackageVersion())}$`));
 });
 
 test("writeSharedBaseWidget copies bundled sources and refuses overwrite", () => {
@@ -316,6 +302,23 @@ test("package root exposes AnQst type declarations", () => {
 test("package manifest includes AnQstWebBase distributable files", () => {
   const packageJson = readJsonFile<{ files?: string[] }>(path.join(anqstGenRoot, "package.json"));
   assert.ok(packageJson.files?.includes("AnQstWebBase/**"));
+  assert.ok(packageJson.files?.includes("Building_Your_Widget.md"));
+});
+
+test("man command prints packaged widget manual when stdout is not interactive", () => {
+  const originalLog = console.log;
+  let captured = "";
+  console.log = (...args: unknown[]) => {
+    captured = args.map((arg) => String(arg)).join(" ");
+  };
+  try {
+    const code = runCommand("man", undefined);
+    assert.equal(code, 0);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.match(captured, /# Building Your Widget/);
+  assert.match(captured, /npx anqst build/);
 });
 
 test("instill creates AnQst root, settings, hooks, and tsconfig mapping", () => {
@@ -424,9 +427,9 @@ test("build defaults useSharedBaseWidget to shared behavior", () => {
     const cmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
 
     assert.match(captured, /QWidget name: CdWidgetWidget/);
-    assert.match(captured, /AnQstWebBase module: External anqstwebhost(?:_local_\d+|_[a-f0-9]{64}), see anqst --help for more info/);
+    assert.match(captured, new RegExp(`AnQstWebBase module: External ${escapeRegExp(anqstWebBaseTargetName())}, see npx anqst --help for more info`));
     assert.equal(fs.existsSync(path.join(widgetRoot, "AnQstWebBase")), false);
-    assert.match(cmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+    assert.match(cmake, new RegExp(`Target '${escapeRegExp(anqstWebBaseTargetName())}' is required before adding generated widget library CdWidgetWidget`));
     assert.doesNotMatch(cmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
   });
 });
@@ -538,7 +541,7 @@ test("build --useShared overrides useSharedBaseWidget false", () => {
     const widgetCmake = fs.readFileSync(path.join(widgetRoot, "CMakeLists.txt"), "utf8");
 
     assert.equal(fs.existsSync(path.join(widgetRoot, "AnQstWebBase")), false);
-    assert.match(widgetCmake, /Target 'anqstwebhost(?:_local_\d+|_[a-f0-9]{64})' is required before adding generated widget library CdWidgetWidget/);
+    assert.match(widgetCmake, new RegExp(`Target '${escapeRegExp(anqstWebBaseTargetName())}' is required before adding generated widget library CdWidgetWidget`));
     assert.doesNotMatch(widgetCmake, /CMAKE_CURRENT_SOURCE_DIR\/AnQstWebBase/);
   });
 });
@@ -566,22 +569,20 @@ test("build command advertises direct C++ handoff and emits wrapper integration 
   });
 });
 
-test("build command reads active stamp from generator workspace", () => {
-  withActiveStamp("6af0b49_dirty_build_3", () => {
-    withTempProject((projectDir) => {
-      configureInstilledProject(projectDir);
-      const originalLog = console.log;
-      let captured = "";
-      console.log = (...args: unknown[]) => {
-        captured = args.map((arg) => String(arg)).join(" ");
-      };
-      const code = runCommand("build", undefined);
-      console.log = originalLog;
+test("build command reports package version", () => {
+  withTempProject((projectDir) => {
+    configureInstilledProject(projectDir);
+    const originalLog = console.log;
+    let captured = "";
+    console.log = (...args: unknown[]) => {
+      captured = args.map((arg) => String(arg)).join(" ");
+    };
+    const code = runCommand("build", undefined);
+    console.log = originalLog;
 
-      assert.equal(code, 0);
-      assert.match(captured, /anqst version 6af0b49_dirty_build_3/);
-      assert.equal(fs.existsSync(path.join(projectDir, ".anqst-build-counts.json")), false);
-    });
+    assert.equal(code, 0);
+    assert.match(captured, new RegExp(`anqst version ${escapeRegExp(readAnQstPackageVersion())}`));
+    assert.equal(fs.existsSync(path.join(projectDir, ".anqst-build-counts.json")), false);
   });
 });
 

@@ -11,7 +11,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../../AnQstWidg
 include(AnQstQt)
 anqst_find_qt_components(Core Widgets Network WebEngineWidgets WebChannel)
 
-# Provides anqstwebhostbase target required by generated widget CMake.
+# Provides the version-stamped AnQstWebBase target required by generated widget CMake.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../AnQstWidget/AnQstWebBase" "${CMAKE_CURRENT_BINARY_DIR}/anqstwebbase")
 
 # Uses already-generated widget sources from torture/AnQst/generated.

@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { PNG } from "pngjs";
-import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "./abi-hash";
+import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "./abi-stamp";
+import { readAnQstPackageVersion } from "./package-version";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
 import {
   anqstGeneratedRootDir,
@@ -2063,31 +2064,8 @@ function normalizeSlashes(value: string): string {
   return value.split(path.sep).join("/");
 }
 
-function resolveActiveBuildStamp(): string {
-  const fromEnv = process.env.ANQST_BUILD_STAMP?.trim();
-  if (fromEnv && fromEnv.length > 0) {
-    return fromEnv;
-  }
-  const activePath = path.resolve(__dirname, "..", "..", ".anqstgen-version-active.json");
-  if (!fs.existsSync(activePath)) {
-    return "";
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
-    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
-      return parsed.active.trim();
-    }
-  } catch {
-    return "";
-  }
-  return "";
-}
-
 function withBuildStamp(relativePath: string, content: string): string {
-  const stamp = resolveActiveBuildStamp();
-  if (!stamp) {
-    return content;
-  }
+  const stamp = readAnQstPackageVersion();
   const marker = `Built by AnQst ${stamp}`;
   const rel = normalizeSlashes(relativePath);
   const lower = rel.toLowerCase();
@@ -2122,7 +2100,7 @@ function renderEmbeddedQrc(widgetName: string, embeddedWebFiles: string[]): stri
   lines.push("<RCC>");
   lines.push(`    <qresource prefix="/${widgetName.toLowerCase()}">`);
   if (files.length === 0) {
-    lines.push("        <!-- anqst build will populate embedded web assets under webapp/ -->");
+    lines.push("        <!-- npx anqst build will populate embedded web assets under webapp/ -->");
   }
   for (const relPath of files) {
     lines.push(`        <file alias="${escapeXml(relPath)}">webapp/${escapeXml(relPath)}</file>`);
@@ -6170,7 +6148,7 @@ set(ANQST_WIDGET_DIR "\${CMAKE_CURRENT_LIST_DIR}/..")
 set(ANQST_WEBBASE_DIR "${defaultWebBaseDir}" CACHE PATH "Path to ${ANQST_WEBBASE_DIR_NAME} source directory")
 
 if(NOT EXISTS "\${ANQST_WIDGET_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "Missing generated widget CMake project at \${ANQST_WIDGET_DIR}. Run 'anqst build' first.")
+    message(FATAL_ERROR "Missing generated widget CMake project at \${ANQST_WIDGET_DIR}. Run 'npx anqst build' first.")
 endif()
 
 if(NOT ANQST_WEBBASE_DIR)

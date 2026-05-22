@@ -2,6 +2,10 @@
 
 TypeScript implementation of the `anqst` CLI generator package.
 
+## CLI and build instructions
+
+CLI and build instructions are found in [Building_Your_Widget.md](Building_Your_Widget.md).
+
 ## Build locally
 
 ```bash
@@ -19,7 +23,7 @@ Or with npm link during development:
 
 ```bash
 npm link
-anqst <command> [args]
+npx anqst <command> [args]
 ```
 
 ## In-project contract
@@ -53,7 +57,7 @@ Settings file (`./AnQst/<WidgetName>.settings.json`) owns project-local AnQst co
 
 ## CLI commands
 
-- `anqst instill <WidgetName>`
+- `npx anqst instill <WidgetName>`
   - Initializes `./AnQst`.
   - Creates:
     - `./AnQst/<WidgetName>.AnQst.d.ts`
@@ -76,11 +80,11 @@ Available generate targets:
   - `QWidget`
   - `node_express_ws`
 
-- `anqst test`
+- `npx anqst test`
   - Loads settings from `package.json.AnQst`.
   - Verifies the configured spec.
 
-- `anqst build [--designerplugin[=true|false]]`
+- `npx anqst build [--designerplugin[=true|false]]`
   - Loads settings from `package.json.AnQst`.
   - Verifies spec and regenerates selected targets.
   - Writes only under `./AnQst/generated`.
@@ -88,23 +92,23 @@ Available generate targets:
   - If `QWidget` is enabled and a browser build output is present under project `dist/`:
     - embeds built web assets into generated Qt widget `webapp/`.
   - If `QWidget` is enabled and `angular.json` exists:
-    - `anqst build` may invoke a production Angular build before embedding.
+    - `npx anqst build` may invoke a production Angular build before embedding.
   - Browser bundle discovery is frontend-profile-neutral: Angular and Vanilla browser outputs are both expected to produce a dist tree containing `index.html`.
   - Generated Qt integration CMake consumes the existing `./AnQst/generated` widget tree and fails fast if the required generated files are missing.
-  - Downstream CMake no longer invokes `npm`, `npx`, or `anqst`; run `anqst build` first, then build C++ against the generated tree.
+  - Downstream CMake no longer invokes `npm`, `npx`, or `anqst`; run `npx anqst build` first, then build C++ against the generated tree.
   - If `--designerplugin` is enabled:
     - requires `ANQST_WEBBASE_DIR`
     - emits plugin sources in `./AnQst/generated/backend/cpp/qt/<WidgetName>_widget/designerPlugin`
     - runs CMake configure/build in plugin `build/` subdir.
 
-- `anqst generate <specFile>`
+- `npx anqst generate <specFile>`
   - Verifies explicit spec and emits selected outputs.
   - Uses package settings targets when package `AnQst` key exists, else default targets.
 
-- `anqst verify <specFile>`
+- `npx anqst verify <specFile>`
   - Verifies explicit spec only.
 
-- `anqst clean <path> [-f|--force]`
+- `npx anqst clean <path> [-f|--force]`
   - Without `--force`: resolves settings under `<path>` and removes widget-scoped generated roots.
   - With `--force`: removes `<path>/AnQst/generated`.
   - Prints grouped cleanup summary (`Deleted`, `Not found`, `Failed`).
@@ -151,13 +155,14 @@ Available generate targets:
 ## Typical workflow
 
 ```bash
-npx @dusted/anqst instill BurgerConstructor
+npm install --save-dev @dusted/anqst
+npx anqst instill BurgerConstructor
 
 # edit spec
 code AnQst/BurgerConstructor.AnQst.d.ts
 
-npx @dusted/anqst test
-npx @dusted/anqst build
+npx anqst test
+npx anqst build
 ```
 
 ## Vanilla browser usage
@@ -191,11 +196,11 @@ async function boot() {
 
 ```bash
 # Stage 1: browser/backend/generation environment
-npx @dusted/anqst build
+npx anqst build
 
 # Stage 2: pure Qt/CMake environment, consuming the generated tree
 cmake -S . -B build
 cmake --build build
 ```
 
-Both stages must use the exact outputs from the same prior `anqst build` invocation.
+Both stages must use the exact outputs from the same prior `npx anqst build` invocation.

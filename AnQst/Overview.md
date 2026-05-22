@@ -15,8 +15,7 @@ This is a quick map of the project root so you can find the right place fast.
 
 - `AnQstGen/`  
   Installable npm package exposing the `anqst` CLI (`npx anqst ...`).
-- `AnQstWidget/AnQstWebBase/`  
-  Linkable C++/Qt base host library (`anqstwebhostbase`) for generated widgets.
+- `AnQstWidget/AnQstWebBase/`: Linkable C++/Qt base host library for generated widgets. The concrete CMake target is version-stamped from the AnQstGen package version, for example `anqstwebhost_1.7.4`.
 - `Examples/`  
   Integration examples (webapp specs + generated outputs + Qt demo consumer).
 

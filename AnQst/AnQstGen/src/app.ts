@@ -31,13 +31,13 @@ import {
 } from "./layout";
 import { parseSpecFile } from "./parser";
 import { verifySpec } from "./verify";
+import { readAnQstPackageVersion } from "./package-version";
 import {
   ANQST_WEBBASE_DIR_NAME,
   copyAnQstWebBaseTree,
-  resolveAnQstGenRoot,
   resolveAnQstWebBaseSourceDir
 } from "./webbase";
-import { anqstWebBaseTargetName } from "./abi-hash";
+import { anqstWebBaseTargetName } from "./abi-stamp";
 
 export interface VerifyResult {
   success: true;
@@ -91,18 +91,17 @@ function firstBrowserFrontendTarget(targets: readonly string[]): FrontendTargetN
   return null;
 }
 
-const ANQSTGEN_ACTIVE_STAMP_FILE = ".anqstgen-version-active.json";
-
 function renderHelp(): string {
-  const version = readActiveBuildStamp();
+  const version = readBuildStamp();
   return [
     `anqst version ${version}`,
     "",
     "Usage:",
-    "  anqst <command> [arguments] [options]",
+    "  npx anqst <command> [arguments] [options]",
     "",
     "Commands:",
     "  instill <WidgetName>       Initialize AnQst in current npm project",
+    "  man                         Show Building_Your_Widget.md in a console pager",
     "  test                        Verify AnQst spec from package settings",
     "  build [--designerplugin[=true|false]] [--noShared|--useShared]   Generate artifacts from package settings",
     "  generate <specFile>         Generate artifacts from explicit spec file",
@@ -120,12 +119,45 @@ function renderHelp(): string {
 }
 
 function usageFor(command: string): string {
-  if (command === "instill") return "Usage: anqst instill <WidgetName>";
-  if (command === "build") return "Usage: anqst build [--designerplugin[=true|false]] [--noShared|--useShared]";
-  if (command === "verify") return "Usage: anqst verify <specFile>";
-  if (command === "generate") return "Usage: anqst generate <specFile>";
-  if (command === "clean") return "Usage: anqst clean <path> [-f|--force]";
+  if (command === "instill") return "Usage: npx anqst instill <WidgetName>";
+  if (command === "build") return "Usage: npx anqst build [--designerplugin[=true|false]] [--noShared|--useShared]";
+  if (command === "verify") return "Usage: npx anqst verify <specFile>";
+  if (command === "generate") return "Usage: npx anqst generate <specFile>";
+  if (command === "clean") return "Usage: npx anqst clean <path> [-f|--force]";
   return renderHelp();
+}
+
+function resolveManualPath(): string {
+  const packageRoot = path.resolve(__dirname, "..", "..");
+  return path.join(packageRoot, "Building_Your_Widget.md");
+}
+
+function pageManual(manualText: string): void {
+  if (!process.stdout.isTTY) {
+    console.log(manualText);
+    return;
+  }
+
+  const pager = process.env.PAGER?.trim()
+    || (process.platform === "win32" ? "more.com" : "less -R");
+  const paged = spawnSync(pager, {
+    input: manualText,
+    stdio: ["pipe", "inherit", "inherit"],
+    shell: true
+  });
+  if (paged.error || paged.status !== 0) {
+    console.log(manualText);
+  }
+}
+
+function runManualCommand(): number {
+  const manualPath = resolveManualPath();
+  if (!fs.existsSync(manualPath)) {
+    console.error(`AnQst manual not found at ${normalizeSlashes(manualPath)}.`);
+    return 1;
+  }
+  pageManual(fs.readFileSync(manualPath, "utf8"));
+  return 0;
 }
 
 function resetGeneratedTargets(cwd: string, widgetName: string, targets: GenerationTargets): void {
@@ -232,23 +264,8 @@ export function runTest(cwd: string): VerifyResult {
   };
 }
 
-function readActiveBuildStamp(): string {
-  if (process.env.ANQST_BUILD_STAMP && process.env.ANQST_BUILD_STAMP.trim().length > 0) {
-    return process.env.ANQST_BUILD_STAMP.trim();
-  }
-  const activePath = path.join(resolveAnQstGenRoot(), ANQSTGEN_ACTIVE_STAMP_FILE);
-  if (!fs.existsSync(activePath)) {
-    return "unknown_build_0";
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(activePath, "utf8")) as { active?: unknown };
-    if (typeof parsed.active === "string" && parsed.active.trim().length > 0) {
-      return parsed.active.trim();
-    }
-  } catch {
-    // Fallback to deterministic unknown stamp.
-  }
-  return "unknown_build_0";
+function readBuildStamp(): string {
+  return readAnQstPackageVersion();
 }
 
 function writeSharedBaseWidgetFromPackage(cwd: string): number {
@@ -324,165 +341,160 @@ function runDesignerPluginBuild(cwd: string, widgetName: string, useSharedBaseWi
 }
 
 export function runBuild(cwd: string, designerPlugin = false, useSharedBaseWidgetOverride?: boolean): VerifyResult {
-  const buildVersion = readActiveBuildStamp();
-  process.env.ANQST_BUILD_STAMP = buildVersion;
-  try {
-    const specPath = resolveAnQstSpecPath(cwd);
-    const configuredWidgetName = resolveAnQstWidgetName(cwd);
-    const configuredTargets = resolveAnQstGenerateTargets(cwd);
-    const useSharedBaseWidget = useSharedBaseWidgetOverride ?? resolveAnQstUseSharedBaseWidget(cwd);
-    const useWebEngine = resolveAnQstUseWebEngine(cwd);
-    const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
-    const preferredFrontendTarget = firstBrowserFrontendTarget(configuredTargets);
-    const parsed = parseSpecFile(specPath);
-    verifySpec(parsed);
+  const buildVersion = readBuildStamp();
+  const specPath = resolveAnQstSpecPath(cwd);
+  const configuredWidgetName = resolveAnQstWidgetName(cwd);
+  const configuredTargets = resolveAnQstGenerateTargets(cwd);
+  const useSharedBaseWidget = useSharedBaseWidgetOverride ?? resolveAnQstUseSharedBaseWidget(cwd);
+  const useWebEngine = resolveAnQstUseWebEngine(cwd);
+  const generationTargets = resolveGenerationTargetsFromCwd(cwd, true);
+  const preferredFrontendTarget = firstBrowserFrontendTarget(configuredTargets);
+  const parsed = parseSpecFile(specPath);
+  verifySpec(parsed);
 
-    if (parsed.widgetName !== configuredWidgetName) {
-      throw new VerifyError(
-        `Settings widgetName '${configuredWidgetName}' does not match spec namespace '${parsed.widgetName}'.`
-      );
+  if (parsed.widgetName !== configuredWidgetName) {
+    throw new VerifyError(
+      `Settings widgetName '${configuredWidgetName}' does not match spec namespace '${parsed.widgetName}'.`
+    );
+  }
+
+  resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
+
+  const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget, useWebEngine });
+  writeGeneratedOutputs(cwd, outputs);
+  if (generationTargets.emitQWidget) {
+    if (!useSharedBaseWidget) {
+      installVendoredAnQstWebBase(cwd, parsed.widgetName);
     }
+    installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget, useWebEngine });
+  }
 
-    resetGeneratedTargets(cwd, parsed.widgetName, generationTargets);
-
-    const outputs = generateOutputs(parsed, { ...generationTargets, useSharedBaseWidget, useWebEngine });
-    writeGeneratedOutputs(cwd, outputs);
-    if (generationTargets.emitQWidget) {
-      if (!useSharedBaseWidget) {
-        installVendoredAnQstWebBase(cwd, parsed.widgetName);
-      }
-      installQtIntegrationCMake(cwd, parsed.widgetName, { useSharedBaseWidget, useWebEngine });
+  const shouldRunAngularBuild = generationTargets.emitQWidget
+    && preferredFrontendTarget === "AngularService"
+    && fs.existsSync(path.join(cwd, "angular.json"));
+  if (shouldRunAngularBuild) {
+    const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
+      cwd,
+      stdio: "inherit",
+      shell: process.platform === "win32"
+    });
+    if (angularBuild.status !== 0) {
+      throw new VerifyError("Angular build failed while preparing embedded widget assets.");
     }
+  }
 
-    const shouldRunAngularBuild = generationTargets.emitQWidget
-      && preferredFrontendTarget === "AngularService"
-      && fs.existsSync(path.join(cwd, "angular.json"));
-    if (shouldRunAngularBuild) {
-      const angularBuild = spawnSync("npx", ["ng", "build", "--configuration", "production"], {
-        cwd,
-        stdio: "inherit",
-        shell: process.platform === "win32"
-      });
-      if (angularBuild.status !== 0) {
-        throw new VerifyError("Angular build failed while preparing embedded widget assets.");
-      }
-    }
-
-    let embeddedAssetsRefreshed = false;
-    if (generationTargets.emitQWidget) {
-      if (preferredFrontendTarget === "VanillaJS") {
-        try {
-          buildVanillaJsBrowserBundle(cwd, parsed.widgetName);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new VerifyError(`VanillaJS browser packaging failed: ${message}`);
-        }
-      }
-      const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
-      embeddedAssetsRefreshed = embedded;
-      if (preferredFrontendTarget === "VanillaJS" && !embedded) {
-        throw new VerifyError("Unable to embed VanillaJS browser output. Ensure src/index.html and src/main.js produced a browser bundle.");
-      }
-      if (preferredFrontendTarget === "VanillaTS" && !embedded) {
-        throw new VerifyError("Unable to embed VanillaTS browser output. Ensure the widget frontend build produced dist/browser with index.html.");
-      }
-      if (shouldRunAngularBuild && !embedded) {
-        throw new VerifyError("Unable to embed browser output. Ensure the browser build produced a dist bundle with index.html.");
+  let embeddedAssetsRefreshed = false;
+  if (generationTargets.emitQWidget) {
+    if (preferredFrontendTarget === "VanillaJS") {
+      try {
+        buildVanillaJsBrowserBundle(cwd, parsed.widgetName);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new VerifyError(`VanillaJS browser packaging failed: ${message}`);
       }
     }
+    const embedded = installEmbeddedWebBundle(cwd, parsed.widgetName);
+    embeddedAssetsRefreshed = embedded;
+    if (preferredFrontendTarget === "VanillaJS" && !embedded) {
+      throw new VerifyError("Unable to embed VanillaJS browser output. Ensure src/index.html and src/main.js produced a browser bundle.");
+    }
+    if (preferredFrontendTarget === "VanillaTS" && !embedded) {
+      throw new VerifyError("Unable to embed VanillaTS browser output. Ensure the widget frontend build produced dist/browser with index.html.");
+    }
+    if (shouldRunAngularBuild && !embedded) {
+      throw new VerifyError("Unable to embed browser output. Ensure the browser build produced a dist bundle with index.html.");
+    }
+  }
 
-    let designerPluginBuilt = false;
-    if (designerPlugin) {
-      if (!generationTargets.emitQWidget) {
-        console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
-      } else {
-        const widgetCategory = resolveAnQstWidgetCategory(cwd);
-        installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory, useSharedBaseWidget, useWebEngine });
-        runDesignerPluginBuild(cwd, parsed.widgetName, useSharedBaseWidget);
-        designerPluginBuilt = true;
-      }
+  let designerPluginBuilt = false;
+  if (designerPlugin) {
+    if (!generationTargets.emitQWidget) {
+      console.warn("[AnQst] --designerplugin requested but QWidget target is not enabled. Skipping designer plugin build.");
+    } else {
+      const widgetCategory = resolveAnQstWidgetCategory(cwd);
+      installQtDesignerPluginCMake(cwd, parsed.widgetName, { widgetCategory, useSharedBaseWidget, useWebEngine });
+      runDesignerPluginBuild(cwd, parsed.widgetName, useSharedBaseWidget);
+      designerPluginBuilt = true;
     }
+  }
 
-    if (
-      !generationTargets.emitAngularService
-      && !generationTargets.emitVanillaTS
-      && !generationTargets.emitVanillaJS
-      && !generationTargets.emitQWidget
-      && !generationTargets.emitNodeExpressWs
-    ) {
-      return {
-        success: true,
-        message: [
-          "Build completed.",
-          `    anqst version ${buildVersion}`,
-          "    No outputs selected by AnQst.generate."
-        ].join("\n")
-      };
-    }
-
-    const layout = resolveGeneratedLayoutPaths(cwd, parsed.widgetName);
-    const detailLines: string[] = [];
-    if (generationTargets.emitAngularService) {
-      detailLines.push("    Target AngularService:");
-      detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "services"))}`);
-      detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "types"))}`);
-    }
-    if (generationTargets.emitVanillaTS) {
-      detailLines.push("    Target VanillaTS:");
-      detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaTsFrontendRoot)}`);
-      detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
-    }
-    if (generationTargets.emitVanillaJS) {
-      detailLines.push("    Target VanillaJS:");
-      detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaJsFrontendRoot)}`);
-      detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
-    }
-    if (generationTargets.emitQWidget) {
-      const widgetClassName = `${parsed.widgetName}Widget`;
-      detailLines.push("    Target QWidget:");
-      detailLines.push(`      - QWidget name: ${widgetClassName}`);
-      detailLines.push(
-        `      - AnQstWebBase module: ${useSharedBaseWidget
-          ? `External ${anqstWebBaseTargetName()}, see anqst --help for more info`
-          : `Embedded in ${widgetClassName}`}`
-      );
-      detailLines.push(`      - Embedded WebEngine: ${useWebEngine ? "Enabled" : "Disabled; browser-host mode only"}`);
-      detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
-      detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
-      detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
-      if (embeddedAssetsRefreshed) {
-        detailLines.push("      - Embedded web assets refreshed from detected browser dist output");
-      }
-    }
-    if (generationTargets.emitNodeExpressWs) {
-      detailLines.push("    Target node_express_ws:");
-      detailLines.push(`      - Module output root: ${toProjectRelative(cwd, layout.nodeExpressRoot)}`);
-    }
-    if (designerPluginBuilt) {
-      const pluginBinaryPath = normalizeSlashes(
-        path.join(toProjectRelative(cwd, layout.designerPluginBuildRoot), designerPluginBinaryName(parsed.widgetName))
-      );
-      detailLines.push("    Target QtDesignerPlugin:");
-      detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
-      detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
-      detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
-      detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS or qmake6 -query QT_INSTALL_PLUGINS");
-      detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
-      detailLines.push(
-        `      - User-local install: mkdir -p \"$HOME/.local/lib/qt<major>/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt<major>/plugins/designer/\"`
-      );
-    }
+  if (
+    !generationTargets.emitAngularService
+    && !generationTargets.emitVanillaTS
+    && !generationTargets.emitVanillaJS
+    && !generationTargets.emitQWidget
+    && !generationTargets.emitNodeExpressWs
+  ) {
     return {
       success: true,
       message: [
         "Build completed.",
         `    anqst version ${buildVersion}`,
-        ...detailLines
+        "    No outputs selected by AnQst.generate."
       ].join("\n")
     };
-  } finally {
-    delete process.env.ANQST_BUILD_STAMP;
   }
+
+  const layout = resolveGeneratedLayoutPaths(cwd, parsed.widgetName);
+  const detailLines: string[] = [];
+  if (generationTargets.emitAngularService) {
+    detailLines.push("    Target AngularService:");
+    detailLines.push(`      - Services output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "services"))}`);
+    detailLines.push(`      - Types output: ${toProjectRelative(cwd, path.join(layout.angularFrontendRoot, "types"))}`);
+  }
+  if (generationTargets.emitVanillaTS) {
+    detailLines.push("    Target VanillaTS:");
+    detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaTsFrontendRoot)}`);
+    detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
+  }
+  if (generationTargets.emitVanillaJS) {
+    detailLines.push("    Target VanillaJS:");
+    detailLines.push(`      - Browser bundle root: ${toProjectRelative(cwd, layout.vanillaJsFrontendRoot)}`);
+    detailLines.push(`      - Browser global: window.AnQstGenerated.${parsed.widgetName}`);
+  }
+  if (generationTargets.emitQWidget) {
+    const widgetClassName = `${parsed.widgetName}Widget`;
+    detailLines.push("    Target QWidget:");
+    detailLines.push(`      - QWidget name: ${widgetClassName}`);
+    detailLines.push(
+      `      - AnQstWebBase module: ${useSharedBaseWidget
+        ? `External ${anqstWebBaseTargetName()}, see npx anqst --help for more info`
+        : `Embedded in ${widgetClassName}`}`
+    );
+    detailLines.push(`      - Embedded WebEngine: ${useWebEngine ? "Enabled" : "Disabled; browser-host mode only"}`);
+    detailLines.push(`      - Qt integration CMake: ${toProjectRelative(cwd, path.join(layout.cppCmakeRoot, "CMakeLists.txt"))}`);
+    detailLines.push(`      - Widget output root: ${toProjectRelative(cwd, layout.cppQtWidgetRoot)}`);
+    detailLines.push("      - C++ handoff: downstream CMake consumes this generated tree directly");
+    if (embeddedAssetsRefreshed) {
+      detailLines.push("      - Embedded web assets refreshed from detected browser dist output");
+    }
+  }
+  if (generationTargets.emitNodeExpressWs) {
+    detailLines.push("    Target node_express_ws:");
+    detailLines.push(`      - Module output root: ${toProjectRelative(cwd, layout.nodeExpressRoot)}`);
+  }
+  if (designerPluginBuilt) {
+    const pluginBinaryPath = normalizeSlashes(
+      path.join(toProjectRelative(cwd, layout.designerPluginBuildRoot), designerPluginBinaryName(parsed.widgetName))
+    );
+    detailLines.push("    Target QtDesignerPlugin:");
+    detailLines.push(`      - Build output: ${toProjectRelative(cwd, layout.designerPluginBuildRoot)}`);
+    detailLines.push(`      - Plugin binary: ${pluginBinaryPath}`);
+    detailLines.push("      - Install target dir: <QT_INSTALL_PLUGINS>/designer");
+    detailLines.push("      - Discover QT_INSTALL_PLUGINS: qmake -query QT_INSTALL_PLUGINS or qmake6 -query QT_INSTALL_PLUGINS");
+    detailLines.push(`      - Example install: cp ${pluginBinaryPath} \"$(qmake -query QT_INSTALL_PLUGINS)/designer/\"`);
+    detailLines.push(
+      `      - User-local install: mkdir -p \"$HOME/.local/lib/qt<major>/plugins/designer\" && cp ${pluginBinaryPath} \"$HOME/.local/lib/qt<major>/plugins/designer/\"`
+    );
+  }
+  return {
+    success: true,
+    message: [
+      "Build completed.",
+      `    anqst version ${buildVersion}`,
+      ...detailLines
+    ].join("\n")
+  };
 }
 
 function parseSpecCommandArg(commandName: string, specArg: string | undefined, extraArgs: string[]): string {
@@ -559,13 +571,13 @@ function parseCleanCommandArgs(specArg: string | undefined, extraArgs: string[])
       throw new CliUsageError(`Unknown clean flag '${arg}'. Use -f or --force.`);
     }
     if (targetPathArg !== null) {
-      throw new CliUsageError(`Unexpected extra argument '${arg}'. Usage: anqst clean <path> [-f|--force]`);
+      throw new CliUsageError(`Unexpected extra argument '${arg}'. Usage: npx anqst clean <path> [-f|--force]`);
     }
     targetPathArg = arg;
   }
 
   if (targetPathArg === null) {
-    throw new CliUsageError("Usage: anqst clean <path> [-f|--force]");
+    throw new CliUsageError("Usage: npx anqst clean <path> [-f|--force]");
   }
   return { targetPathArg, force };
 }
@@ -630,7 +642,7 @@ function resolveGenerationTargetsFromCwd(cwd: string, requirePackageAnQst = fals
   const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { AnQst?: unknown };
   if (packageJson.AnQst === undefined) {
     if (requirePackageAnQst) {
-      throw new VerifyError("Missing package.json key 'AnQst'. Run 'anqst instill <WidgetName>' first.");
+      throw new VerifyError("Missing package.json key 'AnQst'. Run 'npx anqst instill <WidgetName>' first.");
     }
     return toGenerationTargets([...DEFAULT_ANQST_GENERATE_TARGETS]);
   }
@@ -721,7 +733,7 @@ export function runCommand(command: string | undefined, specArg: string | undefi
     }
     if (command === "--writeSharedBaseWidget") {
       if (specArg || extraArgs.length > 0) {
-        console.error("Usage: anqst --writeSharedBaseWidget");
+        console.error("Usage: npx anqst --writeSharedBaseWidget");
         return 1;
       }
       return writeSharedBaseWidgetFromPackage(process.cwd());
@@ -730,8 +742,15 @@ export function runCommand(command: string | undefined, specArg: string | undefi
       console.log(renderHelp());
       return 0;
     }
+    if (command === "man" || command === "manual") {
+      if (specArg || extraArgs.length > 0) {
+        console.error("Usage: npx anqst man");
+        return 1;
+      }
+      return runManualCommand();
+    }
     if (command === "-v" || command === "--version" || command === "version") {
-      console.log(`anqst version ${readActiveBuildStamp()}`);
+      console.log(`anqst version ${readBuildStamp()}`);
       return 0;
     }
     const normalizedCommand = command === "install" ? "instill" : command;

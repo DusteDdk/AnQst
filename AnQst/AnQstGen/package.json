@@ -36,6 +36,7 @@
     "dist/src",
     "index.d.ts",
     "spec/AnQst-Spec-DSL.d.ts",
+    "Building_Your_Widget.md",
     "README.md",
     "LICENSE"
   ],
