@@ -49,6 +49,10 @@ function readJsonFile<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
 }
 
+function containsCarriageReturn(filePath: string): boolean {
+  return fs.readFileSync(filePath).includes(13);
+}
+
 function settingsRelativePath(widgetName: string): string {
   return `./AnQst/${widgetName}.settings.json`;
 }
@@ -693,7 +697,7 @@ test("build packages VanillaJS browser app and embeds it when VanillaJS is the f
   <div id="status"></div>
 </body>
 </html>
-`,
+`.replace(/\n/g, "\r\n"),
       "utf8"
     );
     fs.writeFileSync(
@@ -701,7 +705,7 @@ test("build packages VanillaJS browser app and embeds it when VanillaJS is the f
       `async function main(window, document, AnQstGenerated) {
   document.getElementById("status").textContent = typeof AnQstGenerated.CdWidget.createFrontend;
 }
-`,
+`.replace(/\n/g, "\r\n"),
       "utf8"
     );
 
@@ -720,6 +724,8 @@ test("build packages VanillaJS browser app and embeds it when VanillaJS is the f
     assert.match(distMain, /void main\(window, document, window\.AnQstGenerated\);/);
     assert.match(distIndex, /<script defer src="\.\/main\.js"><\/script>/);
     assert.doesNotMatch(distIndex, /<script src="main\.js"><\/script>/);
+    assert.equal(containsCarriageReturn(path.join(distRoot, "main.js")), false);
+    assert.equal(containsCarriageReturn(path.join(distRoot, "index.html")), false);
     assert.match(embeddedIndex, /<base href="\.\/">/);
     assert.match(qrc, /webapp\/index\.html/);
     assert.match(qrc, /webapp\/main\.js/);

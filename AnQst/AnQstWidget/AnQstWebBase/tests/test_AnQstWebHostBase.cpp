@@ -33,6 +33,7 @@
 #include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 #include <cstdlib>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -1159,6 +1160,66 @@ TEST_CASE("proxy mode forwards streamed HTTP responses", "[host][debug][proxy][s
     CHECK(sawUpstreamRequest);
     CHECK(response.contains("hello"));
     CHECK(response.contains(" world"));
+    proxy.stop();
+}
+
+TEST_CASE("proxy mode waits for complete WebSocket upgrade headers", "[host][debug][proxy][websocket]") {
+    ensureApp();
+
+    QTcpServer upstream;
+    REQUIRE(upstream.listen(QHostAddress::Any, 0));
+    const quint16 upstreamPort = upstream.serverPort();
+    bool sawUpgrade = false;
+
+    QObject::connect(&upstream, &QTcpServer::newConnection, &upstream, [&upstream, &sawUpgrade, upstreamPort]() {
+        QTcpSocket* incoming = upstream.nextPendingConnection();
+        REQUIRE(incoming != nullptr);
+        auto requestBuffer = std::make_shared<QByteArray>();
+        QObject::connect(incoming, &QTcpSocket::readyRead, incoming, [incoming, requestBuffer, &sawUpgrade, upstreamPort]() {
+            requestBuffer->append(incoming->readAll());
+            if (!requestBuffer->contains("\r\n\r\n")) {
+                return;
+            }
+
+            const QByteArray request = *requestBuffer;
+            sawUpgrade = request.contains("GET /ng-cli-ws HTTP/1.1") &&
+                         request.contains(QByteArray("Host: localhost:") + QByteArray::number(upstreamPort)) &&
+                         request.contains("Upgrade: websocket") &&
+                         request.contains("Sec-WebSocket-Key: split-handshake-key");
+            incoming->write(
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: test\r\n"
+                "\r\n");
+            incoming->flush();
+        });
+    });
+
+    AngularHttpBaseServer proxy;
+    proxy.setBridgeObjectName(QStringLiteral("TestBridge"));
+    REQUIRE(proxy.configureProxyTarget(QUrl(QStringLiteral("http://localhost:%1/").arg(upstreamPort))));
+    REQUIRE(proxy.start(false, 44000));
+
+    QTcpSocket client;
+    client.connectToHost(QHostAddress::LocalHost, proxy.httpPort());
+    REQUIRE(client.waitForConnected(2000));
+    client.write(
+        "GET /ng-cli-ws HTTP/1.1\r\n"
+        "Host: localhost\r\n");
+    client.flush();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    client.write(
+        "Connection: keep-alive, Upgrade\r\n"
+        "Upgrade: websocket\r\n"
+        "Sec-WebSocket-Key: split-handshake-key\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n");
+    client.flush();
+
+    const QByteArray response = readSocketUntil(client, "101 Switching Protocols");
+    CHECK(sawUpgrade);
+    CHECK(response.contains("101 Switching Protocols"));
     proxy.stop();
 }
 

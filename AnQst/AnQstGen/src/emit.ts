@@ -4,6 +4,7 @@ import ts from "typescript";
 import { PNG } from "pngjs";
 import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "./abi-stamp";
 import { readAnQstPackageVersion } from "./package-version";
+import { normalizeUnixNewlines, writeTextFileUnix } from "./newlines";
 import type { ParsedSpecModel, ServiceMemberModel, TypeDeclModel } from "./model";
 import {
   anqstGeneratedRootDir,
@@ -2069,10 +2070,11 @@ function withBuildStamp(relativePath: string, content: string): string {
   const marker = `Built by AnQst ${stamp}`;
   const rel = normalizeSlashes(relativePath);
   const lower = rel.toLowerCase();
+  const normalizedContent = normalizeUnixNewlines(content);
 
   if (lower.endsWith(".json")) {
     try {
-      const parsed = JSON.parse(content) as unknown;
+      const parsed = JSON.parse(normalizedContent) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const next = { "//": marker, ...(parsed as Record<string, unknown>) };
         return `${JSON.stringify(next, null, 2)}\n`;
@@ -2083,15 +2085,15 @@ function withBuildStamp(relativePath: string, content: string): string {
   }
 
   if (lower.endsWith(".qrc") || lower.endsWith(".xml") || lower.endsWith(".html")) {
-    return `<!-- ${marker} -->\n${content}`;
+    return `<!-- ${marker} -->\n${normalizedContent}`;
   }
   if (lower.endsWith(".cmake")) {
-    return `# ${marker}\n${content}`;
+    return `# ${marker}\n${normalizedContent}`;
   }
   if (lower.endsWith(".h") || lower.endsWith(".cpp") || lower.endsWith(".ts") || lower.endsWith(".js") || lower.endsWith(".d.ts")) {
-    return `// ${marker}\n${content}`;
+    return `// ${marker}\n${normalizedContent}`;
   }
-  return `# ${marker}\n${content}`;
+  return `# ${marker}\n${normalizedContent}`;
 }
 
 function renderEmbeddedQrc(widgetName: string, embeddedWebFiles: string[]): string {
@@ -5543,7 +5545,7 @@ export function writeGeneratedOutputs(cwd: string, outputs: GeneratedFiles): voi
   for (const [relPath, content] of Object.entries(outputs)) {
     const filePath = path.join(outputRoot, relPath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, withBuildStamp(relPath, content), "utf8");
+    writeTextFileUnix(filePath, withBuildStamp(relPath, content));
   }
 }
 
@@ -5600,18 +5602,16 @@ ${appMain}
 
 void main(window, document, window.AnQstGenerated);
 `;
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(distWebRoot, "main.js"),
-    withBuildStamp("dist/browser/main.js", bundleSource),
-    "utf8"
+    withBuildStamp("dist/browser/main.js", bundleSource)
   );
 
   const sourceIndexHtml = fs.readFileSync(srcIndexPath, "utf8");
   const normalizedIndexHtml = normalizeVanillaJsIndexHtml(sourceIndexHtml);
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(distWebRoot, "index.html"),
-    withBuildStamp("dist/browser/index.html", normalizedIndexHtml),
-    "utf8"
+    withBuildStamp("dist/browser/index.html", normalizedIndexHtml)
   );
 
   return distWebRoot;
@@ -5769,7 +5769,7 @@ export function installEmbeddedWebBundle(cwd: string, widgetName: string): boole
 
   const embeddedFiles = listFilesRecursively(cppLibraryWebRoot);
   const qrcPath = path.join(cppLibraryRoot, `${widgetName}.qrc`);
-  fs.writeFileSync(qrcPath, withBuildStamp(`${widgetName}.qrc`, renderEmbeddedQrc(widgetName, embeddedFiles)), "utf8");
+  writeTextFileUnix(qrcPath, withBuildStamp(`${widgetName}.qrc`, renderEmbeddedQrc(widgetName, embeddedFiles)));
   return true;
 }
 
@@ -5794,7 +5794,7 @@ function normalizeEmbeddedIndexHtml(indexPath: string, webRoot: string): void {
       return full;
     }
   );
-  fs.writeFileSync(indexPath, html, "utf8");
+  writeTextFileUnix(indexPath, html);
 }
 
 interface InstallQtIntegrationOptions {
@@ -5872,10 +5872,9 @@ add_subdirectory("\${${generatedRootVar}}" "\${${widgetBinaryDirVar}}")
 export function installQtIntegrationCMake(cwd: string, widgetName: string, options: InstallQtIntegrationOptions = {}): void {
   const integrationDir = resolveGeneratedLayoutPaths(cwd, widgetName).cppCmakeRoot;
   fs.mkdirSync(integrationDir, { recursive: true });
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(integrationDir, "CMakeLists.txt"),
-    withBuildStamp("backend/cpp/cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName, options)),
-    "utf8"
+    withBuildStamp("backend/cpp/cmake/CMakeLists.txt", renderQtIntegrationCMake(widgetName, options))
   );
 }
 
@@ -6067,7 +6066,7 @@ function installDesignerPluginIconAssets(cwd: string, pluginDir: string): Design
 
   const pngBytes = convertIcoToPngBuffer(icoBytes);
   fs.writeFileSync(iconTargetPath, pngBytes);
-  fs.writeFileSync(qrcTargetPath, renderDesignerPluginQrc(), "utf8");
+  writeTextFileUnix(qrcTargetPath, renderDesignerPluginQrc());
   return { hasIcon: true };
 }
 
@@ -6211,20 +6210,18 @@ export function installQtDesignerPluginCMake(cwd: string, widgetName: string, op
   const assets = installDesignerPluginIconAssets(cwd, pluginDir);
   const pluginTarget = `${widgetName}DesignerPlugin`;
   const widgetCategory = options.widgetCategory ?? "AnQst Widgets";
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(pluginDir, "CMakeLists.txt"),
     withBuildStamp(
       `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/CMakeLists.txt`,
       renderQtDesignerPluginCMake(widgetName, assets.hasIcon, options.useSharedBaseWidget ?? true, options.useWebEngine ?? true)
-    ),
-    "utf8"
+    )
   );
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(pluginDir, `${pluginTarget}.cpp`),
     withBuildStamp(
       `backend/cpp/qt/${generatedCppLibraryDirName(widgetName)}/designerPlugin/${pluginTarget}.cpp`,
       renderQtDesignerPluginCpp(widgetName, widgetCategory, assets.hasIcon)
-    ),
-    "utf8"
+    )
   );
 }

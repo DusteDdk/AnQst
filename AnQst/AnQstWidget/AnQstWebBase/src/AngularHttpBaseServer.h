@@ -92,6 +92,7 @@ private:
     ServeMode m_serveMode;
     QUrl m_proxyBaseUrl;
     QHash<QTcpSocket*, QTcpSocket*> m_proxyPeers;
+    QHash<QTcpSocket*, QByteArray> m_httpReadBuffers;
 };
 
 } // namespace ANQST_WEBBASE_NAMESPACE

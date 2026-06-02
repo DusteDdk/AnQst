@@ -5,8 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { parseSpecFile } from "../src/parser";
 import { PNG } from "pngjs";
-import { generateOutputs, installQtDesignerPluginCMake, installQtIntegrationCMake } from "../src/emit";
+import { generateOutputs, installQtDesignerPluginCMake, installQtIntegrationCMake, writeGeneratedOutputs } from "../src/emit";
 import { anqstWebBaseNamespaceName, anqstWebBaseTargetName } from "../src/abi-stamp";
+import { copyAnQstWebBaseTree } from "../src/webbase";
 
 const fixtures = path.resolve(__dirname, "../../test/fixtures");
 
@@ -36,6 +37,10 @@ function createIcoFromPng(png: Buffer): Buffer {
   entry.writeUInt32LE(png.length, 8);
   entry.writeUInt32LE(22, 12);
   return Buffer.concat([header, entry, png]);
+}
+
+function containsCarriageReturn(filePath: string): boolean {
+  return fs.readFileSync(filePath).includes(13);
 }
 
 test("generateOutputs returns required tree", () => {
@@ -117,6 +122,43 @@ test("generateOutputs returns required tree", () => {
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /setOutputValue\(QStringLiteral\("CdService"\), QStringLiteral\("readOnlyMode"\), encodedValue\);/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CMakeLists.txt"], /add_library\(CdWidgetWidget/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.qrc"], /<qresource prefix="\/cdwidget">/);
+});
+
+test("writeGeneratedOutputs normalizes generated text to unix newlines", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-emit-newlines-"));
+  try {
+    writeGeneratedOutputs(tempRoot, {
+      "frontend/Demo/index.ts": "export const answer = 42;\r\nexport const ok = true;\r\n",
+      "frontend/Demo/package.json": "{\r\n  \"name\": \"demo\"\r\n}\r\n",
+      "backend/cpp/qt/Demo_widget/Demo.cpp": "#include \"Demo.h\"\r\n\r\nvoid f() {}\r\n"
+    });
+
+    assert.equal(containsCarriageReturn(path.join(tempRoot, "AnQst", "generated", "frontend", "Demo", "index.ts")), false);
+    assert.equal(containsCarriageReturn(path.join(tempRoot, "AnQst", "generated", "frontend", "Demo", "package.json")), false);
+    assert.equal(containsCarriageReturn(path.join(tempRoot, "AnQst", "generated", "backend", "cpp", "qt", "Demo_widget", "Demo.cpp")), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("copyAnQstWebBaseTree normalizes AnQst text sources to unix newlines", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anqst-webbase-newlines-"));
+  try {
+    const sourceRoot = path.join(tempRoot, "source");
+    const targetRoot = path.join(tempRoot, "target");
+    fs.mkdirSync(path.join(sourceRoot, "src"), { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "CMakeLists.txt"), "add_library(test STATIC\r\n  src/AnQstWebHostBase.h\r\n)\r\n", "utf8");
+    fs.writeFileSync(path.join(sourceRoot, "src", "AnQstWebHostBase.h"), "#pragma once\r\nclass AnQstWebHostBase {};\r\n", "utf8");
+    fs.writeFileSync(path.join(sourceRoot, "src", "Runtime.js"), "export const runtime = true;\r\n", "utf8");
+
+    copyAnQstWebBaseTree(sourceRoot, targetRoot);
+
+    assert.equal(containsCarriageReturn(path.join(targetRoot, "CMakeLists.txt")), false);
+    assert.equal(containsCarriageReturn(path.join(targetRoot, "src", "AnQstWebHostBase.h")), false);
+    assert.equal(containsCarriageReturn(path.join(targetRoot, "src", "Runtime.js")), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("generateOutputs switches QWidget CMake between shared and vendored WebBase", () => {

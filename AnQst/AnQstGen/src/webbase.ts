@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { anqstWebBaseAbiStamp, anqstWebBaseNamespaceName } from "./abi-stamp";
+import { writeTextFileUnix } from "./newlines";
 
 export const ANQST_WEBBASE_DIR_NAME = "AnQstWebBase";
 
@@ -73,7 +74,11 @@ export function copyAnQstWebBaseTree(sourceDir: string, targetDir: string): void
       }
       if (entry.isFile()) {
         fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-        fs.copyFileSync(sourcePath, targetPath);
+        if (isTextWebBaseFile(sourcePath)) {
+          writeTextFileUnix(targetPath, fs.readFileSync(sourcePath, "utf8"));
+        } else {
+          fs.copyFileSync(sourcePath, targetPath);
+        }
       }
     }
   }
@@ -87,12 +92,11 @@ export function installAnQstWebBaseTree(targetDir: string): void {
 }
 
 export function writeAnQstWebBaseAbiStamp(targetDir: string, stamp: string): void {
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(targetDir, "AnQstWebBaseAbi.cmake"),
-    `set(ANQST_WEBBASE_ABI_STAMP "${stamp}")\n`,
-    "utf8"
+    `set(ANQST_WEBBASE_ABI_STAMP "${stamp}")\n`
   );
-  fs.writeFileSync(
+  writeTextFileUnix(
     path.join(targetDir, "src", "AnQstWebBaseAbi.h"),
     [
       "#pragma once",
@@ -100,7 +104,23 @@ export function writeAnQstWebBaseAbiStamp(targetDir: string, stamp: string): voi
       `#define ANQST_WEBBASE_ABI_STAMP "${stamp}"`,
       `#define ANQST_WEBBASE_NAMESPACE ${anqstWebBaseNamespaceName(stamp)}`,
       ""
-    ].join("\n"),
-    "utf8"
+    ].join("\n")
   );
+}
+
+function isTextWebBaseFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return [
+    ".cmake",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".js",
+    ".json",
+    ".md",
+    ".qrc",
+    ".txt",
+    ".xml"
+  ].some((extension) => lower.endsWith(extension))
+    || lower.endsWith("cmakelists.txt");
 }

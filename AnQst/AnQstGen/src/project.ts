@@ -10,6 +10,7 @@ import {
   generatedFrontendDirName,
   normalizeSlashes
 } from "./layout";
+import { writeTextFileUnix } from "./newlines";
 
 interface PackageJsonLike {
   scripts?: Record<string, string>;
@@ -240,7 +241,7 @@ function updateTsConfig(cwd: string, widgetName: string): void {
     tsConfig.include = includeList;
   }
 
-  fs.writeFileSync(tsConfigPath, `${JSON.stringify(tsConfig, null, 2)}\n`, "utf8");
+  writeTextFileUnix(tsConfigPath, `${JSON.stringify(tsConfig, null, 2)}\n`);
 }
 
 function validateWidgetName(widgetName: string): string {
@@ -339,10 +340,10 @@ export function runInstill(cwd: string, widgetName: string): string {
     const existingText = fs.readFileSync(specPath, "utf8");
     const normalizedImport = normalizeAnQstImport(existingText);
     if (normalizedImport.changed) {
-      fs.writeFileSync(specPath, normalizedImport.nextText, "utf8");
+      writeTextFileUnix(specPath, normalizedImport.nextText);
     }
   } else {
-    fs.writeFileSync(specPath, buildSpecScaffold(cleanName), "utf8");
+    writeTextFileUnix(specPath, buildSpecScaffold(cleanName));
   }
 
   const settingsPath = path.join(anqstRoot, anqstSettingsFileName(cleanName));
@@ -354,10 +355,10 @@ export function runInstill(cwd: string, widgetName: string): string {
     widgetCategory: "AnQst Widgets",
     UseWebEngine: true
   };
-  fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  writeTextFileUnix(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 
-  fs.writeFileSync(path.join(anqstRoot, ".gitignore"), "/generated*\n", "utf8");
-  fs.writeFileSync(path.join(anqstRoot, "README.md"), buildAnQstDirectoryReadme(cleanName), "utf8");
+  writeTextFileUnix(path.join(anqstRoot, ".gitignore"), "/generated*\n");
+  writeTextFileUnix(path.join(anqstRoot, "README.md"), buildAnQstDirectoryReadme(cleanName));
 
   const nextPackage: PackageJsonLike = {
     ...packageJson,
@@ -369,7 +370,7 @@ export function runInstill(cwd: string, widgetName: string): string {
     },
     AnQst: anqstSettingsRelativePath(cleanName)
   };
-  fs.writeFileSync(packagePath, `${JSON.stringify(nextPackage, null, 2)}\n`, "utf8");
+  writeTextFileUnix(packagePath, `${JSON.stringify(nextPackage, null, 2)}\n`);
 
   updateTsConfig(cwd, cleanName);
 

@@ -13,16 +13,16 @@ This is a quick map of the project root so you can find the right place fast.
 
 ## Intended Structure
 
-- `AnQstGen/`  
+- `AnQstGen/`
   Installable npm package exposing the `anqst` CLI (`npx anqst ...`).
 - `AnQstWidget/AnQstWebBase/`: Linkable C++/Qt base host library for generated widgets. The concrete CMake target is version-stamped from the AnQstGen package version, for example `anqstwebhost_1.7.4`.
-- `Examples/`  
+- `Examples/`
   Integration examples (webapp specs + generated outputs + Qt demo consumer).
 
 
 ## Core Implementation
 
-- `AnQstGen/src/`  
+- `AnQstGen/src/`
   TypeScript implementation of the `AnQst` CLI and generator.
   - `app.ts`: command entry logic (`instill`, `test`, `build`, `generate`, `verify`)
   - `project.ts`: npm project bootstrap/config (`package.json` patching, spec lookup)
@@ -35,7 +35,7 @@ This is a quick map of the project root so you can find the right place fast.
 
 ## Refined Design Docs
 
-- `RefinedSpecs/`  
+- `RefinedSpecs/`
   Deeper design/contract docs used to guide implementation
 - `QtWidgetDebugSpec/`
   - Descriptions relating to the behavior of the debug mode which allows Web developers to use usual development workflow in-situ (browsers debug tools + ng serve)
@@ -46,4 +46,3 @@ This is a quick map of the project root so you can find the right place fast.
   - `cli.test.ts`: command behavior and integration-ish flows
   - `parser_verify.test.ts`: parser/verification expectations
   - `emit.test.ts`: generated output shape checks
-

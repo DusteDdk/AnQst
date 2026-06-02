@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import util from "node:util";
 import { anqstDebugIntermediateRootDir } from "./layout";
+import { writeTextFileUnix } from "./newlines";
 
 export function isDebugEnabled(): boolean {
   return process.env.ANQST_DEBUG === "true";
@@ -16,7 +17,7 @@ export function writeDebugFile(cwd: string, relativePath: string, content: strin
   try {
     const targetPath = path.join(baseIntermediateDir(cwd), relativePath);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, content, "utf8");
+    writeTextFileUnix(targetPath, content);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[AnQst][debug] Failed writing ${relativePath}: ${message}`);

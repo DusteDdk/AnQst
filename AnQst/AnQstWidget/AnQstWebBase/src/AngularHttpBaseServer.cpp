@@ -317,7 +317,15 @@ void AngularHttpBaseServer::handleHttpNewConnection() {
 
 void AngularHttpBaseServer::handleHttpClient(QTcpSocket* socket) {
     connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
-        const QByteArray raw = socket->readAll();
+        QByteArray& buffer = m_httpReadBuffers[socket];
+        buffer.append(socket->readAll());
+        const int headerEnd = buffer.indexOf("\r\n\r\n");
+        if (headerEnd < 0) {
+            return;
+        }
+
+        const QByteArray raw = buffer;
+        m_httpReadBuffers.remove(socket);
         const QList<QByteArray> lines = raw.split('\n');
         if (lines.isEmpty()) {
             socket->disconnectFromHost();
@@ -383,6 +391,9 @@ void AngularHttpBaseServer::handleHttpClient(QTcpSocket* socket) {
         }
         socket->write(response);
         socket->disconnectFromHost();
+    });
+    connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+        m_httpReadBuffers.remove(socket);
     });
 }
 
@@ -588,8 +599,10 @@ void AngularHttpBaseServer::closeProxyPeer(QTcpSocket* socket) {
     if (socket == nullptr) {
         return;
     }
+    m_httpReadBuffers.remove(socket);
     QTcpSocket* peer = m_proxyPeers.take(socket);
     if (peer != nullptr) {
+        m_httpReadBuffers.remove(peer);
         m_proxyPeers.remove(peer);
         disconnect(peer, nullptr, this, nullptr);
         if (peer->isOpen()) {
