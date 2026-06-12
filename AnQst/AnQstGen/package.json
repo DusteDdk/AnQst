@@ -1,6 +1,6 @@
 {
   "name": "@dusted/anqst",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "description": "Opinionated backend generator for webapps.",
   "keywords": [
     "nodejs",
