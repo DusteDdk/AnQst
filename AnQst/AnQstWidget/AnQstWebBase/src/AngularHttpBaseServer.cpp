@@ -317,15 +317,7 @@ void AngularHttpBaseServer::handleHttpNewConnection() {
 
 void AngularHttpBaseServer::handleHttpClient(QTcpSocket* socket) {
     connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
-        QByteArray& buffer = m_httpReadBuffers[socket];
-        buffer.append(socket->readAll());
-        const int headerEnd = buffer.indexOf("\r\n\r\n");
-        if (headerEnd < 0) {
-            return;
-        }
-
-        const QByteArray raw = buffer;
-        m_httpReadBuffers.remove(socket);
+        const QByteArray raw = socket->readAll();
         const QList<QByteArray> lines = raw.split('\n');
         if (lines.isEmpty()) {
             socket->disconnectFromHost();
@@ -392,9 +384,6 @@ void AngularHttpBaseServer::handleHttpClient(QTcpSocket* socket) {
         socket->write(response);
         socket->disconnectFromHost();
     });
-    connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
-        m_httpReadBuffers.remove(socket);
-    });
 }
 
 void AngularHttpBaseServer::handleProxyHttpRequest(QTcpSocket* clientSocket, const QByteArray& rawRequest, const QString& requestTarget) {
@@ -439,7 +428,25 @@ void AngularHttpBaseServer::handleProxyHttpRequest(QTcpSocket* clientSocket, con
         }
     });
     connect(clientSocket, &QTcpSocket::disconnected, this, [this, clientSocket]() { closeProxyPeer(clientSocket); });
-    connect(upstreamSocket, &QTcpSocket::disconnected, this, [this, upstreamSocket]() { closeProxyPeer(upstreamSocket); });
+    connect(upstreamSocket, &QTcpSocket::disconnected, this, [this, upstreamSocket]() {
+        QTcpSocket* clientSocket = m_proxyPeers.take(upstreamSocket);
+        if (clientSocket != nullptr) {
+            m_proxyPeers.remove(clientSocket);
+            const QByteArray remaining = upstreamSocket->readAll();
+            if (!remaining.isEmpty()) {
+                clientSocket->write(remaining);
+            }
+            disconnect(clientSocket, nullptr, this, nullptr);
+            connect(clientSocket, &QTcpSocket::disconnected, clientSocket, &QObject::deleteLater);
+            if (clientSocket->isOpen()) {
+                clientSocket->disconnectFromHost();
+            } else {
+                clientSocket->deleteLater();
+            }
+        }
+        disconnect(upstreamSocket, nullptr, this, nullptr);
+        upstreamSocket->deleteLater();
+    });
     connect(upstreamSocket, &QTcpSocket::connected, this, [this, upstreamSocket, rawRequest, upstreamUrl]() {
         const int headerEnd = rawRequest.indexOf("\r\n\r\n");
         const QByteArray header = headerEnd >= 0 ? rawRequest.left(headerEnd + 4) : rawRequest;
@@ -467,7 +474,10 @@ void AngularHttpBaseServer::handleProxyHttpRequest(QTcpSocket* clientSocket, con
                 break;
             }
             const QByteArray lower = line.toLower();
-            if (lower.startsWith("host:") || lower.startsWith("proxy-connection:")) {
+            if (lower.startsWith("host:") ||
+                lower.startsWith("connection:") ||
+                lower.startsWith("keep-alive:") ||
+                lower.startsWith("proxy-connection:")) {
                 continue;
             }
             rewritten += line + "\r\n";
@@ -479,6 +489,7 @@ void AngularHttpBaseServer::handleProxyHttpRequest(QTcpSocket* clientSocket, con
             hostHeader += ":" + QByteArray::number(upstreamPort);
         }
         rewritten += hostHeader + "\r\n";
+        rewritten += "Connection: close\r\n";
         rewritten += "\r\n";
         rewritten += body;
         upstreamSocket->write(rewritten);
@@ -599,10 +610,8 @@ void AngularHttpBaseServer::closeProxyPeer(QTcpSocket* socket) {
     if (socket == nullptr) {
         return;
     }
-    m_httpReadBuffers.remove(socket);
     QTcpSocket* peer = m_proxyPeers.take(socket);
     if (peer != nullptr) {
-        m_httpReadBuffers.remove(peer);
         m_proxyPeers.remove(peer);
         disconnect(peer, nullptr, this, nullptr);
         if (peer->isOpen()) {
