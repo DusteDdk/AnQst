@@ -54,7 +54,8 @@ Keep host APIs narrow and predictable so `AnQstGen` can generate a spec-specific
 ## Build notes
 
 - Linux (Ubuntu): use system packages only
-- CMake selects Qt from an existing `Qt`/`Qt::Core`, `Qt6::...`, or `Qt5::...` target when one is already in the build graph. If no Qt target exists yet, pass `-DANQST_QT_MAJOR_VERSION=5` or `-DANQST_QT_MAJOR_VERSION=6`; the default is Qt5.
+- AnQst requires Qt 6.5 or newer. CMake discovers and links `Qt6::...` targets directly.
+- Verify that your distribution's Qt packages satisfy that minimum; Ubuntu releases whose repositories provide only Qt 6.4 need a separate Qt 6.5+ toolchain/package source.
 - Windows: Wild wild west, amirite?
 
 ### Ubuntu quick start

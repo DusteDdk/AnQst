@@ -28,11 +28,9 @@ function detectCppCompiler(): string | null {
 }
 
 function detectQtCorePkg(): string | null {
-  for (const pkg of ["Qt6Core", "Qt5Core"]) {
-    const probe = spawnSync("pkg-config", ["--exists", pkg], { encoding: "utf8" });
-    if (!probe.error && probe.status === 0) return pkg;
-  }
-  return null;
+  const pkg = "Qt6Core";
+  const probe = spawnSync("pkg-config", ["--exists", pkg], { encoding: "utf8" });
+  return !probe.error && probe.status === 0 ? pkg : null;
 }
 
 function resolveBase93CppPaths(): { includeDir: string; sourcePath: string } | null {
@@ -159,7 +157,7 @@ function normalizeForJson(value: unknown): unknown {
 test("generated deep structured boundary codecs interoperate between TypeScript and C++ in both directions", (t) => {
   const qtPkg = detectQtCorePkg();
   if (!qtPkg) {
-    t.skip("Skipping deep structured boundary interoperability test: Qt6Core/Qt5Core not found via pkg-config.");
+    t.skip("Skipping deep structured boundary interoperability test: Qt6Core not found via pkg-config.");
     return;
   }
 

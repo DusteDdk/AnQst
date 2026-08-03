@@ -22,17 +22,6 @@ sudo apt-get install -y \
   pkg-config \
   git \
   python3 \
-  qtbase5-dev \
-  qttools5-dev \
-  qttools5-dev-tools \
-  qtdeclarative5-dev \
-  libqt5webchannel5-dev \
-  qtwebengine5-dev \
-  libqt5webengine5 \
-  libqt5webenginecore5 \
-  qtmultimedia5-dev \
-  libqt5svg5-dev \
-  libqt5webenginewidgets5 \
   qt6-base-dev \
   qt6-base-dev-tools \
   qt6-tools-dev \
@@ -48,6 +37,13 @@ echo "[anqst] Verifying installed toolchain..."
 for tool in cmake ninja c++ node npm; do
   command -v "${tool}" >/dev/null
 done
+
+if ! pkg-config --atleast-version=6.5 Qt6Core; then
+  installed_qt6_version="$(pkg-config --modversion Qt6Core 2>/dev/null || echo "not found")"
+  echo "[anqst] Qt 6.5 or newer is required; installed Qt6Core is ${installed_qt6_version}." >&2
+  echo "[anqst] Configure a Qt 6.5+ package source/toolchain for this distribution, then rerun this script." >&2
+  exit 1
+fi
 
 
 echo "[anqst] Dependency installation complete."

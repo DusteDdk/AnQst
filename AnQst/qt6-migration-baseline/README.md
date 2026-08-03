@@ -20,18 +20,18 @@ node ../qt6-migration-baseline/capture-baseline.js
 
 The two hand-curated JSON contract files and this documentation are not overwritten by that command.
 
-## Decision required before Stage 1: byte-for-byte scope
+## Approved compatibility scope
 
-Recommendation: freeze byte-for-byte the DSL declaration, DSL inputs, all generated public `.d.ts` files, generated public C++ headers, and the public/protected declarations of the inherited runtime base. Freeze wire shapes and codec vectors behaviorally and byte-for-byte as serialized fixtures. Treat generated implementations, JavaScript bundles, private helpers, resources, build stamps, and CMake as reference snapshots whose changes require review but are allowed.
+Freeze byte-for-byte the DSL declaration, DSL inputs, all generated public `.d.ts` files, generated public C++ headers, and the public/protected declarations of the inherited runtime base. Generated implementations, JavaScript bundles, private helpers, resources, build stamps, and CMake are reference snapshots whose changes require review but are allowed.
 
-Reasoning: freezing entire generated files would contradict the authorized redesign of codegen internals and prevent replacing Qt5-era implementation APIs. The consumer-visible declarations and serialized protocol are the enforceable compatibility boundary.
+The wire contract and codec vectors are reference/diff baselines, not frozen compatibility constraints. Frontend and backend are generated and built together, so cross-version wire interoperability is not supported or required. Wire redesign remains out of scope for the Qt5-removal migration.
 
-**Status: requires explicit owner sign-off before Stage 1.**
+**Status: approved by the project owner before Stage 1.**
 
-## Decision required before Stage 1: minimum Qt6
+## Approved minimum Qt6
 
-Recommendation: require Qt 6.5 LTS or newer for the first Qt6-only release.
+Require Qt 6.5 LTS or newer for the Qt6-only release.
 
 Reasoning: 6.5 is a mature LTS baseline with a stable WebEngine/WebChannel generation and the Qt6 metatype/WebEngine APIs needed by the overhaul. Choosing 6.8 LTS would provide a longer runway and newer WebEngine, but materially narrows currently deployable systems; choosing 6.2 preserves older distributions but anchors the overhaul to an older, already superseded LTS line. The Stage 0 suite currently passes on Qt 6.4.2, so approving 6.5 also means intentionally upgrading the project/CI baseline rather than merely documenting the oldest version proven here. If zero-friction continuity with the current environment is more important, 6.4.2 is the evidence-backed alternative.
 
-**Status: requires explicit owner sign-off before Stage 1.**
+**Status: approved by the project owner before Stage 1.**

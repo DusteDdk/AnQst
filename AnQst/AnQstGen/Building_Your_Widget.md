@@ -152,7 +152,6 @@ Generated output is deterministic and lives under `AnQst/generated/`. Do not han
 | --- | --- | --- | --- | --- |
 | `ANQST_DEBUG` | `true` enables it; any other value disables it. | Disabled. | `npx anqst build`, `npx anqst generate`. | Writes generator debug intermediates under `AnQst/generated/debug/intermediate`. |
 | `ANQST_WEBBASE_DIR` | Path to an `AnQstWebBase` source directory. | For `--designerplugin`, AnQst first uses this when set, otherwise resolves bundled or vendored sources. | `npx anqst build --designerplugin`. | Passed to CMake as `-DANQST_WEBBASE_DIR=<path>`. |
-| `ANQST_QT_MAJOR_VERSION` | `5` or `6`. | Not forwarded unless set for `--designerplugin`; CMake itself defaults to `5` when it cannot auto-detect. | `npx anqst build --designerplugin`. | Passed to CMake as `-DANQST_QT_MAJOR_VERSION=<5|6>`. |
 | `PAGER` | Console pager command, for example `less -R` or `more`. | Linux: `less -R`; Windows: `more.com`. | `npx anqst man`. | Selects the manual reader. If paging fails, AnQst prints the manual. |
 
 #### AnQst CMake Options
@@ -161,11 +160,10 @@ These are CMake cache variables for the generated QWidget path and the `AnQstWeb
 
 | CMake variable | Values | Default | Effect |
 | --- | --- | --- | --- |
-| `ANQST_QT_MAJOR_VERSION` | `5` or `6`. | `5`, unless CMake already has Qt targets from which AnQst can infer the major version. | Selects Qt5 or Qt6 for `find_package`. If both Qt5 and Qt6 targets are already present without a clear `Qt` or `Qt::Core` alias, CMake errors. |
 | `ANQSTWEBBASE_BUILD_TESTS` | `ON` or `OFF`. | `ON` in standalone `AnQstWebBase`; generated widget integration forces `OFF`. | Builds or skips `AnQstWebBase` unit tests. Host applications should set this to `OFF` before adding the shared base. |
 | `ANQSTWEBBASE_USE_WEBENGINE` | `ON` or `OFF`. | `ON` in standalone `AnQstWebBase`; generated widget integration forces the value from `UseWebEngine`. | Controls whether `AnQstWebBase` links `Qt::WebEngineWidgets`. Shared-base host projects must configure this to match `UseWebEngine`. |
 | `ANQST_WEBBASE_DIR` | Path to `AnQstWebBase`. | Empty for shared Designer plugin builds; generated plugin CMake searches common project locations if empty. Vendored plugin builds default to the generated widget's `AnQstWebBase`. | Used by generated Qt Designer plugin CMake to locate the base class sources. |
-| `CMAKE_PREFIX_PATH`, `Qt5_DIR`, `Qt6_DIR` | Standard CMake Qt discovery paths. | Environment-specific. | Not AnQst-specific, but commonly needed so CMake can find Qt. |
+| `CMAKE_PREFIX_PATH`, `Qt6_DIR` | Standard CMake Qt discovery paths. | Environment-specific. | Not AnQst-specific, but commonly needed so CMake can find Qt 6.5 or newer. |
 
 Generated CMake also defines internal variables such as `ANQST_PROJECT_ROOT`, `ANQST_GENERATED_WIDGET_DIR`, `ANQST_GENERATED_INCLUDE_DIR`, `ANQST_GENERATED_WIDGET_BINARY_DIR`, `ANQST_REQUIRED_GENERATED_FILES`, and `ANQST_GENERATED_WEBBASE_DIR`. Treat those as implementation details, not supported project configuration.
 
@@ -546,7 +544,7 @@ Reliable QWidget build order:
 npx anqst test
 # Build or package the selected browser frontend when needed.
 npx anqst build
-cmake -S . -B build -DANQST_QT_MAJOR_VERSION=6
+cmake -S . -B build
 cmake --build build
 ```
 
@@ -645,7 +643,6 @@ Requirements:
 Useful variants:
 
 ```bash
-ANQST_QT_MAJOR_VERSION=6 npx anqst build --designerplugin
 ANQST_WEBBASE_DIR=/absolute/path/to/AnQstWebBase npx anqst build --designerplugin=true
 npx anqst build --designerplugin=false
 ```

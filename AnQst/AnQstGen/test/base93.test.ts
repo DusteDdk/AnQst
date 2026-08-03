@@ -69,12 +69,11 @@ function detectCppCompiler(): string | null {
 function detectQtCorePkg(): string | null {
   if (cachedQtCorePkg !== undefined) return cachedQtCorePkg;
 
-  for (const pkg of ["Qt6Core", "Qt5Core"] as const) {
-    const probe = spawnSync("pkg-config", ["--exists", pkg], { encoding: "utf8" });
-    if (!probe.error && probe.status === 0) {
-      cachedQtCorePkg = pkg;
-      return pkg;
-    }
+  const pkg = "Qt6Core";
+  const probe = spawnSync("pkg-config", ["--exists", pkg], { encoding: "utf8" });
+  if (!probe.error && probe.status === 0) {
+    cachedQtCorePkg = pkg;
+    return pkg;
   }
 
   cachedQtCorePkg = null;

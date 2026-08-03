@@ -36,7 +36,7 @@ if(ANQSTWEBBASE_USE_WEBENGINE)
     anqst_find_qt_components(WebEngineWidgets)
 endif()
 
-set(ANQST_QT_CORE_TARGET "Qt${ANQST_QT_MAJOR_VERSION}::Core")
+set(ANQST_QT_CORE_TARGET "Qt6::Core")
 if(WIN32)
     get_target_property(ANQST_QT_CORE_DLL_RELEASE ${ANQST_QT_CORE_TARGET} IMPORTED_LOCATION_RELEASE)
     if(NOT ANQST_QT_CORE_DLL_RELEASE)
@@ -97,15 +97,15 @@ if(NOT TARGET ${ANQST_WEBBASE_TARGET})
 
     target_link_libraries(${ANQST_WEBBASE_TARGET}
         PUBLIC
-            Qt${ANQST_QT_MAJOR_VERSION}::Core
-            Qt${ANQST_QT_MAJOR_VERSION}::Widgets
-            Qt${ANQST_QT_MAJOR_VERSION}::Network
-            Qt${ANQST_QT_MAJOR_VERSION}::WebChannel
+            Qt6::Core
+            Qt6::Widgets
+            Qt6::Network
+            Qt6::WebChannel
     )
     if(ANQSTWEBBASE_USE_WEBENGINE)
         target_link_libraries(${ANQST_WEBBASE_TARGET}
             PUBLIC
-                Qt${ANQST_QT_MAJOR_VERSION}::WebEngineWidgets
+                Qt6::WebEngineWidgets
         )
         target_compile_definitions(${ANQST_WEBBASE_TARGET} PUBLIC ANQSTWEBBASE_USE_WEBENGINE=1)
         set_target_properties(${ANQST_WEBBASE_TARGET} PROPERTIES ANQSTWEBBASE_USE_WEBENGINE ON)

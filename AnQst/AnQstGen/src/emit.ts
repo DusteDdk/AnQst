@@ -6194,9 +6194,9 @@ target_include_directories(${pluginTarget}
 target_link_libraries(${pluginTarget}
     PRIVATE
         ${widgetTarget}
-        Qt\${ANQST_QT_MAJOR_VERSION}::Core
-        Qt\${ANQST_QT_MAJOR_VERSION}::Widgets
-        Qt\${ANQST_QT_MAJOR_VERSION}::UiPlugin
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::UiPlugin
 )
 set_target_properties(${pluginTarget} PROPERTIES
     PREFIX ""
