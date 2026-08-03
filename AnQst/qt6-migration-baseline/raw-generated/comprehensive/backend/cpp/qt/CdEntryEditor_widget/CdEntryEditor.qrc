@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/cdentryeditor">
+        <!-- npx anqst build will populate embedded web assets under webapp/ -->
+    </qresource>
+</RCC>

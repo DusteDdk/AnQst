@@ -1,0 +1,446 @@
+{
+  "formatVersion": 1,
+  "generatorPackage": "1.7.7",
+  "captureCommand": "npm run build:test && node ../qt6-migration-baseline/capture-baseline.js",
+  "normalization": "None. Files are raw generateOutputs() strings without build stamps.",
+  "dslSha256": "e8d3a52e826b108c19c7b570a6cc96ea5b5b5a6084ca75b7267ac264c2f84f0e",
+  "cases": [
+    {
+      "name": "minimal",
+      "sourceSpec": "test-anqst-dsl/torture/steps/01-minimal.AnQst.d.ts",
+      "widget": "TortureWidget",
+      "rawFiles": [
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/CMakeLists.txt",
+          "sha256": "fee75648261baf77f4f264f68a921554acc5f9988e5e9e774a8dd1686b9f8643"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/TortureWidget.cpp",
+          "sha256": "3dbd1669253bafe689b278fab81c97874f556b21160cfc64b3c115b1581744e7"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/TortureWidget.qrc",
+          "sha256": "1f3ce1325ab11b7be1f7a58a4450b75a31679526d6db89e48bde666280eddfca"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidget.h",
+          "sha256": "7312c39e99b27e8b3948f72bdc09aca9866df6c57318d19b5ef539e6066c409b"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidgetTypes.h",
+          "sha256": "ae246562d4553f579dab17f4ab4c467b934cadcfca661c33e9c3f017d820a1f3"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidgetWidget.h",
+          "sha256": "c97bc7e8f0de953f4dc158b080ab47a3eeeb546cc78537e08fa4c9d855d375ac"
+        },
+        {
+          "path": "backend/node/express/TortureWidget_anQst/index.ts",
+          "sha256": "c9f59ac0edcb0244b3f57ca7e6176cdb349732bb45d755697604908393afa0a5"
+        },
+        {
+          "path": "backend/node/express/TortureWidget_anQst/package.json",
+          "sha256": "bd3320f0192114fa6eb4690a6d570d243c7e83c8c9ac26e5c34c9c469ea9986f"
+        },
+        {
+          "path": "backend/node/express/TortureWidget_anQst/types/index.d.ts",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/index.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/index.ts",
+          "sha256": "9a2b3f0a0f018c892ff79a5cdd771c3a0dd28e96b52bdf55cf1174c9c1ae1849"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/package.json",
+          "sha256": "4280fded475d928229156d79c9393ffc2bc5734e4ce7b126539f9b4ceb21e3da"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/services.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/services.ts",
+          "sha256": "b77bc2977766f946d7be469f53d6d3113e5cfc53888998d40a58c80eb3ab14ac"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types.ts",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/index.d.ts",
+          "sha256": "8af3faf18a1951de48f8c135d1ce579079f41ca3a812af9aa90f81f3f640a237"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/services.d.ts",
+          "sha256": "867ba4d6dd753981d02749b151f91e31c1ed8560fd6bce29e1b25f87fb493ea3"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/types.d.ts",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaJS/index.js",
+          "sha256": "027b7e9fb30bd78501adfccd68368441225a2f04a8b2e6812d2b78035530dff6"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaJS/package.json",
+          "sha256": "7ed75b79dd7008126dec7614261defa76a4a10d0a473b34209657a760aec8ed8"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaTS/index.d.ts",
+          "sha256": "9300dadef12cf94f4866298e65db02c34b61589bc47a0ee024e9dfb7ca286676"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaTS/index.js",
+          "sha256": "027b7e9fb30bd78501adfccd68368441225a2f04a8b2e6812d2b78035530dff6"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaTS/index.ts",
+          "sha256": "13b97cdcf1b0e3e8a482959f65d3b1ef8b24d0f3645215addd274e6a1e11eaeb"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaTS/package.json",
+          "sha256": "02fd93f42af8d7d523845ac408a3f8955dea9244035f7addb9df9755d6609dd5"
+        }
+      ],
+      "publicFiles": [
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidget.h",
+          "sha256": "7312c39e99b27e8b3948f72bdc09aca9866df6c57318d19b5ef539e6066c409b"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidgetTypes.h",
+          "sha256": "ae246562d4553f579dab17f4ab4c467b934cadcfca661c33e9c3f017d820a1f3"
+        },
+        {
+          "path": "backend/cpp/qt/TortureWidget_widget/include/TortureWidgetWidget.h",
+          "sha256": "c97bc7e8f0de953f4dc158b080ab47a3eeeb546cc78537e08fa4c9d855d375ac"
+        },
+        {
+          "path": "backend/node/express/TortureWidget_anQst/types/index.d.ts",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/index.d.ts",
+          "sha256": "8af3faf18a1951de48f8c135d1ce579079f41ca3a812af9aa90f81f3f640a237"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/services.d.ts",
+          "sha256": "867ba4d6dd753981d02749b151f91e31c1ed8560fd6bce29e1b25f87fb493ea3"
+        },
+        {
+          "path": "frontend/TortureWidget_Angular/types/types.d.ts",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "frontend/TortureWidget_VanillaTS/index.d.ts",
+          "sha256": "9300dadef12cf94f4866298e65db02c34b61589bc47a0ee024e9dfb7ca286676"
+        }
+      ]
+    },
+    {
+      "name": "comprehensive",
+      "sourceSpec": "../Examples/example-qt-app/lib/widgets/CdEntryEditor/AnQst/CdEntryEditor.AnQst.d.ts",
+      "widget": "CdEntryEditor",
+      "rawFiles": [
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/CMakeLists.txt",
+          "sha256": "da0dfd53a58a018e1f3994e70be9210fd2c1415e73e25cf4dd7e4e97f0bd33e4"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/CdEntryEditor.cpp",
+          "sha256": "4e0bec60ac118de9d48188bc14508c4421ae5fbd393b5a932be72ec7eaab2f10"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/CdEntryEditor.qrc",
+          "sha256": "7af910d460caa2a728a88ebd69045cbedccf68cc3f320a976972e49b650594f4"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditor.h",
+          "sha256": "78add7ad713d79ac5c1b6545c394f3d0d42fe6b82b0fca01daed30c68b2fe088"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditorTypes.h",
+          "sha256": "07f27a10fb480c8685d9d771b7cfa9ac22dcc7cb391b90ded10418369a9a42ca"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditorWidget.h",
+          "sha256": "ca0f8a50fb81db4815f7ee66d26a235818d7e53a101c298c1453afbe5b75b1f4"
+        },
+        {
+          "path": "backend/node/express/CdEntryEditor_anQst/index.ts",
+          "sha256": "82ff0f5c40301d51b2e07f50abab47e395480dfdd2e07f4e907411aa669e92da"
+        },
+        {
+          "path": "backend/node/express/CdEntryEditor_anQst/package.json",
+          "sha256": "766dd254fa8d1afc94d1e2ead4576cc73d8b473f27f859d828501223b14ab3ba"
+        },
+        {
+          "path": "backend/node/express/CdEntryEditor_anQst/types/index.d.ts",
+          "sha256": "095b838c670574bcb45023b4363d71229f3d6acc2be5887cabc5af20bc9fe7f0"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/index.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/index.ts",
+          "sha256": "9a2b3f0a0f018c892ff79a5cdd771c3a0dd28e96b52bdf55cf1174c9c1ae1849"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/package.json",
+          "sha256": "fee826ce6c2ff68816ea67d421e1562dc2facf0fa494f231fa044c03ddb3a1e9"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/services.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/services.ts",
+          "sha256": "bbeb1fe444174ac0dfa7e38a8a3bd78f534fd0846e8c537e2290a328992fdd5f"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types.ts",
+          "sha256": "d5fd33b825c936d7b059cdec5333c84469a5a6c85758458c46aa15be21aae745"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/index.d.ts",
+          "sha256": "cc394529cbc0ebd68655e45a729e65e90f27323de7d9d11f561ba315f1524dc4"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/services.d.ts",
+          "sha256": "339017d4dc9b8ba8fc47f13898eb108a7d35417b643fefe53f00b90e87c75391"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/types.d.ts",
+          "sha256": "5613cdbc01e4cc10435597782f3cd84facd2cf3c70eeee06645e898d295fbc3d"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaJS/index.js",
+          "sha256": "48456d0fc33ff14b4c1799b3b33b23b258398661a19e7156b16e0ebf331f7bf1"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaJS/package.json",
+          "sha256": "743e469d140b2e0ddce43dffa7cac80f8529073cadb81f80d2eb31980e7cdd4d"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaTS/index.d.ts",
+          "sha256": "a55b236c4bd6758bfc565cbd49dfec19cfba7b8725d0d23f069e4ff0d04702cc"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaTS/index.js",
+          "sha256": "48456d0fc33ff14b4c1799b3b33b23b258398661a19e7156b16e0ebf331f7bf1"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaTS/index.ts",
+          "sha256": "92500db30c2167e4560269ceeb6209418f3212dd649ff6a8c0f199fcbe562f21"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaTS/package.json",
+          "sha256": "6bf849922faf8c2f943964fc1053c3d9c022711de0e38a9e27e706c77712e615"
+        }
+      ],
+      "publicFiles": [
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditor.h",
+          "sha256": "78add7ad713d79ac5c1b6545c394f3d0d42fe6b82b0fca01daed30c68b2fe088"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditorTypes.h",
+          "sha256": "07f27a10fb480c8685d9d771b7cfa9ac22dcc7cb391b90ded10418369a9a42ca"
+        },
+        {
+          "path": "backend/cpp/qt/CdEntryEditor_widget/include/CdEntryEditorWidget.h",
+          "sha256": "ca0f8a50fb81db4815f7ee66d26a235818d7e53a101c298c1453afbe5b75b1f4"
+        },
+        {
+          "path": "backend/node/express/CdEntryEditor_anQst/types/index.d.ts",
+          "sha256": "095b838c670574bcb45023b4363d71229f3d6acc2be5887cabc5af20bc9fe7f0"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/index.d.ts",
+          "sha256": "cc394529cbc0ebd68655e45a729e65e90f27323de7d9d11f561ba315f1524dc4"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/services.d.ts",
+          "sha256": "339017d4dc9b8ba8fc47f13898eb108a7d35417b643fefe53f00b90e87c75391"
+        },
+        {
+          "path": "frontend/CdEntryEditor_Angular/types/types.d.ts",
+          "sha256": "5613cdbc01e4cc10435597782f3cd84facd2cf3c70eeee06645e898d295fbc3d"
+        },
+        {
+          "path": "frontend/CdEntryEditor_VanillaTS/index.d.ts",
+          "sha256": "a55b236c4bd6758bfc565cbd49dfec19cfba7b8725d0d23f069e4ff0d04702cc"
+        }
+      ]
+    },
+    {
+      "name": "codec-leaves",
+      "sourceSpec": "../qt6-migration-baseline/fixtures/CodecLeafWidget.AnQst.d.ts",
+      "widget": "CodecLeafWidget",
+      "rawFiles": [
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/CMakeLists.txt",
+          "sha256": "00dfc6b67d2754ede08088c93131c096f0f5f7835279f74e2a316344121944c2"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/CodecLeafWidget.cpp",
+          "sha256": "5a34230861bc238c2f089f47aa8edbbfa29019b1bc803161a6b79a0b74b5d18e"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/CodecLeafWidget.qrc",
+          "sha256": "31e1a6570690d629772a585d25bd74c269ffbd4d5a27e361098070a39f50f865"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidget.h",
+          "sha256": "8098cdfd2a8b650d1cce6fcdb51bddf3029a5a24ee030dcdf89cc7dea7208b42"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidgetTypes.h",
+          "sha256": "d064c9dc14bd83ac8e13b03fdc99f668007eea2192a0979e6515a3c313745a97"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidgetWidget.h",
+          "sha256": "225cf604cb7084469651a14167115c792c1258a77f1f1094993ed6dc1e4fd7cf"
+        },
+        {
+          "path": "backend/node/express/CodecLeafWidget_anQst/index.ts",
+          "sha256": "3b53c8d75ee23838d5b0356c5bc0b0b5e409bd300a0285a03e252e4ec86b2754"
+        },
+        {
+          "path": "backend/node/express/CodecLeafWidget_anQst/package.json",
+          "sha256": "82979f7237e72a7bdf180d8be4a3a5a94f83234c3cb95d7b8d5047e8f40eb115"
+        },
+        {
+          "path": "backend/node/express/CodecLeafWidget_anQst/types/index.d.ts",
+          "sha256": "c1eaf62930dd727540db3e6f02b0c6e0a303a8ca18c6e7ffc8ac5467ffa6d48b"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/index.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/index.ts",
+          "sha256": "9a2b3f0a0f018c892ff79a5cdd771c3a0dd28e96b52bdf55cf1174c9c1ae1849"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/package.json",
+          "sha256": "ebc8c31b4b686210cd29a240a3e672f01e2109149c101f6246f9c53056e34002"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/services.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/services.ts",
+          "sha256": "df4fbf29de5689d176cb32b7197c9968ed968660d56ecd1db88388bcedeabe71"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types.js",
+          "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types.ts",
+          "sha256": "c1eaf62930dd727540db3e6f02b0c6e0a303a8ca18c6e7ffc8ac5467ffa6d48b"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/index.d.ts",
+          "sha256": "54731c620d4c6b76745db20b60791cbe53260243c9e8248c9145290ff0b55600"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/services.d.ts",
+          "sha256": "129062ab03c6a8181abf6136d1e32fcf7b4a550a6259c89adb972387e630ebb8"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/types.d.ts",
+          "sha256": "c1eaf62930dd727540db3e6f02b0c6e0a303a8ca18c6e7ffc8ac5467ffa6d48b"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaJS/index.js",
+          "sha256": "685a118c322c013cebb5b91e8eb449f044e119be97646fec85fa76864fc0f577"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaJS/package.json",
+          "sha256": "f0e95d86d2c44827faf87e58b7533efaaa3e22cab98f4696e982941028e25d54"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaTS/index.d.ts",
+          "sha256": "370a9682b52a39e6cbe41d865a5f528a2c17cf678442ea34ec19029b4ae73bda"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaTS/index.js",
+          "sha256": "685a118c322c013cebb5b91e8eb449f044e119be97646fec85fa76864fc0f577"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaTS/index.ts",
+          "sha256": "329525e512a8cade7708d269e266a5445e54a40b428ec0590492760972d34e7c"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaTS/package.json",
+          "sha256": "e417a6354526459e279c099240f4977ddc748e898eeea6a7f2881b23fd8a12ae"
+        }
+      ],
+      "publicFiles": [
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidget.h",
+          "sha256": "8098cdfd2a8b650d1cce6fcdb51bddf3029a5a24ee030dcdf89cc7dea7208b42"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidgetTypes.h",
+          "sha256": "d064c9dc14bd83ac8e13b03fdc99f668007eea2192a0979e6515a3c313745a97"
+        },
+        {
+          "path": "backend/cpp/qt/CodecLeafWidget_widget/include/CodecLeafWidgetWidget.h",
+          "sha256": "225cf604cb7084469651a14167115c792c1258a77f1f1094993ed6dc1e4fd7cf"
+        },
+        {
+          "path": "backend/node/express/CodecLeafWidget_anQst/types/index.d.ts",
+          "sha256": "c1eaf62930dd727540db3e6f02b0c6e0a303a8ca18c6e7ffc8ac5467ffa6d48b"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/index.d.ts",
+          "sha256": "54731c620d4c6b76745db20b60791cbe53260243c9e8248c9145290ff0b55600"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/services.d.ts",
+          "sha256": "129062ab03c6a8181abf6136d1e32fcf7b4a550a6259c89adb972387e630ebb8"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_Angular/types/types.d.ts",
+          "sha256": "c1eaf62930dd727540db3e6f02b0c6e0a303a8ca18c6e7ffc8ac5467ffa6d48b"
+        },
+        {
+          "path": "frontend/CodecLeafWidget_VanillaTS/index.d.ts",
+          "sha256": "370a9682b52a39e6cbe41d865a5f528a2c17cf678442ea34ec19029b4ae73bda"
+        }
+      ]
+    }
+  ],
+  "runtimePublicHeaders": [
+    {
+      "path": "AnQstWidget/AnQstWebBase/src/AnQstBridgeProxy.h",
+      "sha256": "955699ee68f45a903a8efa6709b886fd1e28e3c7fad66bb52b1305fd89f7fbea"
+    },
+    {
+      "path": "AnQstWidget/AnQstWebBase/src/AnQstHostBridgeFacade.h",
+      "sha256": "98822d80cfe1cadc4cec9afa576d500096233d636dbcbbefbe814260673adc0e"
+    },
+    {
+      "path": "AnQstWidget/AnQstWebBase/src/AnQstWebHostBase.h",
+      "sha256": "37d17e3fad275b1cd39d1006ac5ea966be066b719b10595153bdbfd9ccebb10e"
+    }
+  ]
+}

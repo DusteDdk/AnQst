@@ -1,0 +1,35 @@
+{
+  "qtWebChannelObject": "anqstBridge",
+  "qtWebChannelMethods": {
+    "anQstBridge_call": ["service", "member", "args", "callback(result)"],
+    "anQstBridge_emit": ["service", "member", "args"],
+    "anQstBridge_setInput": ["service", "member", "value"],
+    "anQstBridge_registerSlot": ["service", "member"],
+    "anQstBridge_resolveSlot": ["requestId", "ok", "payload", "error"]
+  },
+  "qtWebChannelSignals": {
+    "anQstBridge_outputUpdated": ["service", "member", "value"],
+    "anQstBridge_slotInvocationRequested": ["requestId", "service", "member", "args"],
+    "anQstBridge_hostDiagnostic": ["payload"],
+    "anQstBridge_dropReceived": ["service", "member", "payload", "x", "y"],
+    "anQstBridge_hoverUpdated": ["service", "member", "payload", "x", "y"],
+    "anQstBridge_hoverLeft": ["service", "member"]
+  },
+  "webSocketClientMessages": {
+    "call": ["type", "requestId", "service", "member", "args"],
+    "emit": ["type", "service", "member", "args"],
+    "setInput": ["type", "service", "member", "value"],
+    "registerSlot": ["type", "service", "member"],
+    "resolveSlot": ["type", "requestId", "ok", "payload", "error"]
+  },
+  "webSocketHostMessages": {
+    "callResult": ["type", "requestId", "result"],
+    "outputUpdated": ["type", "service", "member", "value"],
+    "slotInvocationRequested": ["type", "requestId", "service", "member", "args"],
+    "hostDiagnostic": ["type", "payload"],
+    "dropReceived": ["type", "service", "member", "payload", "x", "y"],
+    "hoverUpdated": ["type", "service", "member", "payload", "x", "y"],
+    "hoverLeft": ["type", "service", "member"],
+    "hostReady": ["type"]
+  }
+}

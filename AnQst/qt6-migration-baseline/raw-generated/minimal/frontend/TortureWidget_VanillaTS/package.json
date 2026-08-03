@@ -1,0 +1,16 @@
+{
+  "name": "torturewidget-vanillats-generated",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "anqst": {
+    "widget": "TortureWidget",
+    "services": [
+      "PingService"
+    ],
+    "target": "VanillaTS",
+    "supportsDevelopmentModeTransport": false,
+    "outputContractVersion": 2
+  },
+  "types": "index.d.ts"
+}
