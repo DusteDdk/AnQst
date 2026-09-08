@@ -1709,6 +1709,7 @@ function renderCppRuntimeSupport(
     lines.push("    out.reserve(static_cast<qsizetype>(items.size() + 1));");
     lines.push(`    out.push_back(${cppBase93EncodeFunction()}(bytes));`);
     lines.push("    for (const auto& item : items) out.push_back(item);");
+    lines.push("    if (out.size() == 1) return out.front();");
     lines.push("    return out;");
     lines.push("}");
     lines.push("");
