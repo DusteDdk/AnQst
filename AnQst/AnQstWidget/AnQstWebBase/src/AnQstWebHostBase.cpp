@@ -1979,15 +1979,15 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
                 m_cachedHoverPayload = hoverPayload;
                 m_cachedHoverService = binding.service;
                 m_cachedHoverMember = binding.member;
-                m_pendingHoverPos = de->pos();
+                m_pendingHoverPos = de->position().toPoint();
                 if (binding.throttleIntervalMs > 0) {
                     m_hoverThrottleTimer->setInterval(binding.throttleIntervalMs);
                 }
                 m_bridgeFacade->emitHover(
                     binding.service, binding.member,
                     m_cachedHoverPayload,
-                    static_cast<double>(de->pos().x()),
-                    static_cast<double>(de->pos().y()));
+                    static_cast<double>(m_pendingHoverPos.x()),
+                    static_cast<double>(m_pendingHoverPos.y()));
             }
             return true;
         }
@@ -1999,7 +1999,7 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
         if (matchDropMimeType(de->mimeData(), &matchedMime)) {
             de->acceptProposedAction();
             if (m_hoverTargets.contains(matchedMime)) {
-                m_pendingHoverPos = de->pos();
+                m_pendingHoverPos = de->position().toPoint();
                 const DragTargetBinding& binding = m_hoverTargets.value(matchedMime);
                 if (binding.throttleIntervalMs <= 0) {
                     dispatchHoverThrottle();
@@ -2043,11 +2043,12 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
                 de->ignore();
                 return true;
             }
+            const QPoint dropPos = de->position().toPoint();
             m_bridgeFacade->emitDrop(
                 binding.service, binding.member,
                 payload,
-                static_cast<double>(de->pos().x()),
-                static_cast<double>(de->pos().y()));
+                static_cast<double>(dropPos.x()),
+                static_cast<double>(dropPos.y()));
             de->acceptProposedAction();
             return true;
         }

@@ -1473,7 +1473,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
     lines.push(`QByteArray ${widgetClassName}::encodeDragDropPayload_${helper.typeName}(const ${helper.cppType}& payload) {`);
     lines.push(`    const QVariant wire = encode${helper.codecId}(payload);`);
     if (helper.carriers.includes("string")) {
-      lines.push(`    if (wire.type() == QVariant::String) {`);
+      lines.push(`    if (wire.typeId() == QMetaType::QString) {`);
       lines.push(`        QByteArray out;`);
       lines.push(`        out.append('S');`);
       lines.push(`        out.append(wire.toString().toUtf8());`);
@@ -1481,7 +1481,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
       lines.push(`    }`);
     }
     if (helper.carriers.includes("array")) {
-      lines.push(`    if (wire.type() == QVariant::List) {`);
+      lines.push(`    if (wire.typeId() == QMetaType::QVariantList) {`);
       lines.push(`        QByteArray out;`);
       lines.push(`        out.append('A');`);
       lines.push(`        out.append(QJsonDocument(QJsonArray::fromVariantList(wire.toList())).toJson(QJsonDocument::Compact));`);
@@ -1489,7 +1489,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
       lines.push(`    }`);
     }
     if (helper.carriers.includes("object")) {
-      lines.push(`    if (wire.type() == QVariant::Map) {`);
+      lines.push(`    if (wire.typeId() == QMetaType::QVariantMap) {`);
       lines.push(`        QByteArray out;`);
       lines.push(`        out.append('O');`);
       lines.push(`        out.append(QJsonDocument(QJsonObject::fromVariantMap(wire.toMap())).toJson(QJsonDocument::Compact));`);
@@ -1591,7 +1591,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         lines.push(`    QObject::connect(this, &${webBaseClassName}::anQstBridge_dropReceived, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         if (payloadSite) {
-          lines.push(`            if (payload.type() != QVariant::String) {`);
+          lines.push(`            if (payload.typeId() != QMetaType::QString) {`);
           lines.push(`                emitHostError(`);
           lines.push(`                    QStringLiteral("DeserializationError"),`);
           lines.push(`                    QStringLiteral("bridge"),`);
@@ -1633,7 +1633,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
         lines.push(`    QObject::connect(this, &${webBaseClassName}::anQstBridge_hoverUpdated, this, [this](const QString& service, const QString& member, const QVariant& payload, double x, double y) {`);
         lines.push(`        if (service == QStringLiteral("${service.name}") && member == QStringLiteral("${member.name}")) {`);
         if (payloadSite) {
-          lines.push(`            if (payload.type() != QVariant::String) {`);
+          lines.push(`            if (payload.typeId() != QMetaType::QString) {`);
           lines.push(`                emitHostError(`);
           lines.push(`                    QStringLiteral("DeserializationError"),`);
           lines.push(`                    QStringLiteral("bridge"),`);

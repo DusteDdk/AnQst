@@ -1692,7 +1692,7 @@ function renderCppRuntimeSupport(
   const support = collectCppSupport(catalog);
   const lines: string[] = [];
   lines.push("inline QVariantList anqstNormalizeWireItems(const QVariant& wire) {");
-  lines.push("    return wire.type() == QVariant::List ? wire.toList() : QVariantList{wire};");
+  lines.push("    return wire.typeId() == QMetaType::QVariantList ? wire.toList() : QVariantList{wire};");
   lines.push("}");
   lines.push("");
   lines.push("inline QVariant anqstFinalizeWire(const std::vector<std::uint8_t>& bytes, const QVariantList& items) {");
