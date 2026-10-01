@@ -2,10 +2,12 @@
 
 #include "AnQstWebBaseAbi.h"
 
+#include <QColor>
 #include <QDateTime>
 #include <QHash>
 #include <QObject>
 #include <QPoint>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -74,6 +76,8 @@ public:
     bool developmentModeAllowLan() const;
 
     void setContextMenuEnabled(bool enabled);
+    void setBackgroundColor(const QColor& color);
+    void trackWidgetBackground(QWidget* widget);
     void setTextSelectionEnabled(bool enabled);
     void setScrollbarsEnabled(bool enabled);
     void setRemoteNavigationBlocked(bool blocked);
@@ -91,6 +95,7 @@ public:
     void registerHoverTarget(const QString& service, const QString& member, const QString& mimeType, int throttleIntervalMs);
 
     bool eventFilter(QObject* obj, QEvent* event) override;
+    bool event(QEvent* event) override;
 
     QString contentRoot() const;
     ContentRootMode contentRootMode() const;
@@ -180,6 +185,7 @@ private:
     QString loadDefaultBridgeBootstrapScript() const;
     void applyTextSelectionPolicy();
     void applyScrollbarPolicy();
+    void applyBackgroundColor();
 
     struct DragTargetBinding {
         QString service;
@@ -214,6 +220,9 @@ private:
     bool m_contextMenuEnabled;
     bool m_textSelectionEnabled;
     bool m_scrollbarsEnabled;
+    QColor m_backgroundColor;
+    bool m_backgroundColorSet;
+    QPointer<QWidget> m_trackedBackgroundWidget;
     QString m_developmentModeUrl;
     DebugState m_debugState;
     bool m_remoteNavigationBlocked;

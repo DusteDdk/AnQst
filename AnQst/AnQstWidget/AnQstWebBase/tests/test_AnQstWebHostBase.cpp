@@ -5,6 +5,7 @@
 #include "AnQstWidgetDebugDialog.h"
 
 #include <QApplication>
+#include <QBrush>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -14,12 +15,16 @@
 #include <QDir>
 #include <QDropEvent>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QFile>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QPalette>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QShortcut>
@@ -339,6 +344,292 @@ TEST_CASE("text selection and scrollbar policies default to disabled", "[host][v
     CHECK(hasWebEngineScript(scripts, kScriptName));
 }
 
+TEST_CASE("background color is opt-in and updates the page and document script", "[host][view][background]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    auto& scripts = view->page()->scripts();
+    const QString scriptName = QStringLiteral("AnQstBackgroundColor");
+    CHECK_FALSE(hasWebEngineScript(scripts, scriptName));
+
+    const QColor halfRed(0x12, 0x34, 0x56, 0x80);
+    host.setBackgroundColor(halfRed);
+    CHECK(host.palette().color(QPalette::Window) == halfRed);
+    CHECK(view->palette().color(QPalette::Window) == QColor(Qt::transparent));
+    CHECK(view->palette().color(QPalette::Base) == QColor(Qt::transparent));
+    CHECK(view->page()->backgroundColor() == halfRed);
+    CHECK_FALSE(host.autoFillBackground());
+    CHECK_FALSE(view->autoFillBackground());
+    CHECK(view->testAttribute(Qt::WA_TranslucentBackground));
+    REQUIRE(hasWebEngineScript(scripts, scriptName));
+    const auto firstScript = scripts.find(scriptName).first();
+    CHECK(firstScript.injectionPoint() == QWebEngineScript::DocumentReady);
+    CHECK(firstScript.sourceCode().contains(QStringLiteral("#12345680")));
+    CHECK(firstScript.sourceCode().contains(QStringLiteral("html,body{background-color:transparent!important;}")));
+    CHECK(firstScript.sourceCode().contains(QStringLiteral("html::before{")));
+    CHECK(firstScript.sourceCode().contains(QStringLiteral("backgroundImage!=='none'")));
+    CHECK(firstScript.sourceCode().contains(QStringLiteral("html{background-color:#12345680!important;}")));
+
+    const QColor clearGreen(0x01, 0x9a, 0x03, 0x00);
+    host.setBackgroundColor(clearGreen);
+    CHECK(view->page()->backgroundColor() == clearGreen);
+    REQUIRE(scripts.find(scriptName).size() == 1);
+    CHECK(scripts.find(scriptName).first().sourceCode().contains(QStringLiteral("#019a0300")));
+    auto* placeholder = host.findChild<QLabel*>(QStringLiteral("AnQstDevModePlaceholder"));
+    REQUIRE(placeholder != nullptr);
+    CHECK(placeholder->styleSheet().contains(QStringLiteral("background-color: rgba(1, 154, 3, 0)")));
+}
+
+TEST_CASE("background color set before view creation is applied when the view is initialized", "[host][view][background]") {
+    ensureApp();
+    ScopedEnvironmentVariable bypassEnv("ANQST_BYPASS_QWEBENGINE", QByteArrayLiteral("yes"));
+    AnQstWebHostBase host;
+    REQUIRE(host.findChild<QWebEngineView*>() == nullptr);
+    const QColor color(24, 80, 160, 255);
+    host.setBackgroundColor(color);
+
+    REQUIRE(host.installBridgeBootstrapScript());
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    CHECK(view->page()->backgroundColor() == color);
+    CHECK(hasWebEngineScript(view->page()->scripts(), QStringLiteral("AnQstBackgroundColor")));
+    CHECK_FALSE(view->testAttribute(Qt::WA_TranslucentBackground));
+    host.registerDropTarget(QStringLiteral("Example"), QStringLiteral("drop"), QStringLiteral("application/x-anqst-recreate"));
+    REQUIRE(view->focusProxy() != nullptr);
+    CHECK(view->focusProxy()->acceptDrops());
+
+    delete view;
+    REQUIRE(host.installBridgeBootstrapScript());
+    auto* recreatedView = host.findChild<QWebEngineView*>();
+    REQUIRE(recreatedView != nullptr);
+    CHECK(recreatedView->page()->backgroundColor() == color);
+    CHECK(hasWebEngineScript(recreatedView->page()->scripts(), QStringLiteral("AnQstBackgroundColor")));
+    CHECK(hasWebEngineScript(recreatedView->page()->scripts(), QStringLiteral("AnQstBridgeBootstrap")));
+    REQUIRE(recreatedView->focusProxy() != nullptr);
+    CHECK(recreatedView->focusProxy()->acceptDrops());
+}
+
+TEST_CASE("tracking a parent sets the page backing before navigation and follows its palette", "[host][view][background]") {
+    ensureApp();
+    QWidget parent;
+    QPalette parentPalette = parent.palette();
+    const QColor initial(18, 52, 86);
+    parentPalette.setColor(QPalette::Window, initial);
+    parent.setPalette(parentPalette);
+
+    AnQstWebHostBase host(&parent);
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    CHECK_FALSE(hasWebEngineScript(view->page()->scripts(), QStringLiteral("AnQstBackgroundColor")));
+    host.trackWidgetBackground(&parent);
+    CHECK(view->page()->backgroundColor() == initial);
+    CHECK(hasWebEngineScript(view->page()->scripts(), QStringLiteral("AnQstBackgroundColor")));
+    REQUIRE(host.setContentRoot(QStringLiteral("qrc:/qtwebchannel")));
+    REQUIRE(host.loadEntryPoint(QStringLiteral("qwebchannel.js")));
+    CHECK(view->page()->backgroundColor() == initial);
+
+    const QColor next(140, 35, 72);
+    parentPalette.setColor(QPalette::Window, next);
+    parent.setPalette(parentPalette);
+    CHECK(view->page()->backgroundColor() == next);
+    CHECK(view->page()->scripts().find(QStringLiteral("AnQstBackgroundColor")).size() == 1);
+}
+
+TEST_CASE("tracking a null parent leaves the current background unchanged", "[host][view][background]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    REQUIRE(host.parentWidget() == nullptr);
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    const QColor originalPageColor = view->page()->backgroundColor();
+    const QColor originalHostColor = host.palette().color(QPalette::Window);
+
+    // Generated constructors pass their parent argument, including nullptr.
+    host.trackWidgetBackground(host.parentWidget());
+    CHECK(view->page()->backgroundColor() == originalPageColor);
+    CHECK(host.palette().color(QPalette::Window) == originalHostColor);
+    CHECK_FALSE(hasWebEngineScript(view->page()->scripts(), QStringLiteral("AnQstBackgroundColor")));
+
+    const QColor explicitColor(45, 67, 89);
+    host.setBackgroundColor(explicitColor);
+    host.trackWidgetBackground(nullptr);
+    CHECK(view->page()->backgroundColor() == explicitColor);
+    CHECK(host.palette().color(QPalette::Window) == explicitColor);
+}
+
+TEST_CASE("tracking uses the widget background role and detects a texture brush", "[host][view][background]") {
+    ensureApp();
+    QWidget source;
+    QPalette sourcePalette = source.palette();
+    const QColor windowColor(20, 30, 40);
+    const QColor baseColor(70, 80, 90);
+    sourcePalette.setColor(QPalette::Window, windowColor);
+    sourcePalette.setColor(QPalette::Base, baseColor);
+    source.setPalette(sourcePalette);
+    source.setBackgroundRole(QPalette::Base);
+
+    AnQstWebHostBase host;
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    host.trackWidgetBackground(&source);
+    CHECK(view->page()->backgroundColor() == baseColor);
+
+    QImage image(2, 2, QImage::Format_ARGB32);
+    image.fill(Qt::green);
+    sourcePalette.setBrush(QPalette::Base, QBrush(QPixmap::fromImage(image)));
+    source.setPalette(sourcePalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::transparent));
+
+    source.setBackgroundRole(QPalette::Window);
+    CHECK(view->page()->backgroundColor() == windowColor);
+}
+
+TEST_CASE("tracking follows the palette group when a window activates", "[host][background]") {
+    ensureApp();
+    ScopedEnvironmentVariable bypassEnv("ANQST_BYPASS_QWEBENGINE", QByteArrayLiteral("yes"));
+    class StateWidget final : public QWidget {
+    public:
+        using QWidget::QWidget;
+        int activationChanges = 0;
+        int windowActivates = 0;
+        int windowDeactivates = 0;
+
+        bool event(QEvent* event) override {
+            if (event->type() == QEvent::ActivationChange) ++activationChanges;
+            if (event->type() == QEvent::WindowActivate) ++windowActivates;
+            if (event->type() == QEvent::WindowDeactivate) ++windowDeactivates;
+            return QWidget::event(event);
+        }
+    } first, second;
+    StateWidget child(&first);
+    QPalette firstPalette = first.palette();
+    firstPalette.setColor(QPalette::Active, QPalette::Window, Qt::red);
+    firstPalette.setColor(QPalette::Inactive, QPalette::Window, Qt::blue);
+    first.setPalette(firstPalette);
+
+    QImage image(2, 2, QImage::Format_RGB32);
+    image.fill(Qt::green);
+    QPalette childPalette = child.palette();
+    childPalette.setColor(QPalette::Active, QPalette::Window, Qt::red);
+    childPalette.setBrush(QPalette::Inactive, QPalette::Window, QBrush(QPixmap::fromImage(image)));
+    child.setPalette(childPalette);
+    first.show();
+    child.show();
+    second.show();
+
+    AnQstWebHostBase host;
+    host.trackWidgetBackground(&first);
+    first.activateWindow();
+    for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+    REQUIRE(first.palette().currentColorGroup() == QPalette::Active);
+    CHECK(host.palette().color(QPalette::Window) == QColor(Qt::red));
+
+    const int firstActivationChanges = first.activationChanges;
+    second.activateWindow();
+    for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+    REQUIRE(first.palette().currentColorGroup() == QPalette::Inactive);
+    CHECK(first.activationChanges > firstActivationChanges);
+    CHECK(host.palette().color(QPalette::Window) == QColor(Qt::blue));
+
+    host.trackWidgetBackground(&child);
+    REQUIRE(child.palette().currentColorGroup() == QPalette::Inactive);
+    CHECK(host.palette().color(QPalette::Window) == QColor(Qt::transparent));
+    const int childWindowActivates = child.windowActivates;
+    first.activateWindow();
+    for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+    REQUIRE(child.palette().currentColorGroup() == QPalette::Active);
+    CHECK(child.windowActivates > childWindowActivates);
+    CHECK(host.palette().color(QPalette::Window) == QColor(Qt::red));
+
+    const int childWindowDeactivates = child.windowDeactivates;
+    second.activateWindow();
+    for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+    REQUIRE(child.palette().currentColorGroup() == QPalette::Inactive);
+    CHECK(child.windowDeactivates > childWindowDeactivates);
+    CHECK(host.palette().color(QPalette::Window) == QColor(Qt::transparent));
+}
+
+TEST_CASE("manual color stops tracking and tracking can be reenabled", "[host][view][background]") {
+    ensureApp();
+    QWidget source;
+    QPalette sourcePalette = source.palette();
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::red));
+    source.setPalette(sourcePalette);
+    AnQstWebHostBase host;
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+
+    host.trackWidgetBackground(&source);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::red));
+    host.setBackgroundColor(QColor(Qt::red));
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::green));
+    source.setPalette(sourcePalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::red));
+
+    host.trackWidgetBackground(&source);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::green));
+    host.setBackgroundColor(QColor(Qt::blue));
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::yellow));
+    source.setPalette(sourcePalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::blue));
+
+    host.trackWidgetBackground(&source);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::yellow));
+    host.trackWidgetBackground(nullptr);
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::cyan));
+    source.setPalette(sourcePalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::yellow));
+}
+
+TEST_CASE("reparenting replaces the tracked widget and null parent stops tracking", "[host][view][background]") {
+    ensureApp();
+    QWidget first;
+    QWidget second;
+    QWidget source;
+    QPalette firstPalette = first.palette();
+    firstPalette.setColor(QPalette::Window, QColor(Qt::green));
+    first.setPalette(firstPalette);
+    QPalette secondPalette = second.palette();
+    secondPalette.setColor(QPalette::Window, QColor(Qt::blue));
+    second.setPalette(secondPalette);
+    QPalette sourcePalette = source.palette();
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::red));
+    source.setPalette(sourcePalette);
+
+    auto* host = new AnQstWebHostBase(&first);
+    auto* view = host->findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    host->trackWidgetBackground(&source);
+    host->setParent(&second);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::blue));
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::cyan));
+    source.setPalette(sourcePalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::blue));
+
+    host->setParent(nullptr);
+    secondPalette.setColor(QPalette::Window, QColor(Qt::yellow));
+    second.setPalette(secondPalette);
+    CHECK(view->page()->backgroundColor() == QColor(Qt::blue));
+    delete host;
+}
+
+TEST_CASE("destroying a tracked widget stops tracking safely", "[host][view][background]") {
+    ensureApp();
+    AnQstWebHostBase host;
+    auto* view = host.findChild<QWebEngineView*>();
+    REQUIRE(view != nullptr);
+    auto source = std::make_unique<QWidget>();
+    QPalette sourcePalette = source->palette();
+    sourcePalette.setColor(QPalette::Window, QColor(Qt::magenta));
+    source->setPalette(sourcePalette);
+    host.trackWidgetBackground(source.get());
+    source.reset();
+    CHECK(view->page()->backgroundColor() == QColor(Qt::magenta));
+    host.setBackgroundColor(QColor(Qt::cyan));
+    CHECK(view->page()->backgroundColor() == QColor(Qt::cyan));
+}
+
 TEST_CASE("startup bypass env switches host into browser qrc mode without creating webengine view", "[host][debug][env]") {
     ensureApp();
     ScopedEnvironmentVariable bypassEnv("ANQST_BYPASS_QWEBENGINE", QByteArrayLiteral("YES"));
@@ -462,6 +753,53 @@ TEST_CASE("drop targets reject legacy object MIME payloads with diagnostics", "[
     CHECK(payload.value("message").toString().contains(QStringLiteral("unknown transport tag")));
     CHECK(payload.value("context").toMap().value("mimeType").toString() == QStringLiteral("application/anqst-test-drop"));
     CHECK(payload.value("context").toMap().value("transportTag").toString() == QStringLiteral("{"));
+}
+
+TEST_CASE("tracking a parent does not intercept its drag and drop events", "[host][dragdrop][background]") {
+    ensureApp();
+    class DropParent final : public QWidget {
+    public:
+        int dragEnterCount = 0;
+        int dropCount = 0;
+
+        bool event(QEvent* event) override {
+            if (event->type() == QEvent::DragEnter) {
+                ++dragEnterCount;
+                event->accept();
+                return true;
+            }
+            if (event->type() == QEvent::Drop) {
+                ++dropCount;
+                event->accept();
+                return true;
+            }
+            return QWidget::event(event);
+        }
+    } parent;
+    parent.setAcceptDrops(true);
+
+    AnQstWebHostBase host(&parent);
+    auto* facade = host.findChild<AnQstHostBridgeFacade*>();
+    REQUIRE(facade != nullptr);
+    facade->setDispatchEnabled(true);
+    host.registerDropTarget(
+        QStringLiteral("Example"),
+        QStringLiteral("drop"),
+        QStringLiteral("application/x-anqst-parent-drop"));
+    host.trackWidgetBackground(&parent);
+    QSignalSpy dropSpy(&host, &AnQstWebHostBase::anQstBridge_dropReceived);
+
+    QMimeData mime;
+    mime.setData(QStringLiteral("application/x-anqst-parent-drop"), QByteArrayLiteral("Sparent"));
+    QDragEnterEvent enterEvent(QPoint(3, 4), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&parent, &enterEvent);
+    CHECK(parent.dragEnterCount == 1);
+    CHECK(dropSpy.count() == 0);
+
+    QDropEvent dropEvent(QPointF(3.0, 4.0), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&parent, &dropEvent);
+    CHECK(parent.dropCount == 1);
+    CHECK(dropSpy.count() == 0);
 }
 
 TEST_CASE("bridge Emitter and Input handlers are forwarded", "[host][behavior][emitter][input]") {

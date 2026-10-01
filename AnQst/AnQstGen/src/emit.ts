@@ -1679,6 +1679,7 @@ function renderCppStub(spec: ParsedSpecModel, cppTypes: CppTypeContext, cppCodec
   lines.push(`    QObject::connect(this, &${webBaseClassName}::onHostError, this, &${widgetClassName}::diagnosticsForwarded);`);
   lines.push(`    const bool rootOk = setContentRoot(QString::fromUtf8(kBootstrapContentRoot));`);
   lines.push(`    const bool bridgeOk = setBridgeObject(this, QString::fromUtf8(kBootstrapBridgeObject));`);
+  lines.push(`    trackWidgetBackground(parent);`);
   lines.push(`    const bool loadOk = rootOk && bridgeOk && loadEntryPoint(QString::fromUtf8(kBootstrapEntryPoint));`);
   lines.push(`    if (!loadOk) {`);
   lines.push(`        qWarning() << "${spec.widgetName} bootstrap failed.";`);

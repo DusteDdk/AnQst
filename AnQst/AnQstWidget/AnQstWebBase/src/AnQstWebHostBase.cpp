@@ -6,6 +6,7 @@
 #include "AngularHttpBaseServer.h"
 
 #include <QAuthenticator>
+#include <QBrush>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QContextMenuEvent>
@@ -23,6 +24,7 @@
 #include <QLabel>
 #include <QDebug>
 #include <QMimeData>
+#include <QPalette>
 #include <QPushButton>
 #include <QProcessEnvironment>
 #include <QShortcut>
@@ -105,6 +107,23 @@ static bool shouldBypassQWebEngineStartup() {
            rawValue == QStringLiteral("yes") ||
            rawValue == QStringLiteral("on") ||
            rawValue == QStringLiteral("1");
+}
+
+static QString cssColor(const QColor& color) {
+    // CSS eight-digit hex places alpha last; QColor::HexArgb places it first.
+    return QStringLiteral("#%1%2%3%4")
+        .arg(color.red(), 2, 16, QLatin1Char('0'))
+        .arg(color.green(), 2, 16, QLatin1Char('0'))
+        .arg(color.blue(), 2, 16, QLatin1Char('0'))
+        .arg(color.alpha(), 2, 16, QLatin1Char('0'));
+}
+
+static QString qtStyleColor(const QColor& color) {
+    return QStringLiteral("rgba(%1, %2, %3, %4)")
+        .arg(color.red())
+        .arg(color.green())
+        .arg(color.blue())
+        .arg(color.alpha());
 }
 
 #if ANQSTWEBBASE_USE_WEBENGINE
@@ -247,6 +266,40 @@ static void removeWebEngineScriptsByName(QWebEngineScriptCollection& scripts, co
 #endif
 }
 
+enum class BackgroundPaintMode {
+    CurrentPage,
+    NewDocument,
+    Preserve
+};
+
+static QString backgroundColorScript(const QColor& color, BackgroundPaintMode mode) {
+    // Without an app background image, a root pseudo-element avoids WebEngine's
+    // duplicate painting of translucent html/body backgrounds. An app image
+    // must stay above the color, so in that case color html directly instead.
+    // Qt may then blend translucent html color with the native page backing.
+    const QString paintCss = mode == BackgroundPaintMode::Preserve
+        ? QStringLiteral("null")
+        : (mode == BackgroundPaintMode::NewDocument ? QStringLiteral("true") : QStringLiteral("false"));
+    return QStringLiteral(
+        "(function(){"
+        "var root=document.documentElement;if(!root)return;"
+        "var style=document.getElementById('anqst-background-color');"
+        "var paintCss=%2;"
+        "if(paintCss===null)paintCss=!style||style.getAttribute('data-anqst-paint-css')!=='0';"
+        "if(!style){style=document.createElement('style');style.id='anqst-background-color';"
+        "(document.head||root).appendChild(style);}"
+        "style.setAttribute('data-anqst-paint-css',paintCss?'1':'0');"
+        "var hasImage=getComputedStyle(root).backgroundImage!=='none'||"
+        "(document.body&&getComputedStyle(document.body).backgroundImage!=='none');"
+        "style.textContent=hasImage"
+        "?'html{background-color:%1!important;}body{background-color:transparent!important;}'"
+        ":'html,body{background-color:transparent!important;}"
+        "html::before{content:\"\";position:fixed;inset:0;background-color:%1!important;"
+        "pointer-events:none;z-index:-1;opacity:'+(paintCss?'1':'0')+'!important;}';"
+        "})();"
+    ).arg(cssColor(color), paintCss);
+}
+
 class LocalOnlyWebPage final : public QWebEnginePage {
 public:
     explicit LocalOnlyWebPage(QObject* parent = nullptr)
@@ -353,6 +406,7 @@ AnQstWebHostBase::AnQstWebHostBase(QWidget* parent)
     , m_contextMenuEnabled(true)
     , m_textSelectionEnabled(false)
     , m_scrollbarsEnabled(false)
+    , m_backgroundColorSet(false)
     , m_debugState()
     , m_remoteNavigationBlocked(true)
     , m_bypassQWebEngineStartup(!ANQSTWEBBASE_USE_WEBENGINE || shouldBypassQWebEngineStartup())
@@ -483,6 +537,11 @@ bool AnQstWebHostBase::initializeWebView() {
 
     disableWebEngineSandboxForTrustedHost();
     m_view = new LocalWebView(this);
+    // The host can reinitialize after its view is destroyed.
+    connect(m_view, &QObject::destroyed, this, [this]() { m_view = nullptr; });
+    // Both installations belonged to the old page/focus proxy.
+    m_bridgeBootstrapInstalled = false;
+    m_dragDropFilterInstalled = false;
     m_view->setContextMenuEnabled(m_contextMenuEnabled);
     m_layout->insertWidget(0, m_view);
 
@@ -496,10 +555,22 @@ bool AnQstWebHostBase::initializeWebView() {
     }
     applyTextSelectionPolicy();
     applyScrollbarPolicy();
+    applyBackgroundColor();
     applyDebugBorderHint();
     installDragDropEventFilter();
 
     connect(m_view, &QWebEngineView::loadFinished, this, &AnQstWebHostBase::handleLoadFinished);
+    // Fragment navigation can replace the backing surface without loadFinished.
+    connect(m_view, &QWebEngineView::urlChanged, this,
+            [this, previousUrl = QUrl()](const QUrl& url) mutable {
+                const bool fragmentNavigation = previousUrl.isValid() &&
+                    previousUrl.adjusted(QUrl::RemoveFragment) == url.adjusted(QUrl::RemoveFragment) &&
+                    previousUrl.fragment() != url.fragment();
+                previousUrl = url;
+                if (fragmentNavigation && m_backgroundColorSet && m_view != nullptr) {
+                    m_view->page()->runJavaScript(backgroundColorScript(m_backgroundColor, BackgroundPaintMode::NewDocument));
+                }
+            });
     connect(m_view, &QWebEngineView::renderProcessTerminated, this,
             [this, page](QWebEnginePage::RenderProcessTerminationStatus terminationStatus, int exitCode) {
                 QStringList lines;
@@ -819,6 +890,9 @@ void AnQstWebHostBase::handleLoadFinished(bool ok) {
     if (m_view == nullptr || m_view->page() == nullptr) {
         return;
     }
+    if (m_backgroundColorSet) {
+        m_view->page()->runJavaScript(backgroundColorScript(m_backgroundColor, BackgroundPaintMode::Preserve));
+    }
     if (!ok) {
         QStringList lines;
         lines.append(QStringLiteral("Host failed to load entry point."));
@@ -1071,6 +1145,87 @@ void AnQstWebHostBase::setContextMenuEnabled(bool enabled) {
     if (m_view != nullptr) {
         m_view->setContextMenuEnabled(enabled);
     }
+#endif
+}
+
+void AnQstWebHostBase::setBackgroundColor(const QColor& color) {
+    if (m_trackedBackgroundWidget) {
+        m_trackedBackgroundWidget->removeEventFilter(this);
+        m_trackedBackgroundWidget.clear();
+    }
+    if (!color.isValid()) {
+        return;
+    }
+    if (m_backgroundColorSet && m_backgroundColor == color) {
+        return;
+    }
+    m_backgroundColor = color;
+    m_backgroundColorSet = true;
+
+    QPalette hostPalette = palette();
+    hostPalette.setColor(QPalette::Window, color);
+    setPalette(hostPalette);
+    // The HTML canvas supplies the visible color in embedded mode. Filling
+    // this widget as well would blend translucent colors a second time.
+    setAutoFillBackground(color.alpha() == 255);
+    setAttribute(Qt::WA_TranslucentBackground, color.alpha() < 255);
+
+    m_devPlaceholder->setStyleSheet(
+        QStringLiteral("background-color: %1; color: #ffffff; font-weight: 600; padding: 12px;")
+            .arg(qtStyleColor(color)));
+    applyBackgroundColor();
+}
+
+void AnQstWebHostBase::trackWidgetBackground(QWidget* widget) {
+    if (widget == nullptr) {
+        if (m_trackedBackgroundWidget) {
+            m_trackedBackgroundWidget->removeEventFilter(this);
+            m_trackedBackgroundWidget.clear();
+        }
+        return;
+    }
+
+    const QPalette widgetPalette = widget->palette();
+    const auto role = widget->backgroundRole() == QPalette::NoRole
+        ? QPalette::Window : widget->backgroundRole();
+    const QBrush brush = widgetPalette.brush(role);
+    const bool hasTexture = brush.style() == Qt::TexturePattern &&
+        (!brush.textureImage().isNull() || !brush.texture().isNull());
+    const QColor color = hasTexture ? QColor(Qt::transparent) : brush.color();
+    setBackgroundColor(color.isValid() ? color : widgetPalette.color(QPalette::Window));
+    m_trackedBackgroundWidget = widget;
+    widget->installEventFilter(this);
+}
+
+void AnQstWebHostBase::applyBackgroundColor() {
+#if ANQSTWEBBASE_USE_WEBENGINE
+    if (!m_backgroundColorSet || m_view == nullptr || m_view->page() == nullptr) {
+        return;
+    }
+
+    QPalette viewPalette = m_view->palette();
+    const QColor viewBacking = m_backgroundColor.alpha() == 255
+        ? m_backgroundColor : QColor(Qt::transparent);
+    viewPalette.setColor(QPalette::Window, viewBacking);
+    viewPalette.setColor(QPalette::Base, viewBacking);
+    m_view->setPalette(viewPalette);
+    m_view->setAutoFillBackground(false);
+    m_view->setAttribute(Qt::WA_TranslucentBackground, m_backgroundColor.alpha() < 255);
+
+    auto* page = m_view->page();
+    page->setBackgroundColor(m_backgroundColor);
+    auto& scripts = page->scripts();
+    static const QString kScriptName = QStringLiteral("AnQstBackgroundColor");
+    removeWebEngineScriptsByName(scripts, kScriptName);
+    const QString source = backgroundColorScript(m_backgroundColor, BackgroundPaintMode::NewDocument);
+    QWebEngineScript script;
+    script.setName(kScriptName);
+    script.setInjectionPoint(QWebEngineScript::DocumentReady);
+    script.setWorldId(QWebEngineScript::MainWorld);
+    script.setRunsOnSubFrames(false);
+    script.setSourceCode(source);
+    scripts.insert(script);
+    page->runJavaScript(backgroundColorScript(m_backgroundColor, BackgroundPaintMode::CurrentPage));
 #endif
 }
 
@@ -1956,6 +2111,23 @@ void AnQstWebHostBase::dispatchHoverThrottle() {
 }
 
 bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == m_trackedBackgroundWidget) {
+        if (event->type() == QEvent::PaletteChange ||
+            event->type() == QEvent::StyleChange ||
+            event->type() == QEvent::EnabledChange ||
+            event->type() == QEvent::ActivationChange ||
+            event->type() == QEvent::WindowActivate ||
+            event->type() == QEvent::WindowDeactivate) {
+            trackWidgetBackground(m_trackedBackgroundWidget);
+        }
+#if ANQSTWEBBASE_USE_WEBENGINE
+        if (m_view == nullptr || obj != m_view->focusProxy()) {
+            return QWidget::eventFilter(obj, event);
+        }
+#else
+        return QWidget::eventFilter(obj, event);
+#endif
+    }
     if (m_dropTargets.isEmpty() && m_hoverTargets.isEmpty()) {
         return QWidget::eventFilter(obj, event);
     }
@@ -2055,6 +2227,14 @@ bool AnQstWebHostBase::eventFilter(QObject* obj, QEvent* event) {
     }
 
     return QWidget::eventFilter(obj, event);
+}
+
+bool AnQstWebHostBase::event(QEvent* event) {
+    const bool handled = QWidget::event(event);
+    if (event->type() == QEvent::ParentChange && m_trackedBackgroundWidget) {
+        trackWidgetBackground(parentWidget());
+    }
+    return handled;
 }
 
 } // namespace ANQST_WEBBASE_NAMESPACE

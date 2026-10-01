@@ -24,6 +24,14 @@ This directory is a future-facing documentation area for designing a reusable Qt
 - `ANQSTWEBBASE_USE_WEBENGINE=OFF` at CMake configure time removes the Qt WebEngine dependency entirely. In this mode the widget starts directly in browser-host mode and cannot reattach to an embedded application view.
 - Development browser reconnects depend on the bridge replay invariant: WebSocket disconnect disables dispatch, the next handshake re-enables dispatch, and that rising edge snapshots stored `Output` values to the new client. Do not remove the `setDispatchEnabled(false)` / `setDispatchEnabled(true)` lifecycle without replacing the replay behavior.
 
+## Background color
+
+Generated widgets inherit `setBackgroundColor(const QColor&)` from `AnQstWebHostBase`. It colors the embedded page backing, the HTML document, and the browser-host placeholder. It preserves app `html` and `body` background images. An external browser page remains outside the widget's control.
+
+Generated constructors call `trackWidgetBackground(parent)` before their first navigation. It follows the parent's palette background role, using transparent only for a detectable palette texture; null parents leave the default background unchanged. Palette and style changes update the color. Reparenting switches tracking to the new parent, while `setBackgroundColor()` stops tracking so an explicit color stays in effect. Custom painting and stylesheet background images cannot be identified reliably from a widget's palette.
+
+Qt WebEngine can blend a translucent HTML root color with its native page backing. Without an app background image, the host uses the native backing for a live color change and a single root CSS paint layer for new documents. With an app `html` or `body` background image, it colors `html` underneath the image instead. On Qt 6.5.3, the native backing can then compound translucent colors; even a first live translucent change without an image can render inaccurately. Exact alpha therefore depends on the WebEngine compositor. Without a parent, the generated widget starts navigation before its caller can set a color, so the first load may use the default background.
+
 ## Documentation structure
 
 - `PHASE-1-Host-Base.md`  

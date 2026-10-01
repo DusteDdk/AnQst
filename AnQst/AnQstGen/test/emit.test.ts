@@ -113,6 +113,9 @@ test("generateOutputs returns required tree", () => {
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /bool\* ok = nullptr/);
   assert.doesNotMatch(outputs["backend/cpp/qt/CdWidget_widget/include/CdWidgetWidget.h"], /QString\* error = nullptr/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /decodeAnQstStructured_CdDraft\(args\.value\(0\)\)/);
+  const widgetSource = outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"];
+  assert.ok(widgetSource.indexOf("trackWidgetBackground(parent);") > widgetSource.indexOf("const bool bridgeOk ="));
+  assert.ok(widgetSource.indexOf("loadEntryPoint(") > widgetSource.indexOf("trackWidgetBackground(parent);"));
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodeAnQstStructured_boolean\(result\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /typedValue = decodeAnQstStructured_CdDraft\(value\)/);
   assert.match(outputs["backend/cpp/qt/CdWidget_widget/CdWidget.cpp"], /encodedValue = encodeAnQstStructured_boolean\(value\);/);
